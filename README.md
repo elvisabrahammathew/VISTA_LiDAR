@@ -1,28 +1,22 @@
-# VISTA_LiDAR
-Monash VISTA LiDAR Team Repo 
-
-# Monash Campus Digital Twin
+# Monash VISTA LiDAR Team Repo 
 
 A LiDAR-powered smart infrastructure platform developed as part of the Monash VISTA program.
 
-## Objective
+## Project Overview
 
-Build a real-time digital twin of a section of the Monash University campus using LiDAR perception.
+This project is being developed as part of the Monash VISTA Program.
 
-## Features
+The objective is to build a scalable perception system capable of understanding how people interact with physical spaces using LiDAR sensors.
 
-- Live LiDAR streaming
-- Point cloud processing
-- Person detection
-- Multi-object tracking
-- Spatial analytics
-- Digital Twin dashboard
+The system converts raw point cloud data into meaningful operational insights including:
 
-## Tech Stack
+Real-time pedestrian detection
+Multi-object tracking
+Occupancy estimation
+Crowd density analysis
+Pedestrian flow visualisation
+Congestion detection
+Historical analytics
+Digital twin visualisation
 
-- Python
-- Open3D
-- NumPy
-- ROS 2 (future)
-- FastAPI
-- React
+Rather than simply counting people, the platform aims to provide spatial intelligence that can support smarter campus operations, research, and future smart-city applications.
