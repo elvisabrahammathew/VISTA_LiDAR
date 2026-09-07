@@ -8,7 +8,7 @@ This project is being developed as part of the Monash VISTA Program.
 
 The objective is to build a scalable perception system capable of understanding how people interact with physical spaces using LiDAR sensors.
 
-The system converts raw point cloud data into meaningful operational insights including:
+The system converts raw point cloud data into meaningful operational insights including but not limited to:
 
 Real-time pedestrian detection
 Multi-object tracking
