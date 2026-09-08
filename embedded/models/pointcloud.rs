@@ -1,3 +1,6 @@
+//! Sensor-neutral point-cloud data structures.
+
+// XYZ coordinates are meters; timestamp_ns is the source packet timestamp.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PointXYZIRT {
     pub x: f32,
@@ -9,6 +12,7 @@ pub struct PointXYZIRT {
     pub timestamp_ns: u64,
 }
 
+// Groups all valid points decoded from one sensor packet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PointCloudFrame {
     pub timestamp_ns: u64,

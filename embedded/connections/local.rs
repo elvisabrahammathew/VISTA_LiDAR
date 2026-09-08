@@ -1,3 +1,5 @@
+//! Buffered local-file writers for raw packets and PCD point clouds.
+
 use std::{
     ffi::OsString,
     fs::{self, File},
@@ -29,6 +31,7 @@ impl RawCaptureWriter {
     }
 
     pub fn write_packet(&mut self, packet: &RawPacket) -> io::Result<()> {
+        // Preserve the exact bytes received from the sensor.
         self.writer.write_all(packet.as_bytes())
     }
 
@@ -46,6 +49,8 @@ pub struct PcdWriter {
 
 impl PcdWriter {
     pub fn create(output_path: &Path) -> io::Result<Self> {
+        // Point data is written to a temporary file because the PCD header needs
+        // the final point count, which is unknown when capture starts.
         create_parent_directory(output_path)?;
         let mut temporary_name = OsString::from(output_path.as_os_str());
         temporary_name.push(".points.tmp");
@@ -83,6 +88,7 @@ impl PcdWriter {
         self.data.flush()?;
         drop(self.data);
 
+        // Write the final header first, then append all temporary point rows.
         let mut output = BufWriter::new(File::create(&self.output_path)?);
         writeln!(output, "# .PCD v0.7 - Point Cloud Data file format")?;
         writeln!(output, "VERSION 0.7")?;

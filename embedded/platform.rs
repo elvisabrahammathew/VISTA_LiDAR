@@ -1,3 +1,6 @@
+//! Selects the platform implementation at compile time.
+
+// Only the matching module is compiled for the current target OS.
 #[cfg(target_os = "linux")]
 #[path = "platform/linux.rs"]
 mod current;

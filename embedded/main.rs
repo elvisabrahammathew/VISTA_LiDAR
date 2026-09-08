@@ -1,3 +1,5 @@
+//! Command-line entry point for a Quanergy M8 capture session.
+
 use std::{
     env,
     net::{IpAddr, SocketAddr},
@@ -8,6 +10,7 @@ use std::{
 
 use vista_lidar::{application::pipeline, platform};
 
+// Defaults from the M8 manual and this repository's data layout.
 const DEFAULT_SENSOR_IP: &str = "192.168.1.3";
 const DEFAULT_PORT: u16 = 4141;
 const DEFAULT_DURATION_SECONDS: u64 = 10;
@@ -23,6 +26,7 @@ fn usage() {
 }
 
 fn run() -> Result<(), String> {
+    // Positional arguments are optional; omitted values use the defaults above.
     let mut args = env::args().skip(1);
     let sensor_ip = args.next().unwrap_or_else(|| DEFAULT_SENSOR_IP.to_owned());
 
@@ -62,6 +66,7 @@ fn run() -> Result<(), String> {
     println!("Raw output: {}", raw_path.display());
     println!("Point-cloud output: {}", pcd_path.display());
 
+    // The pipeline reads, records, decodes, and writes data for the requested duration.
     let stats = pipeline::capture_quanergy_m8(
         address,
         Duration::from_secs(duration_seconds),

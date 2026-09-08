@@ -1,3 +1,5 @@
+//! Decodes Quanergy M8 packets and converts polar measurements to XYZ points.
+
 use std::{
     f64::consts::TAU,
     io::{self, ErrorKind},
@@ -14,6 +16,7 @@ use crate::{
     models::pointcloud::{PointCloudFrame, PointXYZIRT},
 };
 
+// Packet dimensions and measurement units defined by the M8 manual.
 const FIRINGS_PER_PACKET: usize = 50;
 const LASER_COUNT: usize = 8;
 const RETURN_COUNT: usize = 3;
@@ -22,6 +25,7 @@ const REDUCED_RETURN_FIRING_SIZE: usize = 44;
 const POSITION_STEPS_PER_ROTATION: f64 = 10_400.0;
 const DISTANCE_UNIT_METERS: f64 = 0.000_01;
 
+// Vertical beam angles ordered from the lowest to the highest laser.
 const VERTICAL_ANGLES: [f64; LASER_COUNT] = [
     -0.318_505,
     -0.269_2,
@@ -56,6 +60,7 @@ fn read_u32_be(bytes: &[u8], offset: usize) -> io::Result<u32> {
 }
 
 fn timestamp_ns(bytes: &[u8]) -> io::Result<u64> {
+    // The packet header stores seconds and nanoseconds as Big Endian values.
     let seconds = u64::from(read_u32_be(bytes, 8)?);
     let nanoseconds = u64::from(read_u32_be(bytes, 12)?);
     if nanoseconds >= 1_000_000_000 {
@@ -79,6 +84,7 @@ fn push_point(
         return;
     }
 
+    // Convert the M8 rotation step and beam angle from polar to Cartesian space.
     let azimuth = f64::from(position) * TAU / POSITION_STEPS_PER_ROTATION;
     let vertical = VERTICAL_ANGLES[laser];
     let distance = f64::from(distance_raw) * DISTANCE_UNIT_METERS;
@@ -120,6 +126,7 @@ fn decode_all_returns(bytes: &[u8], packet_timestamp_ns: u64) -> io::Result<Poin
         return Err(invalid_data("incorrect all-returns packet size"));
     }
 
+    // Status follows 50 firing blocks and the trailing timestamp/API fields.
     let status_offset = PACKET_HEADER_SIZE + FIRINGS_PER_PACKET * ALL_RETURNS_FIRING_SIZE + 10;
     let status = read_u16_be(bytes, status_offset)?;
     if status != 0 {
@@ -171,6 +178,7 @@ fn decode_reduced_return(bytes: &[u8], packet_timestamp_ns: u64) -> io::Result<P
         return Err(invalid_data(format!("invalid return ID: {return_id}")));
     }
 
+    // Reduced packets contain one selected return for every laser.
     let firing_data_offset = PACKET_HEADER_SIZE + 4;
     let mut points = Vec::with_capacity(FIRINGS_PER_PACKET * LASER_COUNT);
     for firing in 0..FIRINGS_PER_PACKET {

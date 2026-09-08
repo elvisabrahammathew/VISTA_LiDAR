@@ -1,5 +1,8 @@
+//! Common types and behaviour shared by LiDAR drivers.
+
 use std::io;
 
+// Owns one complete packet exactly as it arrived from a sensor.
 #[derive(Debug, Clone)]
 pub struct RawPacket {
     bytes: Vec<u8>,
@@ -23,6 +26,7 @@ impl RawPacket {
     }
 }
 
+// New LiDAR drivers implement this trait to plug into the capture pipeline.
 pub trait LidarDevice {
     fn read_raw_packet(&mut self) -> io::Result<RawPacket>;
 }

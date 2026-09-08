@@ -1,3 +1,5 @@
+//! Coordinates one timed capture from sensor input to both output files.
+
 use std::{
     io,
     net::SocketAddr,
@@ -33,15 +35,18 @@ pub fn capture_quanergy_m8(
     let mut point_count = 0_u64;
 
     while started.elapsed() < duration {
+        // Keep the original packet before performing any conversion.
         let packet = sensor.read_raw_packet()?;
         raw_writer.write_packet(&packet)?;
 
+        // Decode the same packet and stream its points to the PCD writer.
         let frame = decode_quanergy_m8(&packet)?;
         point_count += frame.points.len() as u64;
         pcd_writer.write_frame(&frame)?;
         packet_count += 1;
     }
 
+    // Finalizing the PCD writer adds its header with the final point count.
     raw_writer.finish()?;
     let written_point_count = pcd_writer.finish()?;
     debug_assert_eq!(written_point_count, point_count);

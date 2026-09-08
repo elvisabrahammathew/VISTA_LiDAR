@@ -1,3 +1,5 @@
+//! TCP driver and packet framing for the Quanergy M8 LiDAR.
+
 use std::{
     io::{self, ErrorKind, Read},
     net::{SocketAddr, TcpStream},
@@ -9,6 +11,7 @@ use crate::{
     platform,
 };
 
+// Packet constants from the Quanergy M8 network protocol.
 pub const DEFAULT_PORT: u16 = 4141;
 pub const PACKET_SIGNATURE: u32 = 0x75bd_7e97;
 pub const PACKET_HEADER_SIZE: usize = 20;
@@ -29,6 +32,7 @@ impl QuanergyM8 {
     }
 
     fn validate_header(header: &[u8; PACKET_HEADER_SIZE]) -> io::Result<usize> {
+        // M8 multi-byte fields use network byte order (Big Endian).
         let signature = u32::from_be_bytes(header[0..4].try_into().expect("fixed slice"));
         if signature != PACKET_SIGNATURE {
             return Err(io::Error::new(
@@ -67,10 +71,12 @@ impl QuanergyM8 {
 
 impl LidarDevice for QuanergyM8 {
     fn read_raw_packet(&mut self) -> io::Result<RawPacket> {
+        // TCP is a byte stream, so first read the fixed header to learn packet size.
         let mut header = [0_u8; PACKET_HEADER_SIZE];
         self.stream.read_exact(&mut header)?;
         let message_size = Self::validate_header(&header)?;
 
+        // read_exact collects the rest even when TCP splits it across frames.
         let mut bytes = vec![0_u8; message_size];
         bytes[..PACKET_HEADER_SIZE].copy_from_slice(&header);
         self.stream.read_exact(&mut bytes[PACKET_HEADER_SIZE..])?;
