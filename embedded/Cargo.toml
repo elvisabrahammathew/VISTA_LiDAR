@@ -1,0 +1,20 @@
+[package]
+name = "vista-lidar"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Cross-platform Quanergy M8 raw capture and point-cloud conversion"
+license = "MIT"
+
+[lib]
+name = "vista_lidar"
+path = "lib.rs"
+
+[[bin]]
+name = "quanergy-m8-capture"
+path = "main.rs"
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
