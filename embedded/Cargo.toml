@@ -3,7 +3,7 @@ name = "vista-lidar"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
-description = "Cross-platform Quanergy M8 raw capture and point-cloud conversion"
+description = "Cross-platform LiDAR capture, decoding, and point-cloud preprocessing"
 license = "MIT"
 
 [lib]

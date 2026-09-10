@@ -1,18 +1,18 @@
-//! Coordinates one timed capture from sensor input to both output files.
+//! Coordinates one timed capture from a generic LiDAR to both output files.
 
 use std::{
     io,
-    net::SocketAddr,
     path::Path,
     time::{Duration, Instant},
 };
 
 use crate::{
-    application::pointcloud_processing::decode_quanergy_m8,
+    application::pointcloud_processing::{preprocess_point_cloud, PreprocessingConfig},
     connection::local::{PcdWriter, RawCaptureWriter},
-    devices::{lidar::LidarDevice, lidar_quanergym8::QuanergyM8},
+    devices::lidar::Lidar,
 };
 
+/// Summarizes the amount of data produced by one capture session.
 #[derive(Debug, Clone, Copy)]
 pub struct CaptureStats {
     pub packet_count: u64,
@@ -20,36 +20,49 @@ pub struct CaptureStats {
     pub elapsed: Duration,
 }
 
-pub fn capture_quanergy_m8(
-    address: SocketAddr,
+/// Captures, records, decodes, preprocesses, and writes data for a fixed duration.
+pub fn capture_lidar(
+    lidar: &mut Lidar,
     duration: Duration,
-    raw_path: &Path,
-    pointcloud_path: &Path,
+    raw_path: Option<&Path>,
+    pointcloud_path: Option<&Path>,
+    preprocessing: &PreprocessingConfig,
 ) -> io::Result<CaptureStats> {
-    let mut sensor = QuanergyM8::connect(address)?;
-    let mut raw_writer = RawCaptureWriter::create(raw_path)?;
-    let mut pcd_writer = PcdWriter::create(pointcloud_path)?;
+    // Writers are created only for output paths explicitly enabled by main.
+    let mut raw_writer = raw_path.map(RawCaptureWriter::create).transpose()?;
+    let mut pcd_writer = pointcloud_path.map(PcdWriter::create).transpose()?;
 
     let started = Instant::now();
     let mut packet_count = 0_u64;
     let mut point_count = 0_u64;
 
     while started.elapsed() < duration {
-        // Keep the original packet before performing any conversion.
-        let packet = sensor.read_raw_packet()?;
-        raw_writer.write_packet(&packet)?;
+        // Preserve every packet before any device-specific decoding or filtering.
+        let packet = lidar.read_raw_packet()?;
+        if let Some(writer) = raw_writer.as_mut() {
+            writer.write_packet(&packet)?;
+        }
 
-        // Decode the same packet and stream its points to the PCD writer.
-        let frame = decode_quanergy_m8(&packet)?;
-        point_count += frame.points.len() as u64;
-        pcd_writer.write_frame(&frame)?;
+        // The selected driver performs device-specific decoding behind the common interface.
+        let decoded_frame = lidar.decode_packet(&packet)?;
+
+        // Application processing only sees the sensor-neutral PointCloudFrame.
+        let processed_frame = preprocess_point_cloud(decoded_frame, preprocessing)?;
+        point_count += processed_frame.points.len() as u64;
+        if let Some(writer) = pcd_writer.as_mut() {
+            writer.write_frame(&processed_frame)?;
+        }
         packet_count += 1;
     }
 
-    // Finalizing the PCD writer adds its header with the final point count.
-    raw_writer.finish()?;
-    let written_point_count = pcd_writer.finish()?;
-    debug_assert_eq!(written_point_count, point_count);
+    // Flush and finalize only the outputs that were enabled.
+    if let Some(writer) = raw_writer {
+        writer.finish()?;
+    }
+    if let Some(writer) = pcd_writer {
+        let written_point_count = writer.finish()?;
+        debug_assert_eq!(written_point_count, point_count);
+    }
 
     Ok(CaptureStats {
         packet_count,
