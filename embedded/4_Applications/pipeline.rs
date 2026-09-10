@@ -8,8 +8,8 @@ use std::{
 
 use crate::{
     application::pointcloud_processing::{preprocess_point_cloud, PreprocessingConfig},
-    connection::local::{PcdWriter, RawCaptureWriter},
     devices::lidar::Lidar,
+    transport::local::{PcdWriter, RawCaptureWriter},
 };
 
 /// Summarizes the amount of data produced by one capture session.
