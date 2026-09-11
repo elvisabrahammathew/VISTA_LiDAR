@@ -5,10 +5,12 @@ use std::{
     io::{self, ErrorKind},
     net::{IpAddr, SocketAddr},
     str::FromStr,
+    time::Duration,
 };
 
 use crate::{
     devices::lidar_quanergym8::{QuanergyM8, DEFAULT_PORT as QUANERGY_M8_DEFAULT_PORT},
+    devices::lidar_realsense::RealSenseL515,
     models::pointcloud::PointCloudFrame,
 };
 
@@ -16,6 +18,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LidarType {
     QuanergyM8,
+    RealSenseL515,
     Unitree4d,
 }
 
@@ -24,6 +27,7 @@ impl fmt::Display for LidarType {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::QuanergyM8 => formatter.write_str("quanergy-m8"),
+            Self::RealSenseL515 => formatter.write_str("realsense-l515"),
             Self::Unitree4d => formatter.write_str("unitree-4d"),
         }
     }
@@ -36,10 +40,33 @@ impl FromStr for LidarType {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.to_ascii_lowercase().as_str() {
             "quanergy-m8" | "quanergy" | "m8" => Ok(Self::QuanergyM8),
+            "realsense-l515" | "realsense" | "l515" => Ok(Self::RealSenseL515),
             "unitree-4d" | "unitree4d" | "unitree" => Ok(Self::Unitree4d),
             _ => Err(format!(
-                "unsupported LiDAR type '{value}'; supported values: quanergy-m8, unitree-4d"
+                "unsupported LiDAR type '{value}'; supported values: \
+                 quanergy-m8, realsense-l515, unitree-4d"
             )),
+        }
+    }
+}
+
+/// Selects the depth stream requested from a depth-camera LiDAR.
+#[derive(Debug, Clone, Copy)]
+pub struct DepthStreamConfig {
+    pub width: u32,
+    pub height: u32,
+    pub frames_per_second: u32,
+    pub frame_timeout: Duration,
+}
+
+impl DepthStreamConfig {
+    /// Creates and validates a depth stream configuration at driver startup.
+    pub fn new(width: u32, height: u32, frames_per_second: u32, frame_timeout: Duration) -> Self {
+        Self {
+            width,
+            height,
+            frames_per_second,
+            frame_timeout,
         }
     }
 }
@@ -50,6 +77,7 @@ pub struct LidarConfig {
     pub lidar_type: LidarType,
     pub sensor_ip: IpAddr,
     pub port: Option<u16>,
+    pub depth_stream: Option<DepthStreamConfig>,
 }
 
 impl LidarConfig {
@@ -59,6 +87,7 @@ impl LidarConfig {
             lidar_type,
             sensor_ip,
             port: None,
+            depth_stream: None,
         }
     }
 
@@ -67,18 +96,34 @@ impl LidarConfig {
         self.port = Some(port);
         self
     }
+
+    /// Supplies the depth stream requested from a RealSense LiDAR.
+    pub fn with_depth_stream(mut self, depth_stream: DepthStreamConfig) -> Self {
+        self.depth_stream = Some(depth_stream);
+        self
+    }
 }
 
 /// Owns one complete packet exactly as it arrived from a sensor.
 #[derive(Debug, Clone)]
 pub struct RawPacket {
     bytes: Vec<u8>,
+    timestamp_ns: Option<u64>,
 }
 
 impl RawPacket {
     /// Wraps a complete sensor packet without changing its bytes.
     pub fn new(bytes: Vec<u8>) -> Self {
-        Self { bytes }
+        Self {
+            bytes,
+            timestamp_ns: None,
+        }
+    }
+
+    /// Adds a source timestamp when it is not encoded inside the raw bytes.
+    pub fn with_timestamp_ns(mut self, timestamp_ns: u64) -> Self {
+        self.timestamp_ns = Some(timestamp_ns);
+        self
     }
 
     /// Borrows the original packet bytes for decoding or file output.
@@ -94,6 +139,11 @@ impl RawPacket {
     /// Reports whether the packet contains no bytes.
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
+    }
+
+    /// Returns an out-of-band source timestamp when the driver supplied one.
+    pub fn timestamp_ns(&self) -> Option<u64> {
+        self.timestamp_ns
     }
 }
 
@@ -122,6 +172,15 @@ impl Lidar {
                 let port = config.port.unwrap_or(QUANERGY_M8_DEFAULT_PORT);
                 let address = SocketAddr::new(config.sensor_ip, port);
                 Box::new(QuanergyM8::connect(address)?)
+            }
+            LidarType::RealSenseL515 => {
+                let depth_stream = config.depth_stream.ok_or_else(|| {
+                    io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "a depth stream configuration is required for RealSense L515",
+                    )
+                })?;
+                Box::new(RealSenseL515::connect(depth_stream)?)
             }
             LidarType::Unitree4d => {
                 return Err(io::Error::new(

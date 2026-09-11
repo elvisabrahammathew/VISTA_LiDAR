@@ -13,7 +13,7 @@ use vista_lidar::{
         pipeline,
         pointcloud_processing::{GroundRemovalConfig, PreprocessingConfig},
     },
-    devices::lidar::{Lidar, LidarConfig, LidarType},
+    devices::lidar::{DepthStreamConfig, Lidar, LidarConfig, LidarType},
     platform,
 };
 
@@ -23,6 +23,10 @@ const DEFAULT_SENSOR_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 3));
 // None asks the selected driver to use its own default port.
 const DEFAULT_TCP_PORT: Option<u16> = None;
 const DEFAULT_DURATION_SECONDS: u64 = 10;
+const DEFAULT_DEPTH_WIDTH: u32 = 640;
+const DEFAULT_DEPTH_HEIGHT: u32 = 480;
+const DEFAULT_DEPTH_FPS: u32 = 30;
+const DEFAULT_FRAME_TIMEOUT_MILLISECONDS: u64 = 5_000;
 // None disables the corresponding local output file.
 const DEFAULT_RAW_PATH: Option<&str> = None;
 const DEFAULT_PCD_PATH: Option<&str> = None;
@@ -41,6 +45,9 @@ struct AppConfig {
     sensor_ip: IpAddr,
     tcp_port: Option<u16>,
     duration_seconds: u64,
+    depth_width: u32,
+    depth_height: u32,
+    depth_fps: u32,
     raw_path: Option<PathBuf>,
     pcd_path: Option<PathBuf>,
 }
@@ -53,6 +60,9 @@ impl Default for AppConfig {
             sensor_ip: DEFAULT_SENSOR_IP,
             tcp_port: DEFAULT_TCP_PORT,
             duration_seconds: DEFAULT_DURATION_SECONDS,
+            depth_width: DEFAULT_DEPTH_WIDTH,
+            depth_height: DEFAULT_DEPTH_HEIGHT,
+            depth_fps: DEFAULT_DEPTH_FPS,
             raw_path: DEFAULT_RAW_PATH.map(PathBuf::from),
             pcd_path: DEFAULT_PCD_PATH.map(PathBuf::from),
         }
@@ -67,10 +77,13 @@ fn usage() {
          cargo run\n\
          cargo run -- [lidar-type] [sensor-ip] [tcp-port] [duration-seconds] [*.bin] [*.pcd]\n\
          cargo run -- [--lidar TYPE] [--ip IP] [--port PORT] [--duration SECONDS] \
+         [--width PIXELS] [--height PIXELS] [--fps RATE] \
          [--raw FILE.bin] [--pcd FILE.pcd]\n\
          \n\
          Defaults: lidar={DEFAULT_LIDAR_TYPE}, ip={DEFAULT_SENSOR_IP}, \
-         port=<driver default>, duration={DEFAULT_DURATION_SECONDS}, raw=<disabled>, pcd=<disabled>"
+         port=<driver default>, duration={DEFAULT_DURATION_SECONDS}, \
+         L515={DEFAULT_DEPTH_WIDTH}x{DEFAULT_DEPTH_HEIGHT}@{DEFAULT_DEPTH_FPS}, \
+         raw=<disabled>, pcd=<disabled>"
     );
 }
 
@@ -94,6 +107,17 @@ fn parse_duration(value: &str) -> Result<u64, String> {
         return Err("duration must be greater than zero".to_owned());
     }
     Ok(duration)
+}
+
+/// Parses and validates a positive RealSense stream dimension or frame rate.
+fn parse_positive_u32(value: &str, label: &str) -> Result<u32, String> {
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|error| format!("invalid {label} '{value}': {error}"))?;
+    if parsed == 0 {
+        return Err(format!("{label} must be greater than zero"));
+    }
+    Ok(parsed)
 }
 
 /// Verifies a file extension before enabling an output path.
@@ -190,6 +214,9 @@ fn parse_named(args: &[String]) -> Result<AppConfig, String> {
             }
             "--port" => config.tcp_port = Some(parse_port(value)?),
             "--duration" => config.duration_seconds = parse_duration(value)?,
+            "--width" => config.depth_width = parse_positive_u32(value, "depth width")?,
+            "--height" => config.depth_height = parse_positive_u32(value, "depth height")?,
+            "--fps" => config.depth_fps = parse_positive_u32(value, "depth frame rate")?,
             "--raw" => config.raw_path = Some(output_path(value, "bin")?),
             "--pcd" => config.pcd_path = Some(output_path(value, "pcd")?),
             _ => return Err(format!("unknown option '{option}'; use --help for syntax")),
@@ -239,17 +266,31 @@ fn run() -> Result<(), String> {
     if let Some(port) = config.tcp_port {
         lidar_config = lidar_config.with_port(port);
     }
+    if config.lidar_type == LidarType::RealSenseL515 {
+        lidar_config = lidar_config.with_depth_stream(DepthStreamConfig::new(
+            config.depth_width,
+            config.depth_height,
+            config.depth_fps,
+            Duration::from_millis(DEFAULT_FRAME_TIMEOUT_MILLISECONDS),
+        ));
+    }
 
     println!("Platform: {}", platform::PLATFORM_NAME);
-    match config.tcp_port {
-        Some(port) => println!(
-            "LiDAR configuration: {} at {}:{}",
-            config.lidar_type, config.sensor_ip, port
+    match config.lidar_type {
+        LidarType::RealSenseL515 => println!(
+            "LiDAR configuration: {} over USB, depth={}x{}@{} FPS",
+            config.lidar_type, config.depth_width, config.depth_height, config.depth_fps
         ),
-        None => println!(
-            "LiDAR configuration: {} at {}, using driver default port",
-            config.lidar_type, config.sensor_ip
-        ),
+        _ => match config.tcp_port {
+            Some(port) => println!(
+                "LiDAR configuration: {} at {}:{}",
+                config.lidar_type, config.sensor_ip, port
+            ),
+            None => println!(
+                "LiDAR configuration: {} at {}, using driver default port",
+                config.lidar_type, config.sensor_ip
+            ),
+        },
     }
     println!(
         "Raw output: {}",

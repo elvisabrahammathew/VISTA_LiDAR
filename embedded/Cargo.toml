@@ -17,4 +17,5 @@ path = "main.rs"
 [dependencies]
 
 [lints.rust]
-unsafe_code = "forbid"
+# Native SDK calls are isolated and explicitly allowed only in the RealSense driver.
+unsafe_code = "deny"

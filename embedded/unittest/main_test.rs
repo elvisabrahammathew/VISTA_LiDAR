@@ -10,6 +10,31 @@ fn empty_command_uses_defaults_without_outputs() {
     assert_eq!(config.sensor_ip, DEFAULT_SENSOR_IP);
     assert_eq!(config.tcp_port, None);
     assert_eq!(config.duration_seconds, 10);
+    assert_eq!(config.depth_width, DEFAULT_DEPTH_WIDTH);
+    assert_eq!(config.depth_height, DEFAULT_DEPTH_HEIGHT);
+    assert_eq!(config.depth_fps, DEFAULT_DEPTH_FPS);
+    assert!(config.raw_path.is_none());
+    assert!(config.pcd_path.is_none());
+}
+
+/// Confirms that an L515 command accepts depth resolution and frame-rate overrides.
+#[test]
+fn named_realsense_options_configure_depth_stream() {
+    let args = vec![
+        "--lidar".to_owned(),
+        "l515".to_owned(),
+        "--width".to_owned(),
+        "1024".to_owned(),
+        "--height".to_owned(),
+        "768".to_owned(),
+        "--fps".to_owned(),
+        "30".to_owned(),
+    ];
+    let config = parse_arguments(&args).unwrap();
+    assert_eq!(config.lidar_type, LidarType::RealSenseL515);
+    assert_eq!(config.depth_width, 1024);
+    assert_eq!(config.depth_height, 768);
+    assert_eq!(config.depth_fps, 30);
     assert!(config.raw_path.is_none());
     assert!(config.pcd_path.is_none());
 }
