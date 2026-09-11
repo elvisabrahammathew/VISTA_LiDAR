@@ -1,7 +1,7 @@
 //! Command-line entry point for a configurable LiDAR capture session.
 
 use std::{
-    env,
+    env, fs,
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
     process::ExitCode,
@@ -18,7 +18,7 @@ use vista_lidar::{
 };
 
 // Default capture values are kept together in main.rs.
-const DEFAULT_LIDAR_TYPE: LidarType = LidarType::QuanergyM8;
+const DEFAULT_DEVICE_CONFIG_PATH: &str = "DeviceConfig.txt";
 const DEFAULT_SENSOR_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 3));
 // None asks the selected driver to use its own default port.
 const DEFAULT_TCP_PORT: Option<u16> = None;
@@ -52,11 +52,11 @@ struct AppConfig {
     pcd_path: Option<PathBuf>,
 }
 
-impl Default for AppConfig {
-    /// Creates a default capture that reads and processes data without saving files.
-    fn default() -> Self {
+impl AppConfig {
+    /// Creates a capture configuration for the LiDAR selected in DeviceConfig.txt.
+    fn new(lidar_type: LidarType) -> Self {
         Self {
-            lidar_type: DEFAULT_LIDAR_TYPE,
+            lidar_type,
             sensor_ip: DEFAULT_SENSOR_IP,
             tcp_port: DEFAULT_TCP_PORT,
             duration_seconds: DEFAULT_DURATION_SECONDS,
@@ -75,16 +75,78 @@ fn usage() {
         "Usage:\n\
          \n\
          cargo run\n\
-         cargo run -- [lidar-type] [sensor-ip] [tcp-port] [duration-seconds] [*.bin] [*.pcd]\n\
-         cargo run -- [--lidar TYPE] [--ip IP] [--port PORT] [--duration SECONDS] \
+         cargo run -- [sensor-ip] [tcp-port] [duration-seconds] [*.bin] [*.pcd]\n\
+         cargo run -- [--ip IP] [--port PORT] [--duration SECONDS] \
          [--width PIXELS] [--height PIXELS] [--fps RATE] \
          [--raw FILE.bin] [--pcd FILE.pcd]\n\
          \n\
-         Defaults: lidar={DEFAULT_LIDAR_TYPE}, ip={DEFAULT_SENSOR_IP}, \
+         Device selection: {DEFAULT_DEVICE_CONFIG_PATH} (Lidar: quanergy-m8 | realsense-l515)\n\
+         Defaults: ip={DEFAULT_SENSOR_IP}, \
          port=<driver default>, duration={DEFAULT_DURATION_SECONDS}, \
          L515={DEFAULT_DEPTH_WIDTH}x{DEFAULT_DEPTH_HEIGHT}@{DEFAULT_DEPTH_FPS}, \
          raw=<disabled>, pcd=<disabled>"
     );
+}
+
+/// Parses the LiDAR selection while accepting an unused Radar entry for future work.
+fn parse_device_config(contents: &str) -> Result<LidarType, String> {
+    let mut lidar_type = None;
+
+    for (index, original_line) in contents.lines().enumerate() {
+        let line = original_line
+            .trim_start_matches('\u{feff}')
+            .split('#')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let (key, value) = line.split_once(':').ok_or_else(|| {
+            format!(
+                "invalid device configuration at line {}: expected 'Key: value'",
+                index + 1
+            )
+        })?;
+        let key = key.trim();
+        let value = value.trim();
+
+        if key.eq_ignore_ascii_case("lidar") {
+            if lidar_type.is_some() {
+                return Err("DeviceConfig.txt contains more than one Lidar entry".to_owned());
+            }
+            if value.is_empty() || value.eq_ignore_ascii_case("none") {
+                return Err(
+                    "DeviceConfig.txt must select a LiDAR: quanergy-m8 or realsense-l515"
+                        .to_owned(),
+                );
+            }
+            lidar_type = Some(value.parse::<LidarType>()?);
+        } else if key.eq_ignore_ascii_case("radar") {
+            // Radar selection is reserved for a future driver and is intentionally ignored.
+        } else {
+            return Err(format!(
+                "unknown device configuration key '{key}' at line {}",
+                index + 1
+            ));
+        }
+    }
+
+    lidar_type.ok_or_else(|| {
+        "DeviceConfig.txt is missing 'Lidar: quanergy-m8' or 'Lidar: realsense-l515'".to_owned()
+    })
+}
+
+/// Reads the device selection from the text configuration file.
+fn load_device_config(path: &Path) -> Result<LidarType, String> {
+    let contents = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "could not read device configuration '{}': {error}",
+            path.display()
+        )
+    })?;
+    parse_device_config(&contents)
 }
 
 /// Parses and validates a TCP port.
@@ -163,27 +225,24 @@ fn assign_output(config: &mut AppConfig, value: &str) -> Result<(), String> {
 }
 
 /// Parses the complete positional form while allowing output files to be omitted.
-fn parse_positional(args: &[String]) -> Result<AppConfig, String> {
-    if args.len() > 6 {
+fn parse_positional(args: &[String], lidar_type: LidarType) -> Result<AppConfig, String> {
+    if args.len() > 5 {
         return Err("too many positional arguments; use --help for syntax".to_owned());
     }
 
-    let mut config = AppConfig::default();
+    let mut config = AppConfig::new(lidar_type);
     if let Some(value) = args.first() {
-        config.lidar_type = value.parse::<LidarType>()?;
-    }
-    if let Some(value) = args.get(1) {
         config.sensor_ip = value
             .parse::<IpAddr>()
             .map_err(|error| format!("invalid sensor IP '{value}': {error}"))?;
     }
-    if let Some(value) = args.get(2) {
+    if let Some(value) = args.get(1) {
         config.tcp_port = Some(parse_port(value)?);
     }
-    if let Some(value) = args.get(3) {
+    if let Some(value) = args.get(2) {
         config.duration_seconds = parse_duration(value)?;
     }
-    for value in args.iter().skip(4) {
+    for value in args.iter().skip(3) {
         assign_output(&mut config, value)?;
     }
     Ok(config)
@@ -197,8 +256,8 @@ fn option_value<'a>(args: &'a [String], index: usize, option: &str) -> Result<&'
 }
 
 /// Parses named options so individual network or output values may be omitted.
-fn parse_named(args: &[String]) -> Result<AppConfig, String> {
-    let mut config = AppConfig::default();
+fn parse_named(args: &[String], lidar_type: LidarType) -> Result<AppConfig, String> {
+    let mut config = AppConfig::new(lidar_type);
     let mut index = 0;
 
     while index < args.len() {
@@ -206,7 +265,6 @@ fn parse_named(args: &[String]) -> Result<AppConfig, String> {
         let value = option_value(args, index, option)?;
 
         match option {
-            "--lidar" => config.lidar_type = value.parse::<LidarType>()?,
             "--ip" => {
                 config.sensor_ip = value
                     .parse::<IpAddr>()
@@ -228,14 +286,14 @@ fn parse_named(args: &[String]) -> Result<AppConfig, String> {
 }
 
 /// Selects positional or named parsing without allowing ambiguous mixed syntax.
-fn parse_arguments(args: &[String]) -> Result<AppConfig, String> {
+fn parse_arguments(args: &[String], lidar_type: LidarType) -> Result<AppConfig, String> {
     if args.first().is_some_and(|value| value.starts_with("--")) {
-        return parse_named(args);
+        return parse_named(args, lidar_type);
     }
     if args.iter().any(|value| value.starts_with("--")) {
         return Err("do not mix positional values with named options".to_owned());
     }
-    parse_positional(args)
+    parse_positional(args, lidar_type)
 }
 
 /// Builds the sensor-neutral preprocessing configuration used by the pipeline.
@@ -261,7 +319,14 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let config = parse_arguments(&args)?;
+    let device_config_path = Path::new(DEFAULT_DEVICE_CONFIG_PATH);
+    let lidar_type = load_device_config(device_config_path)?;
+    let config = parse_arguments(&args, lidar_type)?;
+    println!(
+        "Device configuration: {} (selected {})",
+        device_config_path.display(),
+        config.lidar_type
+    );
     let mut lidar_config = LidarConfig::new(config.lidar_type, config.sensor_ip);
     if let Some(port) = config.tcp_port {
         lidar_config = lidar_config.with_port(port);

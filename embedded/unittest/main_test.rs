@@ -5,7 +5,7 @@ use super::*;
 /// Confirms that an empty command uses defaults and disables both files.
 #[test]
 fn empty_command_uses_defaults_without_outputs() {
-    let config = parse_arguments(&[]).unwrap();
+    let config = parse_arguments(&[], LidarType::QuanergyM8).unwrap();
     assert_eq!(config.lidar_type, LidarType::QuanergyM8);
     assert_eq!(config.sensor_ip, DEFAULT_SENSOR_IP);
     assert_eq!(config.tcp_port, None);
@@ -21,8 +21,6 @@ fn empty_command_uses_defaults_without_outputs() {
 #[test]
 fn named_realsense_options_configure_depth_stream() {
     let args = vec![
-        "--lidar".to_owned(),
-        "l515".to_owned(),
         "--width".to_owned(),
         "1024".to_owned(),
         "--height".to_owned(),
@@ -30,7 +28,7 @@ fn named_realsense_options_configure_depth_stream() {
         "--fps".to_owned(),
         "30".to_owned(),
     ];
-    let config = parse_arguments(&args).unwrap();
+    let config = parse_arguments(&args, LidarType::RealSenseL515).unwrap();
     assert_eq!(config.lidar_type, LidarType::RealSenseL515);
     assert_eq!(config.depth_width, 1024);
     assert_eq!(config.depth_height, 768);
@@ -48,7 +46,7 @@ fn named_options_allow_missing_ip_and_port() {
         "--pcd".to_owned(),
         "cloud.pcd".to_owned(),
     ];
-    let config = parse_arguments(&args).unwrap();
+    let config = parse_arguments(&args, LidarType::QuanergyM8).unwrap();
     assert_eq!(config.sensor_ip, DEFAULT_SENSOR_IP);
     assert_eq!(config.tcp_port, None);
     assert_eq!(config.duration_seconds, 20);
@@ -60,17 +58,45 @@ fn named_options_allow_missing_ip_and_port() {
 #[test]
 fn full_positional_command_uses_provided_values() {
     let args = vec![
-        "quanergy-m8".to_owned(),
         "192.168.1.20".to_owned(),
         "5000".to_owned(),
         "30".to_owned(),
         "capture.bin".to_owned(),
         "cloud.pcd".to_owned(),
     ];
-    let config = parse_arguments(&args).unwrap();
+    let config = parse_arguments(&args, LidarType::QuanergyM8).unwrap();
     assert_eq!(config.sensor_ip, "192.168.1.20".parse::<IpAddr>().unwrap());
     assert_eq!(config.tcp_port, Some(5000));
     assert_eq!(config.duration_seconds, 30);
     assert_eq!(config.raw_path, Some(PathBuf::from("capture.bin")));
     assert_eq!(config.pcd_path, Some(PathBuf::from("cloud.pcd")));
+}
+
+/// Confirms that the device file selects Quanergy and permits an unused Radar entry.
+#[test]
+fn device_config_selects_quanergy_and_ignores_radar() {
+    let lidar = parse_device_config("Lidar: quanergy-m8\nRadar: None\n").unwrap();
+    assert_eq!(lidar, LidarType::QuanergyM8);
+}
+
+/// Confirms that blank Radar configuration is accepted for future implementation.
+#[test]
+fn device_config_selects_realsense_with_blank_radar() {
+    let lidar = parse_device_config("Lidar: realsense-l515\nRadar:\n").unwrap();
+    assert_eq!(lidar, LidarType::RealSenseL515);
+}
+
+/// Confirms that a missing LiDAR selection produces a clear configuration error.
+#[test]
+fn device_config_requires_lidar_entry() {
+    let error = parse_device_config("Radar: None\n").unwrap_err();
+    assert!(error.contains("missing 'Lidar:"));
+}
+
+/// Confirms that the LiDAR can no longer be overridden from the command line.
+#[test]
+fn command_line_rejects_lidar_override() {
+    let args = vec!["--lidar".to_owned(), "l515".to_owned()];
+    let error = parse_arguments(&args, LidarType::QuanergyM8).unwrap_err();
+    assert!(error.contains("unknown option '--lidar'"));
 }
