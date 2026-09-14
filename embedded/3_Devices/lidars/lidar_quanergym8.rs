@@ -1,16 +1,16 @@
-//! TCP driver, packet framing, and decoding for the Quanergy M8 LiDAR.
+//! Packet framing and point-cloud decoding for the Quanergy M8 LiDAR.
 
 use std::{
     f64::consts::TAU,
-    io::{self, ErrorKind, Read},
-    net::{SocketAddr, TcpStream},
+    io::{self, ErrorKind},
+    net::SocketAddr,
     time::Duration,
 };
 
 use crate::{
-    devices::lidar::{LidarDevice, RawPacket},
+    devices::lidar::{LidarDecoder, LidarReader, RawPacket},
     models::pointcloud::{PointCloudFrame, PointXYZIRT},
-    platform,
+    transport::ethernet::EthernetConnection,
 };
 
 // Packet constants from the Quanergy M8 network protocol.
@@ -43,17 +43,19 @@ const VERTICAL_ANGLES: [f64; LASER_COUNT] = [
     0.055_798_2,
 ];
 
-/// Owns the TCP connection used to receive packets from one Quanergy M8.
-pub struct QuanergyM8 {
-    stream: TcpStream,
+/// Namespace used by the common factory to create both Quanergy worker halves.
+pub struct QuanergyM8;
+
+/// Owns a safe Ethernet transport moved exclusively into the LiDAR Read thread.
+pub struct QuanergyM8Reader {
+    connection: EthernetConnection,
 }
 
 impl QuanergyM8 {
-    /// Opens the sensor TCP stream and applies platform-specific socket settings.
-    pub fn connect(address: SocketAddr) -> io::Result<Self> {
-        let stream = TcpStream::connect_timeout(&address, Duration::from_secs(5))?;
-        platform::configure_sensor_stream(&stream)?;
-        Ok(Self { stream })
+    /// Opens the sensor through Transport and returns independent worker halves.
+    pub fn connect(address: SocketAddr) -> io::Result<(QuanergyM8Reader, QuanergyM8Decoder)> {
+        let connection = EthernetConnection::connect(address, Duration::from_secs(5))?;
+        Ok((QuanergyM8Reader { connection }, QuanergyM8Decoder))
     }
 
     /// Validates the fixed header and returns the complete packet size.
@@ -88,9 +90,14 @@ impl QuanergyM8 {
 
         Ok(message_size)
     }
+}
 
+/// Stateless Quanergy protocol decoder moved into the LiDAR Decode thread.
+pub struct QuanergyM8Decoder;
+
+impl QuanergyM8Decoder {
     /// Decodes either supported M8 packet format into a sensor-neutral frame.
-    fn decode(&self, packet: &RawPacket) -> io::Result<PointCloudFrame> {
+    fn decode(packet: &RawPacket) -> io::Result<PointCloudFrame> {
         let bytes = packet.as_bytes();
         let packet_type = validate_common_header(bytes)?;
         let packet_timestamp_ns = timestamp_ns(bytes)?;
@@ -105,29 +112,28 @@ impl QuanergyM8 {
     }
 }
 
-impl LidarDevice for QuanergyM8 {
-    /// Identifies this concrete driver through the common LiDAR interface.
-    fn device_name(&self) -> &'static str {
-        "Quanergy M8"
-    }
-
+impl LidarReader for QuanergyM8Reader {
     /// Reads one complete M8 packet even when TCP splits it across segments.
     fn read_raw_packet(&mut self) -> io::Result<RawPacket> {
         // TCP is a byte stream, so first read the fixed header to learn packet size.
         let mut header = [0_u8; PACKET_HEADER_SIZE];
-        self.stream.read_exact(&mut header)?;
-        let message_size = Self::validate_header(&header)?;
+        self.connection.read_exact(&mut header)?;
+        let message_size = QuanergyM8::validate_header(&header)?;
 
         let mut bytes = vec![0_u8; message_size];
         bytes[..PACKET_HEADER_SIZE].copy_from_slice(&header);
-        self.stream.read_exact(&mut bytes[PACKET_HEADER_SIZE..])?;
+        self.connection
+            .read_exact(&mut bytes[PACKET_HEADER_SIZE..])?;
 
-        Ok(RawPacket::new(bytes))
+        let packet_timestamp_ns = timestamp_ns(&bytes)?;
+        Ok(RawPacket::new(bytes).with_timestamp_ns(packet_timestamp_ns))
     }
+}
 
+impl LidarDecoder for QuanergyM8Decoder {
     /// Delegates decoding to the Quanergy-specific packet decoder.
-    fn decode_packet(&self, packet: &RawPacket) -> io::Result<PointCloudFrame> {
-        self.decode(packet)
+    fn decode_packet(&mut self, packet: &RawPacket) -> io::Result<PointCloudFrame> {
+        Self::decode(packet)
     }
 }
 

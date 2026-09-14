@@ -1,2 +1,5 @@
+# Supported LiDAR devices: quanergy-m8, realsense-l515
 Lidar: quanergy-m8
+
+# Supported Radar devices: None
 Radar: None

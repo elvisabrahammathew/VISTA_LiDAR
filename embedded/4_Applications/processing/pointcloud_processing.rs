@@ -3,9 +3,20 @@
 use std::{
     collections::HashSet,
     io::{self, ErrorKind},
+    sync::Arc,
 };
 
-use crate::models::pointcloud::{PointCloudFrame, PointXYZIRT};
+use crate::{
+    devices::lidar::LidarPointCloudMessage,
+    models::{
+        lidar_message::LidarMessage,
+        pointcloud::{PointCloudFrame, PointXYZIRT},
+    },
+    platform::{
+        pubsub::{TopicPublisher, TopicSubscriber},
+        threading::{spawn_worker, StopToken, ThreadConfig, WorkerHandle},
+    },
+};
 
 /// Describes an axis-aligned region of interest in sensor coordinates.
 #[derive(Debug, Clone, Copy)]
@@ -70,6 +81,13 @@ pub struct PreprocessingConfig {
     pub ground_removal: Option<GroundRemovalConfig>,
 }
 
+/// Counts frames and points produced by the preprocessing worker.
+#[derive(Debug, Default)]
+pub(crate) struct PreprocessingReport {
+    pub message_count: u64,
+    pub point_count: u64,
+}
+
 impl Default for PreprocessingConfig {
     /// Supplies conservative defaults without assuming sensor mounting height.
     fn default() -> Self {
@@ -106,6 +124,69 @@ pub fn preprocess_point_cloud(
     }
 
     Ok(frame)
+}
+
+/// Starts the application worker that consumes and republishes point clouds.
+pub(crate) fn spawn_preprocessing_worker<F>(
+    thread_config: ThreadConfig,
+    stop: StopToken,
+    subscriber: TopicSubscriber<LidarPointCloudMessage>,
+    publisher: TopicPublisher<LidarPointCloudMessage>,
+    config: PreprocessingConfig,
+    on_complete: F,
+) -> io::Result<WorkerHandle<()>>
+where
+    F: FnOnce(Result<PreprocessingReport, String>) + Send + 'static,
+{
+    spawn_worker(thread_config, move || {
+        let result =
+            run_preprocessing(subscriber, publisher, config).map_err(|error| error.to_string());
+        if result.is_err() {
+            stop.request_stop();
+        }
+        on_complete(result);
+    })
+}
+
+/// Applies every configured preprocessing stage until the input topic closes.
+fn run_preprocessing(
+    subscriber: TopicSubscriber<LidarPointCloudMessage>,
+    publisher: TopicPublisher<LidarPointCloudMessage>,
+    config: PreprocessingConfig,
+) -> io::Result<PreprocessingReport> {
+    let mut report = PreprocessingReport::default();
+
+    while let Ok(message) = subscriber.recv() {
+        // A single subscriber can take ownership of the large point buffer. When
+        // more subscribers are added later, only this fallback path clones it.
+        let message = take_owned_message(message);
+        let processed = preprocess_point_cloud(message.payload, &config)?;
+        report.message_count += 1;
+        report.point_count += processed.points.len() as u64;
+        publisher.publish(LidarMessage::new(
+            message.lidar_id,
+            message.sequence,
+            message.sensor_timestamp_ns,
+            message.received_timestamp_ns,
+            processed,
+        ))?;
+    }
+
+    Ok(report)
+}
+
+/// Reclaims a shared LiDAR message, cloning its payload only when still shared.
+fn take_owned_message<T: Clone>(message: Arc<LidarMessage<T>>) -> LidarMessage<T> {
+    match Arc::try_unwrap(message) {
+        Ok(owned) => owned,
+        Err(shared) => LidarMessage::new(
+            shared.lidar_id.clone(),
+            shared.sequence,
+            shared.sensor_timestamp_ns,
+            shared.received_timestamp_ns,
+            shared.payload.clone(),
+        ),
+    }
 }
 
 /// Creates an InvalidInput error for an unusable preprocessing configuration.

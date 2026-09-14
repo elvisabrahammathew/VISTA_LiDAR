@@ -1,12 +1,6 @@
 //! Unit tests for RealSense L515 Z16-to-point-cloud conversion.
 
-use super::native::{decode_depth_frame, runtime_api_version};
-
-/// Confirms that the bundled DLL exposes the exact API used by these bindings.
-#[test]
-fn loads_librealsense_2_50_runtime() {
-    assert_eq!(runtime_api_version().unwrap(), 25_000);
-}
+use super::decode_depth_frame;
 
 /// Confirms that zero depth pixels are excluded from the point cloud.
 #[test]

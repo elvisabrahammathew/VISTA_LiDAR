@@ -104,3 +104,18 @@ fn rejects_invalid_voxel_size() {
 
     assert!(preprocess_point_cloud(frame(Vec::new()), &config).is_err());
 }
+
+/// Confirms shared LiDAR metadata is retained when preprocessing must clone it.
+#[test]
+fn converts_a_shared_message_to_owned_data() {
+    let message = Arc::new(LidarMessage::new("lidar", 7, Some(42), 50, vec![1_u8, 2]));
+    let second_subscriber = Arc::clone(&message);
+
+    let owned = take_owned_message(message);
+    assert_eq!(owned.lidar_id, "lidar");
+    assert_eq!(owned.sequence, 7);
+    assert_eq!(owned.sensor_timestamp_ns, Some(42));
+    assert_eq!(owned.received_timestamp_ns, 50);
+    assert_eq!(owned.payload, vec![1, 2]);
+    assert_eq!(second_subscriber.payload, vec![1, 2]);
+}

@@ -13,9 +13,20 @@ mod windows;
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 compile_error!("this capture application currently supports only Windows and Linux");
 
+#[path = "pubsub.rs"]
+pub mod pubsub;
+#[path = "threading.rs"]
+pub mod threading;
+
 // Expose one stable platform API to the device drivers.
 #[cfg(target_os = "linux")]
-pub use linux::{configure_sensor_stream, PLATFORM_NAME};
+pub use linux::{configure_tcp_stream, PLATFORM_NAME};
+
+#[cfg(target_os = "linux")]
+use linux::apply_current_thread_priority;
 
 #[cfg(target_os = "windows")]
-pub use windows::{configure_sensor_stream, PLATFORM_NAME};
+pub use windows::{configure_tcp_stream, PLATFORM_NAME};
+
+#[cfg(target_os = "windows")]
+use windows::apply_current_thread_priority;

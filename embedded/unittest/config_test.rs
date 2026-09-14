@@ -1,4 +1,4 @@
-//! Unit tests for main.rs command-line configuration.
+//! Unit tests for config.rs device and command-line settings.
 
 use super::*;
 

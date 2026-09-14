@@ -6,9 +6,11 @@
 pub mod analytics;
 #[path = "object/detection.rs"]
 pub mod detection;
-#[path = "pipeline.rs"]
-pub mod pipeline;
+#[path = "logger/logger.rs"]
+pub mod logger;
 #[path = "processing/pointcloud_processing.rs"]
 pub mod pointcloud_processing;
+#[path = "supervisor.rs"]
+pub mod supervisor;
 #[path = "object/tracking.rs"]
 pub mod tracking;

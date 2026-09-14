@@ -5,13 +5,17 @@ use std::{
     io::{self, ErrorKind},
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    time::Duration,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
     devices::lidar_quanergym8::{QuanergyM8, DEFAULT_PORT as QUANERGY_M8_DEFAULT_PORT},
     devices::lidar_realsense::RealSenseL515,
-    models::pointcloud::PointCloudFrame,
+    models::{lidar_message::LidarMessage, pointcloud::PointCloudFrame},
+    platform::{
+        pubsub::{TopicPublisher, TopicSubscriber},
+        threading::{spawn_worker, StopToken, ThreadConfig, WorkerHandle},
+    },
 };
 
 /// Lists the LiDAR models that can be selected by application configuration.
@@ -147,31 +151,65 @@ impl RawPacket {
     }
 }
 
-/// Defines the sensor operations used by the application pipeline.
-pub trait LidarDevice {
-    /// Returns a human-readable name for logs and diagnostics.
-    fn device_name(&self) -> &'static str;
+/// RAW LiDAR message published by every supported LiDAR reader.
+pub type LidarRawMessage = LidarMessage<RawPacket>;
 
-    /// Reads one complete packet in the sensor's original wire format.
-    fn read_raw_packet(&mut self) -> io::Result<RawPacket>;
+/// Sensor-neutral point-cloud message published by every LiDAR decoder.
+pub type LidarPointCloudMessage = LidarMessage<PointCloudFrame>;
 
-    /// Converts one device-specific raw packet into the common point-cloud model.
-    fn decode_packet(&self, packet: &RawPacket) -> io::Result<PointCloudFrame>;
+/// Counts messages handled by one LiDAR worker.
+#[derive(Debug, Default)]
+pub(crate) struct LidarWorkerReport {
+    pub message_count: u64,
 }
 
-/// Hides the selected concrete driver from the application layer.
+/// Reads complete sensor packets and exclusively owns the hardware connection.
+pub trait LidarReader: Send {
+    /// Reads one complete packet in the sensor's original wire format.
+    fn read_raw_packet(&mut self) -> io::Result<RawPacket>;
+}
+
+/// Converts device-specific packets without owning the hardware connection.
+pub trait LidarDecoder: Send {
+    /// Converts one device-specific raw packet into the common point-cloud model.
+    fn decode_packet(&mut self, packet: &RawPacket) -> io::Result<PointCloudFrame>;
+}
+
+/// Owns both halves only during startup, before they move to separate threads.
 pub struct Lidar {
-    driver: Box<dyn LidarDevice>,
+    device_name: &'static str,
+    lidar_id: &'static str,
+    reader: Box<dyn LidarReader>,
+    decoder: Box<dyn LidarDecoder>,
+}
+
+/// Parts moved into the independent Read and Decode workers.
+pub struct LidarParts {
+    pub device_name: &'static str,
+    pub lidar_id: &'static str,
+    pub reader: Box<dyn LidarReader>,
+    pub decoder: Box<dyn LidarDecoder>,
 }
 
 impl Lidar {
-    /// Creates and connects the concrete driver selected in LidarConfig.
+    /// Creates the concrete reader and decoder selected in `LidarConfig`.
     pub fn connect(config: &LidarConfig) -> io::Result<Self> {
-        let driver: Box<dyn LidarDevice> = match config.lidar_type {
+        let (device_name, lidar_id, reader, decoder): (
+            &'static str,
+            &'static str,
+            Box<dyn LidarReader>,
+            Box<dyn LidarDecoder>,
+        ) = match config.lidar_type {
             LidarType::QuanergyM8 => {
                 let port = config.port.unwrap_or(QUANERGY_M8_DEFAULT_PORT);
                 let address = SocketAddr::new(config.sensor_ip, port);
-                Box::new(QuanergyM8::connect(address)?)
+                let (reader, decoder) = QuanergyM8::connect(address)?;
+                (
+                    "Quanergy M8",
+                    "quanergy-m8",
+                    Box::new(reader),
+                    Box::new(decoder),
+                )
             }
             LidarType::RealSenseL515 => {
                 let depth_stream = config.depth_stream.ok_or_else(|| {
@@ -180,7 +218,13 @@ impl Lidar {
                         "a depth stream configuration is required for RealSense L515",
                     )
                 })?;
-                Box::new(RealSenseL515::connect(depth_stream)?)
+                let (reader, decoder) = RealSenseL515::connect(depth_stream)?;
+                (
+                    "Intel RealSense L515",
+                    "realsense-l515",
+                    Box::new(reader),
+                    Box::new(decoder),
+                )
             }
             LidarType::Unitree4d => {
                 return Err(io::Error::new(
@@ -190,23 +234,160 @@ impl Lidar {
             }
         };
 
-        Ok(Self { driver })
+        Ok(Self {
+            device_name,
+            lidar_id,
+            reader,
+            decoder,
+        })
     }
 
-    /// Returns the name reported by the selected concrete driver.
+    /// Returns the name reported during driver creation.
     pub fn device_name(&self) -> &'static str {
-        self.driver.device_name()
+        self.device_name
     }
 
-    /// Delegates raw packet reading to the selected concrete driver.
-    pub fn read_raw_packet(&mut self) -> io::Result<RawPacket> {
-        self.driver.read_raw_packet()
+    /// Separates hardware reading from decoding so each can own one OS thread.
+    pub fn into_parts(self) -> LidarParts {
+        LidarParts {
+            device_name: self.device_name,
+            lidar_id: self.lidar_id,
+            reader: self.reader,
+            decoder: self.decoder,
+        }
     }
 
-    /// Delegates packet decoding to the selected concrete driver.
-    pub fn decode_packet(&self, packet: &RawPacket) -> io::Result<PointCloudFrame> {
-        self.driver.decode_packet(packet)
+    /// Creates a sensor-independent LiDAR for supervisor unit tests.
+    #[cfg(test)]
+    pub(crate) fn from_parts(
+        device_name: &'static str,
+        lidar_id: &'static str,
+        reader: Box<dyn LidarReader>,
+        decoder: Box<dyn LidarDecoder>,
+    ) -> Self {
+        Self {
+            device_name,
+            lidar_id,
+            reader,
+            decoder,
+        }
     }
+}
+
+/// Starts the device-owned worker that reads and publishes RAW packets.
+pub(crate) fn spawn_lidar_read_worker<F>(
+    thread_config: ThreadConfig,
+    stop: StopToken,
+    mut reader: Box<dyn LidarReader>,
+    publisher: TopicPublisher<LidarRawMessage>,
+    lidar_id: String,
+    duration: Duration,
+    on_complete: F,
+) -> io::Result<WorkerHandle<()>>
+where
+    F: FnOnce(Result<LidarWorkerReport, String>) + Send + 'static,
+{
+    let worker_stop = stop.clone();
+    spawn_lidar_worker(thread_config, stop, on_complete, move || {
+        run_lidar_reader(reader.as_mut(), publisher, lidar_id, duration, worker_stop)
+    })
+}
+
+/// Starts the device-owned worker that converts RAW packets to point clouds.
+pub(crate) fn spawn_lidar_decode_worker<F>(
+    thread_config: ThreadConfig,
+    stop: StopToken,
+    mut decoder: Box<dyn LidarDecoder>,
+    subscriber: TopicSubscriber<LidarRawMessage>,
+    publisher: TopicPublisher<LidarPointCloudMessage>,
+    on_complete: F,
+) -> io::Result<WorkerHandle<()>>
+where
+    F: FnOnce(Result<LidarWorkerReport, String>) + Send + 'static,
+{
+    spawn_lidar_worker(thread_config, stop, on_complete, move || {
+        run_lidar_decoder(decoder.as_mut(), subscriber, publisher)
+    })
+}
+
+/// Applies common shutdown and completion behavior around a LiDAR worker loop.
+fn spawn_lidar_worker<W, F>(
+    thread_config: ThreadConfig,
+    stop: StopToken,
+    on_complete: F,
+    worker: W,
+) -> io::Result<WorkerHandle<()>>
+where
+    W: FnOnce() -> io::Result<LidarWorkerReport> + Send + 'static,
+    F: FnOnce(Result<LidarWorkerReport, String>) + Send + 'static,
+{
+    spawn_worker(thread_config, move || {
+        let result = worker().map_err(|error| error.to_string());
+        if result.is_err() {
+            stop.request_stop();
+        }
+        on_complete(result);
+    })
+}
+
+/// Reads sensor-native packets and publishes them without decoding or logging.
+fn run_lidar_reader(
+    reader: &mut dyn LidarReader,
+    publisher: TopicPublisher<LidarRawMessage>,
+    lidar_id: String,
+    duration: Duration,
+    stop: StopToken,
+) -> io::Result<LidarWorkerReport> {
+    let started = Instant::now();
+    let mut report = LidarWorkerReport::default();
+
+    while started.elapsed() < duration && !stop.is_stop_requested() {
+        let packet = reader.read_raw_packet()?;
+        let sensor_timestamp_ns = packet.timestamp_ns();
+        let received_timestamp_ns = system_timestamp_ns();
+        publisher.publish(LidarMessage::new(
+            lidar_id.clone(),
+            report.message_count,
+            sensor_timestamp_ns,
+            received_timestamp_ns,
+            packet,
+        ))?;
+        report.message_count += 1;
+    }
+
+    Ok(report)
+}
+
+/// Receives RAW messages and invokes the selected device-specific decoder.
+fn run_lidar_decoder(
+    decoder: &mut dyn LidarDecoder,
+    subscriber: TopicSubscriber<LidarRawMessage>,
+    publisher: TopicPublisher<LidarPointCloudMessage>,
+) -> io::Result<LidarWorkerReport> {
+    let mut report = LidarWorkerReport::default();
+
+    while let Ok(message) = subscriber.recv() {
+        let frame = decoder.decode_packet(&message.payload)?;
+        publisher.publish(LidarMessage::new(
+            message.lidar_id.clone(),
+            message.sequence,
+            message.sensor_timestamp_ns,
+            message.received_timestamp_ns,
+            frame,
+        ))?;
+        report.message_count += 1;
+    }
+
+    Ok(report)
+}
+
+/// Records host wall-clock time immediately after a packet read completes.
+fn system_timestamp_ns() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .min(u128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]
