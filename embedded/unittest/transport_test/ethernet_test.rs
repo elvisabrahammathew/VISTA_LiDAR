@@ -19,7 +19,9 @@ fn connects_and_reads_exact_bytes() {
         stream.write_all(&[0x10, 0x20, 0x30, 0x40]).unwrap();
     });
 
-    let mut connection = EthernetConnection::connect(address, Duration::from_secs(1)).unwrap();
+    let mut connection =
+        EthernetConnection::connect(address, Duration::from_secs(1), Duration::from_secs(1))
+            .unwrap();
     let mut bytes = [0_u8; 4];
     connection.read_exact(&mut bytes).unwrap();
 

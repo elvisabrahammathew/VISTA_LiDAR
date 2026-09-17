@@ -6,3 +6,5 @@ pub mod image_frame;
 pub mod lidar_message;
 #[path = "lidars/pointcloud.rs"]
 pub mod pointcloud;
+#[path = "topics.rs"]
+pub mod topics;

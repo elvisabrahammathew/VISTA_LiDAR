@@ -27,7 +27,7 @@ fn writes_raw_packets_without_modification() {
     let path = temporary_output("bin");
     let topic = Topic::new("test/lidar/raw", 2).unwrap();
     let subscriber = topic.subscribe("test-raw-logger").unwrap();
-    let publisher = topic.publisher();
+    let publisher = topic.publisher().unwrap();
 
     publisher
         .publish(LidarMessage::new(
@@ -52,7 +52,7 @@ fn writes_processed_point_cloud_as_pcd() {
     let path = temporary_output("pcd");
     let topic = Topic::new("test/pointcloud/processed", 2).unwrap();
     let subscriber = topic.subscribe("test-pcd-logger").unwrap();
-    let publisher = topic.publisher();
+    let publisher = topic.publisher().unwrap();
     let frame = PointCloudFrame::new(
         10,
         vec![PointXYZIRT {

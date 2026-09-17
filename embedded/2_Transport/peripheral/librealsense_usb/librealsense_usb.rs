@@ -14,6 +14,8 @@ use std::{io, io::ErrorKind};
 #[derive(Debug, Clone)]
 pub struct LibrealsenseDepthStreamConfig {
     pub device_name_contains: String,
+    /// Optional SDK serial; None selects the first matching device.
+    pub serial_number: Option<String>,
     pub width: u32,
     pub height: u32,
     pub frames_per_second: u32,
@@ -24,6 +26,7 @@ impl LibrealsenseDepthStreamConfig {
     /// Creates a transport request without embedding any LiDAR-specific model type.
     pub fn new(
         device_name_contains: impl Into<String>,
+        serial_number: Option<String>,
         width: u32,
         height: u32,
         frames_per_second: u32,
@@ -31,6 +34,7 @@ impl LibrealsenseDepthStreamConfig {
     ) -> Self {
         Self {
             device_name_contains: device_name_contains.into(),
+            serial_number,
             width,
             height,
             frames_per_second,
@@ -422,7 +426,11 @@ mod native {
                 })?,
                 "context",
             )?);
-            let serial = find_device_serial(context.0, &config.device_name_contains)?;
+            let serial = find_device_serial(
+                context.0,
+                &config.device_name_contains,
+                config.serial_number.as_deref(),
+            )?;
             let serial = CString::new(serial).map_err(|_| {
                 io::Error::new(
                     ErrorKind::InvalidData,
@@ -791,6 +799,7 @@ mod native {
     fn find_device_serial(
         context: *mut ffi::Rs2Context,
         device_name_contains: &str,
+        requested_serial: Option<&str>,
     ) -> io::Result<String> {
         let devices = DeviceListHandle(require_handle(
             sdk_call(|error| {
@@ -815,18 +824,25 @@ mod native {
             )?);
             let name = device_info(device.0, RS2_CAMERA_INFO_NAME)?
                 .unwrap_or_else(|| "Unknown RealSense".to_owned());
-            detected_names.push(name.clone());
+            let serial = device_info(device.0, RS2_CAMERA_INFO_SERIAL_NUMBER)?;
+            detected_names.push(match &serial {
+                Some(serial) => format!("{name} [{serial}]"),
+                None => name.clone(),
+            });
 
             if name
                 .to_ascii_lowercase()
                 .contains(&device_name_contains.to_ascii_lowercase())
             {
-                return device_info(device.0, RS2_CAMERA_INFO_SERIAL_NUMBER)?.ok_or_else(|| {
+                let serial = serial.ok_or_else(|| {
                     io::Error::new(
                         ErrorKind::InvalidData,
                         "connected RealSense device does not report a serial number",
                     )
-                });
+                })?;
+                if requested_serial.map_or(true, |requested| requested == serial) {
+                    return Ok(serial);
+                }
             }
         }
 
@@ -837,7 +853,12 @@ mod native {
         };
         Err(io::Error::new(
             ErrorKind::NotFound,
-            format!("RealSense device matching '{device_name_contains}' was not found ({details})"),
+            format!(
+                "RealSense device matching '{device_name_contains}'{} was not found ({details})",
+                requested_serial
+                    .map(|serial| format!(" with USB serial '{serial}'"))
+                    .unwrap_or_default()
+            ),
         ))
     }
 
@@ -938,5 +959,5 @@ impl LibrealsenseUsbConnection {
 }
 
 #[cfg(all(test, vista_realsense))]
-#[path = "../../unittest/transport_test/librealsense_usb_test.rs"]
+#[path = "../../../unittest/transport_test/librealsense_usb_test.rs"]
 mod tests;

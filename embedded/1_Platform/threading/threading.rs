@@ -170,5 +170,5 @@ where
 }
 
 #[cfg(test)]
-#[path = "../unittest/platform_test/threading_test.rs"]
+#[path = "../../unittest/platform_test/threading_test.rs"]
 mod tests;

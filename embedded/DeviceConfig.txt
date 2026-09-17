@@ -1,5 +1,12 @@
-# Supported LiDAR devices: quanergy-m8, realsense-l515
+# Supported LiDAR: quanergy-m8, realsense-l515
 Lidar: quanergy-m8
+ReconnectIntervalSeconds(Lidar): 5
+SensorIP(quanergym8): 192.168.1.3
+TcpPort(quanergym8): 4141
+UsbSerial(realsensel515): 123456789012
+DepthWidth(realsensel515): 640
+DepthHeight(realsensel515): 480
+DepthFps(realsensel515): 30
 
-# Supported Radar devices: None
+# Supported Radar: none
 Radar: None

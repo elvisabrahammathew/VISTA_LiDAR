@@ -1,102 +1,111 @@
-//! Unit tests for config.rs device and command-line settings.
+//! Unit tests for DeviceConfig.txt parsing and runtime defaults.
 
 use super::*;
 
-/// Confirms that an empty command uses defaults and disables both files.
+const QUANERGY_CONFIG: &str = "\
+Lidar: quanergy-m8
+ReconnectIntervalSeconds(Lidar): 7
+SensorIP(quanergym8): 192.168.1.20
+TcpPort(quanergym8): 5000
+Radar: None
+";
+
+/// Confirms that all Quanergy connection values are read from the text file.
 #[test]
-fn empty_command_uses_defaults_without_outputs() {
-    let config = parse_arguments(&[], LidarType::QuanergyM8).unwrap();
+fn parses_quanergy_settings() {
+    let config = parse_device_config(QUANERGY_CONFIG).unwrap();
     assert_eq!(config.lidar_type, LidarType::QuanergyM8);
-    assert_eq!(config.sensor_ip, DEFAULT_SENSOR_IP);
-    assert_eq!(config.tcp_port, None);
-    assert_eq!(config.duration_seconds, 10);
-    assert_eq!(config.depth_width, DEFAULT_DEPTH_WIDTH);
-    assert_eq!(config.depth_height, DEFAULT_DEPTH_HEIGHT);
-    assert_eq!(config.depth_fps, DEFAULT_DEPTH_FPS);
-    assert!(config.raw_path.is_none());
-    assert!(config.pcd_path.is_none());
-}
-
-/// Confirms that an L515 command accepts depth resolution and frame-rate overrides.
-#[test]
-fn named_realsense_options_configure_depth_stream() {
-    let args = vec![
-        "--width".to_owned(),
-        "1024".to_owned(),
-        "--height".to_owned(),
-        "768".to_owned(),
-        "--fps".to_owned(),
-        "30".to_owned(),
-    ];
-    let config = parse_arguments(&args, LidarType::RealSenseL515).unwrap();
-    assert_eq!(config.lidar_type, LidarType::RealSenseL515);
-    assert_eq!(config.depth_width, 1024);
-    assert_eq!(config.depth_height, 768);
-    assert_eq!(config.depth_fps, 30);
-    assert!(config.raw_path.is_none());
-    assert!(config.pcd_path.is_none());
-}
-
-/// Confirms that named options can omit IP and port while overriding other values.
-#[test]
-fn named_options_allow_missing_ip_and_port() {
-    let args = vec![
-        "--duration".to_owned(),
-        "20".to_owned(),
-        "--pcd".to_owned(),
-        "cloud.pcd".to_owned(),
-    ];
-    let config = parse_arguments(&args, LidarType::QuanergyM8).unwrap();
-    assert_eq!(config.sensor_ip, DEFAULT_SENSOR_IP);
-    assert_eq!(config.tcp_port, None);
-    assert_eq!(config.duration_seconds, 20);
-    assert_eq!(config.pcd_path, Some(PathBuf::from("cloud.pcd")));
-    assert!(config.raw_path.is_none());
-}
-
-/// Confirms that the complete positional command overrides every capture value.
-#[test]
-fn full_positional_command_uses_provided_values() {
-    let args = vec![
-        "192.168.1.20".to_owned(),
-        "5000".to_owned(),
-        "30".to_owned(),
-        "capture.bin".to_owned(),
-        "cloud.pcd".to_owned(),
-    ];
-    let config = parse_arguments(&args, LidarType::QuanergyM8).unwrap();
     assert_eq!(config.sensor_ip, "192.168.1.20".parse::<IpAddr>().unwrap());
     assert_eq!(config.tcp_port, Some(5000));
-    assert_eq!(config.duration_seconds, 30);
-    assert_eq!(config.raw_path, Some(PathBuf::from("capture.bin")));
-    assert_eq!(config.pcd_path, Some(PathBuf::from("cloud.pcd")));
+    assert_eq!(config.lidar_reconnect_interval, Duration::from_secs(7));
 }
 
-/// Confirms that the device file selects Quanergy and permits an unused Radar entry.
+/// An empty serial means that librealsense may select the first matching L515.
 #[test]
-fn device_config_selects_quanergy_and_ignores_radar() {
-    let lidar = parse_device_config("Lidar: quanergy-m8\nRadar: None\n").unwrap();
-    assert_eq!(lidar, LidarType::QuanergyM8);
+fn accepts_blank_realsense_serial() {
+    let config = parse_device_config(
+        "Lidar: realsense-l515\nUsbSerial(realsensel515):\nDepthWidth(realsensel515): 640\nDepthHeight(realsensel515): 480\nDepthFps(realsensel515): 30\nRadar: None\n",
+    )
+    .unwrap();
+    assert_eq!(config.lidar_type, LidarType::RealSenseL515);
+    assert_eq!(config.usb_serial, None);
+    assert_eq!(
+        (config.depth_width, config.depth_height, config.depth_fps),
+        (640, 480, 30)
+    );
 }
 
-/// Confirms that blank Radar configuration is accepted for future implementation.
+/// A RealSense serial is an SDK device identifier, not a Windows COM port.
 #[test]
-fn device_config_selects_realsense_with_blank_radar() {
-    let lidar = parse_device_config("Lidar: realsense-l515\nRadar:\n").unwrap();
-    assert_eq!(lidar, LidarType::RealSenseL515);
+fn preserves_realsense_serial() {
+    let config = parse_device_config(
+        "Lidar: realsense-l515\nUsbSerial(realsensel515): 123456789012\nDepthWidth(realsensel515): 1024\nDepthHeight(realsensel515): 768\nDepthFps(realsensel515): 15\nRadar:\n",
+    )
+    .unwrap();
+    assert_eq!(config.usb_serial.as_deref(), Some("123456789012"));
+    assert_eq!(
+        (config.depth_width, config.depth_height, config.depth_fps),
+        (1024, 768, 15)
+    );
 }
 
-/// Confirms that a missing LiDAR selection produces a clear configuration error.
+/// Keeps the earlier ComPort spelling as a compatibility alias.
 #[test]
-fn device_config_requires_lidar_entry() {
+fn accepts_legacy_com_port_key() {
+    let config = parse_device_config(
+        "Lidar: realsense-l515\nComPort(realsensel515): TEST-SERIAL\nDepthWidth: 640\nDepthHeight: 480\nDepthFps: 30\nRadar: None\n",
+    )
+    .unwrap();
+    assert_eq!(config.usb_serial.as_deref(), Some("TEST-SERIAL"));
+}
+
+#[test]
+fn requires_lidar_selection() {
     let error = parse_device_config("Radar: None\n").unwrap_err();
-    assert!(error.contains("missing 'Lidar:"));
+    assert!(error.contains("missing a Lidar selection"));
 }
 
-/// Confirms that the LiDAR can no longer be overridden from the command line.
 #[test]
-fn command_line_rejects_lidar_override() {
-    let args = vec!["--lidar".to_owned(), "l515".to_owned()];
-    let error = parse_arguments(&args, LidarType::QuanergyM8).unwrap_err();
-    assert!(error.contains("unknown option '--lidar'"));
+fn requires_quanergy_network_settings() {
+    let error = parse_device_config("Lidar: quanergy-m8\nRadar: None\n").unwrap_err();
+    assert!(error.contains("requires SensorIP and TcpPort"));
+}
+
+#[test]
+fn rejects_unimplemented_radar() {
+    let contents = QUANERGY_CONFIG.replace("Radar: None", "Radar: example-radar");
+    let error = parse_device_config(&contents).unwrap_err();
+    assert!(error.contains("Radar is not implemented"));
+}
+
+#[test]
+fn rejects_removed_duration_setting() {
+    let error =
+        parse_device_config(&format!("{QUANERGY_CONFIG}DurationSeconds: 10\n")).unwrap_err();
+    assert!(error.contains("unknown device key 'durationseconds'"));
+}
+
+#[test]
+fn reconnect_interval_must_be_positive() {
+    let contents = QUANERGY_CONFIG.replace(
+        "ReconnectIntervalSeconds(Lidar): 7",
+        "ReconnectIntervalSeconds(Lidar): 0",
+    );
+    let error = parse_device_config(&contents).unwrap_err();
+    assert!(error.contains("must be between 1"));
+}
+
+/// Confirms priority and bounded queue defaults used by main.
+#[test]
+fn runtime_defaults_match_worker_architecture() {
+    let runtime = parse_device_config(QUANERGY_CONFIG)
+        .unwrap()
+        .runtime_config()
+        .unwrap();
+    assert_eq!(runtime.threads.lidar_read.thread.priority.level(), 1);
+    assert_eq!(runtime.threads.lidar_decode.thread.priority.level(), 2);
+    assert_eq!(runtime.threads.preprocessing.thread.priority.level(), 3);
+    assert_eq!(runtime.queues.raw_capacity, 32);
+    assert_eq!(runtime.queues.decoded_capacity, 8);
+    assert_eq!(runtime.queues.processed_capacity, 8);
 }

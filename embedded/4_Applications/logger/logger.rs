@@ -1,12 +1,13 @@
 //! Application workers that persist subscribed LiDAR data to local files.
 
-use std::{io, path::PathBuf};
+use std::{io, path::PathBuf, sync::Arc};
 
 use crate::{
     devices::lidar::RawPacket,
-    models::{lidar_message::LidarMessage, pointcloud::PointCloudFrame},
+    models::{lidar_message::LidarMessage, pointcloud::PointCloudFrame, topics},
     platform::{
-        pubsub::TopicSubscriber,
+        message_bus::{MessageBus, WorkerTopicInputs},
+        pubsub::{ReceiveStatus, TopicSubscriber},
         threading::{spawn_worker, StopToken, ThreadConfig, WorkerHandle},
     },
     transport::local::{PcdWriter, RawCaptureWriter},
@@ -14,38 +15,47 @@ use crate::{
 
 /// Counts the messages and points written by one logger worker.
 #[derive(Debug, Default)]
-pub(crate) struct LoggerReport {
+pub struct LoggerReport {
     pub message_count: u64,
     pub point_count: u64,
+    pub dropped_message_count: u64,
 }
 
 /// Starts the RAW logger worker when a `.bin` output has been enabled.
-pub(crate) fn spawn_raw_logger<F>(
+pub fn spawn_raw_logger<F>(
+    bus: Arc<MessageBus>,
     thread_config: ThreadConfig,
     stop: StopToken,
-    subscriber: TopicSubscriber<LidarMessage<RawPacket>>,
     path: PathBuf,
     on_complete: F,
 ) -> io::Result<WorkerHandle<()>>
 where
     F: FnOnce(Result<LoggerReport, String>) + Send + 'static,
 {
+    let mut inputs = WorkerTopicInputs::new(thread_config.name.clone())?;
+    let subscriber = inputs
+        .subscribe::<LidarMessage<RawPacket>>(&bus, topics::LIDAR_RAW)?
+        .into_subscriber();
     spawn_logger(thread_config, stop, on_complete, move || {
         run_raw_logger(subscriber, path)
     })
 }
 
 /// Starts the PCD logger worker when a `.pcd` output has been enabled.
-pub(crate) fn spawn_pcd_logger<F>(
+pub fn spawn_pcd_logger<F>(
+    bus: Arc<MessageBus>,
     thread_config: ThreadConfig,
     stop: StopToken,
-    subscriber: TopicSubscriber<LidarMessage<PointCloudFrame>>,
     path: PathBuf,
     on_complete: F,
 ) -> io::Result<WorkerHandle<()>>
 where
     F: FnOnce(Result<LoggerReport, String>) + Send + 'static,
 {
+    let mut inputs = WorkerTopicInputs::new(thread_config.name.clone())?;
+    let subscriber = inputs
+        .subscribe::<LidarMessage<PointCloudFrame>>(&bus, topics::POINTCLOUD_PROCESSED)?
+        .into_subscriber();
     spawn_logger(thread_config, stop, on_complete, move || {
         run_pcd_logger(subscriber, path)
     })
@@ -80,10 +90,17 @@ fn run_raw_logger(
     let mut writer = RawCaptureWriter::create(&path)?;
     let mut report = LoggerReport::default();
 
-    while let Ok(message) = subscriber.recv() {
-        writer.write_packet(&message.payload)?;
-        report.message_count += 1;
+    loop {
+        match subscriber.receive()? {
+            ReceiveStatus::Message(message) => {
+                writer.write_packet(&message.payload)?;
+                report.message_count += 1;
+            }
+            ReceiveStatus::Closed => break,
+            ReceiveStatus::Timeout => continue,
+        }
     }
+    report.dropped_message_count = subscriber.dropped_messages();
     writer.finish()?;
     Ok(report)
 }
@@ -96,11 +113,18 @@ fn run_pcd_logger(
     let mut writer = PcdWriter::create(&path)?;
     let mut report = LoggerReport::default();
 
-    while let Ok(message) = subscriber.recv() {
-        writer.write_frame(&message.payload)?;
-        report.message_count += 1;
-        report.point_count += message.payload.points.len() as u64;
+    loop {
+        match subscriber.receive()? {
+            ReceiveStatus::Message(message) => {
+                writer.write_frame(&message.payload)?;
+                report.message_count += 1;
+                report.point_count += message.payload.points.len() as u64;
+            }
+            ReceiveStatus::Closed => break,
+            ReceiveStatus::Timeout => continue,
+        }
     }
+    report.dropped_message_count = subscriber.dropped_messages();
 
     let written_points = writer.finish()?;
     debug_assert_eq!(written_points, report.point_count);

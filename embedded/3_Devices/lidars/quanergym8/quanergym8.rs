@@ -53,8 +53,12 @@ pub struct QuanergyM8Reader {
 
 impl QuanergyM8 {
     /// Opens the sensor through Transport and returns independent worker halves.
-    pub fn connect(address: SocketAddr) -> io::Result<(QuanergyM8Reader, QuanergyM8Decoder)> {
-        let connection = EthernetConnection::connect(address, Duration::from_secs(5))?;
+    pub fn connect(
+        address: SocketAddr,
+        connection_timeout: Duration,
+    ) -> io::Result<(QuanergyM8Reader, QuanergyM8Decoder)> {
+        let connection =
+            EthernetConnection::connect(address, connection_timeout, connection_timeout)?;
         Ok((QuanergyM8Reader { connection }, QuanergyM8Decoder))
     }
 
@@ -319,5 +323,5 @@ fn decode_reduced_return(bytes: &[u8], packet_timestamp_ns: u64) -> io::Result<P
 }
 
 #[cfg(test)]
-#[path = "../../unittest/device_test/lidar_quanergym8_test.rs"]
+#[path = "../../../unittest/device_test/quanergym8_test.rs"]
 mod tests;

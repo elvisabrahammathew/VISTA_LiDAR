@@ -15,9 +15,18 @@ pub struct EthernetConnection {
 
 impl EthernetConnection {
     /// Opens a TCP connection and applies the Windows/Linux stream configuration.
-    pub fn connect(address: SocketAddr, connect_timeout: Duration) -> io::Result<Self> {
-        let stream = TcpStream::connect_timeout(&address, connect_timeout)?;
-        platform::configure_tcp_stream(&stream)?;
+    pub fn connect(
+        address: SocketAddr,
+        connect_timeout: Duration,
+        read_timeout: Duration,
+    ) -> io::Result<Self> {
+        let stream = TcpStream::connect_timeout(&address, connect_timeout).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("Ethernet connection to {address} failed: {error}"),
+            )
+        })?;
+        platform::configure_tcp_stream(&stream, read_timeout)?;
         Ok(Self { stream })
     }
 
@@ -28,5 +37,5 @@ impl EthernetConnection {
 }
 
 #[cfg(test)]
-#[path = "../../unittest/transport_test/ethernet_test.rs"]
+#[path = "../../../unittest/transport_test/ethernet_test.rs"]
 mod tests;

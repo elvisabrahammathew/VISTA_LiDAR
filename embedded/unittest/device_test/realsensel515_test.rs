@@ -1,4 +1,4 @@
-//! Unit tests for RealSense L515 Z16-to-point-cloud conversion.
+//! Unit tests for realsensel515.rs Z16-to-point-cloud conversion.
 
 use super::decode_depth_frame;
 

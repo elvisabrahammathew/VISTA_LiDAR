@@ -35,6 +35,7 @@ impl RealSenseL515 {
     ) -> io::Result<(RealSenseL515Reader, RealSenseL515Decoder)> {
         let transport_config = LibrealsenseDepthStreamConfig::new(
             "L515",
+            config.usb_serial,
             config.width,
             config.height,
             config.frames_per_second,
@@ -137,5 +138,5 @@ fn decode_depth_frame(
 }
 
 #[cfg(test)]
-#[path = "../../unittest/device_test/lidar_realsense_test.rs"]
+#[path = "../../../unittest/device_test/realsensel515_test.rs"]
 mod tests;

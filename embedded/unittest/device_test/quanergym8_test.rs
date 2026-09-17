@@ -1,4 +1,4 @@
-//! Unit tests for lidar_quanergym8.rs packet framing and decoding.
+//! Unit tests for quanergym8.rs packet framing and decoding.
 
 use super::*;
 
