@@ -27,6 +27,7 @@
 x64/
 x86/
 out/
+target/
 
 # ==========================================
 # IDE and Tooling Clutter
