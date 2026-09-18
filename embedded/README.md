@@ -19,6 +19,16 @@ out of Git:
 GrafanaToken: glsa_your_generated_token
 ```
 
+LiDAR file logging is disabled by default and controlled independently:
+
+```text
+RawLoggingEnabled(Lidar): 0
+PointCloudLoggingEnabled(Lidar): 0
+```
+
+Set a value to `1` to start its logger and create the corresponding `.bin` or
+`.pcd` file. Reading, decoding, and preprocessing continue when both are `0`.
+
 Run the checks from this directory:
 
 ```text

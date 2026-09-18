@@ -89,6 +89,10 @@ pub(crate) struct AppConfig {
     pub depth_width: u32,
     pub depth_height: u32,
     pub depth_fps: u32,
+    /// Enables the RAW logger worker and timestamped .bin output.
+    pub raw_logging_enabled: bool,
+    /// Enables the PCD logger worker and timestamped .pcd output.
+    pub pointcloud_logging_enabled: bool,
     pub lidar_reconnect_interval: Duration,
     pub raw_path: Option<PathBuf>,
     pub pcd_path: Option<PathBuf>,
@@ -106,6 +110,8 @@ impl Default for AppConfig {
             depth_width: DEFAULT_DEPTH_WIDTH,
             depth_height: DEFAULT_DEPTH_HEIGHT,
             depth_fps: DEFAULT_DEPTH_FPS,
+            raw_logging_enabled: false,
+            pointcloud_logging_enabled: false,
             lidar_reconnect_interval: DEFAULT_RECONNECT_INTERVAL,
             raw_path: None,
             pcd_path: None,
@@ -116,20 +122,26 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    /// Reads all user settings from DeviceConfig.txt and creates timestamped logs.
+    /// Reads settings and creates paths only for explicitly enabled logs.
     pub(crate) fn load() -> Result<Self, String> {
         let contents = fs::read_to_string(DEFAULT_DEVICE_CONFIG_PATH).map_err(|error| {
             format!("could not read device configuration '{DEFAULT_DEVICE_CONFIG_PATH}': {error}")
         })?;
         let mut config = parse_device_config(&contents)?;
-        let log_stem = platform::current_log_timestamp().map_err(|error| error.to_string())?;
         let data_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .ok_or_else(|| "embedded directory has no repository parent".to_owned())?
             .join("data");
         config.system_monitor.data_root = data_root.clone();
-        config.raw_path = Some(data_root.join("raw").join(format!("{log_stem}.bin")));
-        config.pcd_path = Some(data_root.join("processed").join(format!("{log_stem}.pcd")));
+        if config.raw_logging_enabled || config.pointcloud_logging_enabled {
+            let log_stem = platform::current_log_timestamp().map_err(|error| error.to_string())?;
+            if config.raw_logging_enabled {
+                config.raw_path = Some(data_root.join("raw").join(format!("{log_stem}.bin")));
+            }
+            if config.pointcloud_logging_enabled {
+                config.pcd_path = Some(data_root.join("processed").join(format!("{log_stem}.pcd")));
+            }
+        }
         Ok(config)
     }
 
@@ -157,9 +169,17 @@ impl AppConfig {
             threads: ThreadSetConfig {
                 lidar_read: worker_config("lidar-read", LIDAR_READ_PRIORITY)?,
                 lidar_decode: worker_config("lidar-decode", LIDAR_DECODE_PRIORITY)?,
-                raw_logger: worker_config("raw-logger", RAW_LOGGER_PRIORITY)?,
+                raw_logger: worker_config_with_enabled(
+                    "raw-logger",
+                    RAW_LOGGER_PRIORITY,
+                    self.raw_logging_enabled,
+                )?,
                 preprocessing: worker_config("pointcloud-preprocessing", PREPROCESSING_PRIORITY)?,
-                pcd_logger: worker_config("pcd-logger", PCD_LOGGER_PRIORITY)?,
+                pcd_logger: worker_config_with_enabled(
+                    "pcd-logger",
+                    PCD_LOGGER_PRIORITY,
+                    self.pointcloud_logging_enabled,
+                )?,
                 grafana_bridge: worker_config("grafana-bridge", GRAFANA_BRIDGE_PRIORITY)?,
                 system_monitor: worker_config("system-monitor", SYSTEM_MONITOR_PRIORITY)?,
             },
@@ -174,8 +194,16 @@ impl AppConfig {
 }
 
 fn worker_config(name: &str, priority: u8) -> Result<WorkerConfig, String> {
+    worker_config_with_enabled(name, priority, true)
+}
+
+fn worker_config_with_enabled(
+    name: &str,
+    priority: u8,
+    enabled: bool,
+) -> Result<WorkerConfig, String> {
     Ok(WorkerConfig {
-        enabled: true,
+        enabled,
         thread: ThreadConfig::new(name, priority).map_err(|error| error.to_string())?,
     })
 }
@@ -238,6 +266,14 @@ fn parse_boolean(value: &str, label: &str) -> Result<bool, String> {
         _ => Err(format!(
             "{label} must be true/false, yes/no, on/off, or 1/0"
         )),
+    }
+}
+
+fn parse_zero_one_switch(value: &str, label: &str) -> Result<bool, String> {
+    match value {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => Err(format!("{label} must be 0 or 1")),
     }
 }
 
@@ -326,6 +362,14 @@ pub(crate) fn parse_device_config(contents: &str) -> Result<AppConfig, String> {
                     "LiDAR reconnect interval",
                     MAXIMUM_RECONNECT_INTERVAL_SECONDS,
                 )?);
+            }
+            "rawloggingenabled" => {
+                config.raw_logging_enabled =
+                    parse_zero_one_switch(value, "RawLoggingEnabled(Lidar)")?;
+            }
+            "pointcloudloggingenabled" => {
+                config.pointcloud_logging_enabled =
+                    parse_zero_one_switch(value, "PointCloudLoggingEnabled(Lidar)")?;
             }
             "grafanaenabled" => {
                 config.grafana.enabled = parse_boolean(value, "GrafanaEnabled")?;

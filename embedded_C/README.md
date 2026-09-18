@@ -139,6 +139,8 @@ The program does not accept command-line configuration. Edit
 ```text
 # Supported LiDAR: quanergy-m8, realsense-l515
 Lidar: quanergy-m8
+RawLoggingEnabled(Lidar): 0
+PointCloudLoggingEnabled(Lidar): 0
 ReconnectIntervalSeconds(Lidar): 5
 SensorIP(quanergym8): 192.168.1.3
 TcpPort(quanergym8): 4141
@@ -173,8 +175,12 @@ sensor data continues to arrive.
 There is no duration setting: press Ctrl+C to stop the continuous capture and
 let the workers close their log files cleanly.
 
-At startup, the application creates both log names from local system time,
-including seconds. For example, a run started at 2026-09-16 13:14:05 writes:
+`RawLoggingEnabled(Lidar)` and `PointCloudLoggingEnabled(Lidar)` are independent.
+Both default to `0`, so no logger worker starts and no output file is created.
+Set either value to `1` to enable only that output.
+
+For enabled outputs, the application creates log names from local system time,
+including seconds. For example, a run started at 2026-09-16 13:14:05 can write:
 
 - `D:\MASTER\VISTA\LiDar\Repo\data\raw\20260916_131405.bin`
 - `D:\MASTER\VISTA\LiDar\Repo\data\processed\20260916_131405.pcd`

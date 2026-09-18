@@ -87,6 +87,18 @@ bool parse_boolean(const std::string& value, const std::string& label) {
         label + " must be true/false, yes/no, on/off, or 1/0");
 }
 
+bool parse_zero_one_switch(
+    const std::string& value,
+    const std::string& label) {
+    if (value == "0") {
+        return false;
+    }
+    if (value == "1") {
+        return true;
+    }
+    throw std::invalid_argument(label + " must be 0 or 1");
+}
+
 void reject_duplicate(
     std::unordered_set<std::string>& keys,
     const std::string& key,
@@ -185,6 +197,13 @@ AppConfig parse_device_config_text(const std::string& contents) {
                     value,
                      "LiDAR reconnect interval",
                      maximum_reconnect_interval_seconds));
+        } else if (key == "rawloggingenabled") {
+            config.raw_logging_enabled =
+                parse_zero_one_switch(value, "RawLoggingEnabled(Lidar)");
+        } else if (key == "pointcloudloggingenabled") {
+            config.pointcloud_logging_enabled =
+                parse_zero_one_switch(
+                    value, "PointCloudLoggingEnabled(Lidar)");
         } else if (key == "grafanaenabled") {
             config.grafana.enabled = parse_boolean(value, "GrafanaEnabled");
         } else if (key == "grafanahost") {
@@ -271,11 +290,19 @@ AppConfig AppConfig::load() {
     contents << input.rdbuf();
 
     auto config = parse_device_config_text(contents.str());
-    const auto log_stem = format_log_timestamp(std::chrono::system_clock::now());
     const auto data_root = std::filesystem::path(VISTA_DATA_ROOT).lexically_normal();
     config.system_monitor.data_root = data_root;
-    config.raw_path = data_root / "raw" / (log_stem + ".bin");
-    config.pcd_path = data_root / "processed" / (log_stem + ".pcd");
+    if (config.raw_logging_enabled || config.pointcloud_logging_enabled) {
+        const auto log_stem =
+            format_log_timestamp(std::chrono::system_clock::now());
+        if (config.raw_logging_enabled) {
+            config.raw_path = data_root / "raw" / (log_stem + ".bin");
+        }
+        if (config.pointcloud_logging_enabled) {
+            config.pcd_path =
+                data_root / "processed" / (log_stem + ".pcd");
+        }
+    }
     return config;
 }
 
@@ -312,10 +339,14 @@ RuntimeConfig AppConfig::runtime_config() const {
         ThreadSetConfig{
             WorkerConfig{true, platform::ThreadConfig("lidar-read", 1)},
             WorkerConfig{true, platform::ThreadConfig("lidar-decode", 2)},
-            WorkerConfig{true, platform::ThreadConfig("raw-logger", 2)},
+            WorkerConfig{
+                raw_logging_enabled,
+                platform::ThreadConfig("raw-logger", 2)},
             WorkerConfig{
                 true, platform::ThreadConfig("pointcloud-preprocessing", 3)},
-            WorkerConfig{true, platform::ThreadConfig("pcd-logger", 2)},
+            WorkerConfig{
+                pointcloud_logging_enabled,
+                platform::ThreadConfig("pcd-logger", 2)},
             WorkerConfig{
                 true, platform::ThreadConfig("system-monitor", 4)},
             WorkerConfig{

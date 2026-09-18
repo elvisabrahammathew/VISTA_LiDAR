@@ -54,6 +54,10 @@ struct AppConfig {
     std::uint32_t depth_width{640};
     std::uint32_t depth_height{480};
     std::uint32_t depth_fps{30};
+    /// Controls whether the RAW logger worker and .bin output are created.
+    bool raw_logging_enabled{false};
+    /// Controls whether the PCD logger worker and .pcd output are created.
+    bool pointcloud_logging_enabled{false};
     /// Delay before retrying while the selected LiDAR is unavailable.
     std::chrono::milliseconds lidar_reconnect_interval{5'000};
     application::GrafanaBridgeConfig grafana;

@@ -18,6 +18,34 @@ fn parses_quanergy_settings() {
     assert_eq!(config.sensor_ip, "192.168.1.20".parse::<IpAddr>().unwrap());
     assert_eq!(config.tcp_port, Some(5000));
     assert_eq!(config.lidar_reconnect_interval, Duration::from_secs(7));
+    assert!(!config.raw_logging_enabled);
+    assert!(!config.pointcloud_logging_enabled);
+}
+
+/// RAW and PCD logging can be enabled independently for the selected LiDAR.
+#[test]
+fn parses_independent_lidar_logging_switches() {
+    let contents = QUANERGY_CONFIG.replace(
+        "ReconnectIntervalSeconds(Lidar): 7",
+        "RawLoggingEnabled(Lidar): 1\nPointCloudLoggingEnabled(Lidar): 0\nReconnectIntervalSeconds(Lidar): 7",
+    );
+    let config = parse_device_config(&contents).unwrap();
+    assert!(config.raw_logging_enabled);
+    assert!(!config.pointcloud_logging_enabled);
+
+    let runtime = config.runtime_config().unwrap();
+    assert!(runtime.threads.raw_logger.enabled);
+    assert!(!runtime.threads.pcd_logger.enabled);
+}
+
+#[test]
+fn rejects_invalid_lidar_logging_switch() {
+    let contents = QUANERGY_CONFIG.replace(
+        "ReconnectIntervalSeconds(Lidar): 7",
+        "RawLoggingEnabled(Lidar): 2\nReconnectIntervalSeconds(Lidar): 7",
+    );
+    let error = parse_device_config(&contents).unwrap_err();
+    assert!(error.contains("RawLoggingEnabled(Lidar)"));
 }
 
 /// An empty serial means that librealsense may select the first matching L515.

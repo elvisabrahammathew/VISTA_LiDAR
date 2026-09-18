@@ -24,6 +24,33 @@ VISTA_TEST(config_file_parses_quanergy_network_settings_and_notes) {
     VISTA_CHECK(config.sensor_ip == "192.168.1.20");
     VISTA_CHECK(config.tcp_port == 5000);
     VISTA_CHECK(config.lidar_reconnect_interval == std::chrono::seconds(7));
+    VISTA_CHECK(!config.raw_logging_enabled);
+    VISTA_CHECK(!config.pointcloud_logging_enabled);
+}
+
+VISTA_TEST(config_file_parses_independent_lidar_logging_switches) {
+    const auto config = vista::parse_device_config_text(R"(
+Lidar: quanergy-m8
+RawLoggingEnabled(Lidar): 1
+PointCloudLoggingEnabled(Lidar): 0
+SensorIP(quanergym8): 192.168.1.3
+TcpPort(quanergym8): 4141
+)");
+
+    VISTA_CHECK(config.raw_logging_enabled);
+    VISTA_CHECK(!config.pointcloud_logging_enabled);
+    const auto runtime = config.runtime_config();
+    VISTA_CHECK(runtime.threads.raw_logger.enabled);
+    VISTA_CHECK(!runtime.threads.pcd_logger.enabled);
+}
+
+VISTA_TEST(config_file_rejects_invalid_lidar_logging_switch) {
+    VISTA_CHECK_THROWS(vista::parse_device_config_text(R"(
+Lidar: quanergy-m8
+RawLoggingEnabled(Lidar): 2
+SensorIP(quanergym8): 192.168.1.3
+TcpPort(quanergym8): 4141
+)") );
 }
 
 VISTA_TEST(config_file_parses_realsense_with_first_matching_device) {
