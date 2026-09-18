@@ -93,7 +93,11 @@ fn run_raw_logger(
     loop {
         match subscriber.receive()? {
             ReceiveStatus::Message(message) => {
-                writer.write_packet(&message.payload)?;
+                if let Err(error) = writer.write_packet(&message.payload) {
+                    crate::platform::runtime_metrics::record_storage_write_error();
+                    return Err(error);
+                }
+                crate::platform::runtime_metrics::record_raw_write(message.payload.len());
                 report.message_count += 1;
             }
             ReceiveStatus::Closed => break,
@@ -116,7 +120,11 @@ fn run_pcd_logger(
     loop {
         match subscriber.receive()? {
             ReceiveStatus::Message(message) => {
-                writer.write_frame(&message.payload)?;
+                if let Err(error) = writer.write_frame(&message.payload) {
+                    crate::platform::runtime_metrics::record_storage_write_error();
+                    return Err(error);
+                }
+                crate::platform::runtime_metrics::record_pcd_write(message.payload.points.len());
                 report.message_count += 1;
                 report.point_count += message.payload.points.len() as u64;
             }

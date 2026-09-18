@@ -1,4 +1,4 @@
-//! Selects and links the bundled librealsense runtime for the Cargo target.
+//! Builds and statically links librealsense for the native Cargo target.
 
 use std::{
     env, fs,
@@ -8,141 +8,72 @@ use std::{
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(vista_realsense)");
-    println!("cargo:rerun-if-changed=third_party/realsense");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../third_party/librealsense/CMakeLists.txt");
+    println!("cargo:rerun-if-changed=GrafanaSecret.txt");
 
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
+    copy_optional_grafana_secret(&manifest_dir);
+
     let target_os = env::var("CARGO_CFG_TARGET_OS").expect("target OS");
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("target architecture");
     let host = env::var("HOST").expect("Cargo host triple");
     let target = env::var("TARGET").expect("Cargo target triple");
 
-    match target_os.as_str() {
-        "windows" => configure_windows(&manifest_dir, &host, &target),
-        "linux" => configure_linux(&manifest_dir, &target_arch, &host, &target),
-        _ => println!("cargo:warning=librealsense is not configured for {target_os}/{target_arch}"),
-    }
-}
-
-/// Uses bundled Windows binaries, or builds the SDK source when they are absent.
-fn configure_windows(manifest_dir: &Path, host: &str, target: &str) {
-    let sdk_dir = manifest_dir.join("third_party/realsense/window");
-    let import_library = sdk_dir.join("realsense2.lib");
-    let runtime_library = sdk_dir.join("realsense2.dll");
-
-    if import_library.is_file() && runtime_library.is_file() {
-        enable_windows_runtime(&import_library, &runtime_library);
+    if !matches!(
+        (target_os.as_str(), target_arch.as_str()),
+        ("windows", "x86_64") | ("linux", "x86_64") | ("linux", "aarch64")
+    ) {
+        println!("cargo:warning=RealSense is unsupported for target {target_os}/{target_arch}");
         return;
     }
 
-    if host == target {
-        if let Some(source_dir) = find_realsense_source(manifest_dir) {
-            let build_dir = build_realsense_source(&source_dir);
-            let built_import = find_file(&build_dir, "realsense2.lib");
-            let built_runtime = find_file(&build_dir, "realsense2.dll");
-            if let (Some(import), Some(runtime)) = (built_import, built_runtime) {
-                enable_windows_runtime(&import, &runtime);
-                return;
-            }
-            panic!(
-                "librealsense build completed but realsense2.lib/realsense2.dll were not found below {}",
-                build_dir.display()
-            );
-        }
-    }
-
-    println!(
-        "cargo:warning=RealSense Windows backend disabled: no prebuilt runtime or native SDK source build is available"
-    );
-}
-
-fn enable_windows_runtime(import_library: &Path, runtime_library: &Path) {
-    let library_dir = import_library.parent().expect("Windows library directory");
-    println!("cargo:rustc-link-search=native={}", library_dir.display());
-    println!("cargo:rustc-link-lib=dylib=realsense2");
-    println!("cargo:rustc-cfg=vista_realsense");
-    copy_runtime_library(runtime_library, "realsense2.dll");
-}
-
-/// Uses a bundled Linux library, or builds the SDK source on native Linux.
-fn configure_linux(manifest_dir: &Path, target_arch: &str, host: &str, target: &str) {
-    let directory_name = match target_arch {
-        "x86_64" => "linux_x8664",
-        "aarch64" => "linux_arm64",
-        _ => {
-            println!(
-                "cargo:warning=RealSense Linux backend disabled for architecture {target_arch}"
-            );
-            return;
-        }
-    };
-    let sdk_dir = manifest_dir
-        .join("third_party/realsense")
-        .join(directory_name);
-    let shared_library = sdk_dir.join("librealsense2.so");
-
-    if shared_library.is_file() {
-        enable_linux_runtime(&shared_library);
+    if host != target {
+        println!(
+            "cargo:warning=RealSense backend disabled: static librealsense must be built natively for {target}"
+        );
         return;
     }
 
-    if host == target {
-        if let Some(source_dir) = find_realsense_source(manifest_dir) {
-            let build_dir = build_realsense_source(&source_dir);
-            if let Some(runtime) = find_file(&build_dir, "librealsense2.so") {
-                enable_linux_runtime(&runtime);
-                return;
-            }
-            panic!(
-                "librealsense build completed but librealsense2.so was not found below {}",
-                build_dir.display()
-            );
-        }
+    let source_dir = manifest_dir.join("../third_party/librealsense");
+    if !source_dir.join("CMakeLists.txt").is_file() {
+        println!(
+            "cargo:warning=RealSense backend disabled: initialize the repository-level submodule with `git submodule update --init --recursive`"
+        );
+        return;
     }
 
-    println!(
-        "cargo:warning=RealSense Linux backend disabled: no prebuilt library exists for {target_arch}, and source builds require a native {target} host"
-    );
-}
-
-fn enable_linux_runtime(shared_library: &Path) {
-    let library_dir = shared_library.parent().expect("Linux library directory");
-    println!("cargo:rustc-link-search=native={}", library_dir.display());
-    println!("cargo:rustc-link-lib=dylib=realsense2");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-    println!("cargo:rustc-cfg=vista_realsense");
-    copy_runtime_library(shared_library, "librealsense2.so");
-}
-
-/// Finds the Rust-local SDK source first and the current C++ copy second.
-fn find_realsense_source(manifest_dir: &Path) -> Option<PathBuf> {
-    let candidates = [
-        manifest_dir.join("third_party/realsense/librealsense-2.50.0"),
-        manifest_dir.join("../embedded_C/third_party/realsense/librealsense-2.50.0"),
-    ];
-    candidates
-        .into_iter()
-        .find(|path| path.join("CMakeLists.txt").is_file())
-}
-
-/// Builds a generated shared runtime under Cargo's target directory.
-fn build_realsense_source(source_dir: &Path) -> PathBuf {
     let output_dir = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo OUT_DIR"));
-    let build_dir = output_dir.join("librealsense-build");
-    fs::create_dir_all(&build_dir).expect("create librealsense build directory");
-    println!(
-        "cargo:rerun-if-changed={}",
-        source_dir.join("CMakeLists.txt").display()
-    );
+    let build_dir = output_dir.join(format!("librealsense-static-{target_os}-{target_arch}"));
+    build_static_librealsense(&source_dir, &build_dir, &target_os, &target_arch);
+    link_static_librealsense(&build_dir, &target_os, &target_arch);
+    println!("cargo:rustc-cfg=vista_realsense");
+}
+
+fn build_static_librealsense(
+    source_dir: &Path,
+    build_dir: &Path,
+    target_os: &str,
+    target_arch: &str,
+) {
+    fs::create_dir_all(build_dir).expect("create librealsense build directory");
+    let rsusb = if target_os == "linux" && target_arch == "aarch64" {
+        "ON"
+    } else {
+        "OFF"
+    };
 
     run_cmake(
         Command::new("cmake")
             .arg("-S")
             .arg(source_dir)
             .arg("-B")
-            .arg(&build_dir)
+            .arg(build_dir)
             .args([
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
                 "-DCMAKE_BUILD_TYPE=Release",
-                "-DBUILD_SHARED_LIBS=ON",
+                "-DBUILD_SHARED_LIBS=OFF",
+                "-DBUILD_WITH_STATIC_CRT=OFF",
                 "-DBUILD_EXAMPLES=OFF",
                 "-DBUILD_GRAPHICAL_EXAMPLES=OFF",
                 "-DBUILD_TOOLS=OFF",
@@ -157,20 +88,56 @@ fn build_realsense_source(source_dir: &Path) -> PathBuf {
                 "-DBUILD_WITH_CUDA=OFF",
                 "-DBUILD_WITH_OPENMP=OFF",
                 "-DENABLE_CCACHE=OFF",
-            ]),
-        "configure librealsense",
+            ])
+            .arg(format!("-DFORCE_RSUSB_BACKEND={rsusb}")),
+        "configure static librealsense",
     );
     run_cmake(
-        Command::new("cmake").arg("--build").arg(&build_dir).args([
+        Command::new("cmake").arg("--build").arg(build_dir).args([
             "--config",
             "Release",
             "--target",
             "realsense2",
             "--parallel",
         ]),
-        "build librealsense",
+        "build static librealsense",
     );
-    build_dir
+}
+
+fn link_static_librealsense(build_dir: &Path, target_os: &str, target_arch: &str) {
+    match target_os {
+        "windows" => {
+            link_archive(build_dir, "realsense2.lib", "realsense2");
+            link_archive(build_dir, "realsense-file.lib", "realsense-file");
+            // Static librealsense uses Windows security-descriptor helpers.
+            println!("cargo:rustc-link-lib=dylib=advapi32");
+        }
+        "linux" => {
+            link_archive(build_dir, "librealsense2.a", "realsense2");
+            link_archive(build_dir, "librealsense-file.a", "realsense-file");
+            println!("cargo:rustc-link-lib=dylib=stdc++");
+            println!("cargo:rustc-link-lib=dylib=usb-1.0");
+            if target_arch == "x86_64" {
+                println!("cargo:rustc-link-lib=dylib=udev");
+            }
+            for library in ["pthread", "dl", "rt", "m"] {
+                println!("cargo:rustc-link-lib=dylib={library}");
+            }
+        }
+        _ => unreachable!("unsupported librealsense target OS"),
+    }
+}
+
+fn link_archive(build_dir: &Path, file_name: &str, link_name: &str) {
+    let archive = find_file(build_dir, file_name).unwrap_or_else(|| {
+        panic!(
+            "librealsense build completed but {file_name} was not found below {}",
+            build_dir.display()
+        )
+    });
+    let library_dir = archive.parent().expect("static library directory");
+    println!("cargo:rustc-link-search=native={}", library_dir.display());
+    println!("cargo:rustc-link-lib=static={link_name}");
 }
 
 fn run_cmake(command: &mut Command, operation: &str) {
@@ -196,23 +163,30 @@ fn find_file(root: &Path, file_name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Places a native runtime where both Cargo binaries and test executables can load it.
-fn copy_runtime_library(runtime_library: &Path, file_name: &str) {
+fn copy_file(source: &Path, destination: &Path) {
+    let parent = destination.parent().expect("destination directory");
+    fs::create_dir_all(parent).unwrap_or_else(|error| {
+        panic!("failed to create {}: {error}", parent.display());
+    });
+    fs::copy(source, destination).unwrap_or_else(|error| {
+        panic!(
+            "failed to copy {} to {}: {error}",
+            source.display(),
+            destination.display()
+        );
+    });
+}
+
+/// Keeps the ignored local token beside Cargo binaries without embedding it.
+fn copy_optional_grafana_secret(manifest_dir: &Path) {
+    let source = manifest_dir.join("GrafanaSecret.txt");
+    if !source.is_file() {
+        return;
+    }
     let output_dir = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo OUT_DIR"));
     let Some(profile_dir) = output_dir.ancestors().nth(3) else {
-        println!("cargo:warning=could not determine Cargo profile directory for {file_name}");
+        println!("cargo:warning=could not locate Cargo profile directory for GrafanaSecret.txt");
         return;
     };
-
-    for destination_dir in [profile_dir.to_path_buf(), profile_dir.join("deps")] {
-        if let Err(error) = fs::create_dir_all(&destination_dir)
-            .and_then(|()| fs::copy(runtime_library, destination_dir.join(file_name)).map(|_| ()))
-        {
-            panic!(
-                "failed to copy {} to {}: {error}",
-                runtime_library.display(),
-                destination_dir.display()
-            );
-        }
-    }
+    copy_file(&source, &profile_dir.join("GrafanaSecret.txt"));
 }

@@ -17,6 +17,8 @@ compile_error!("this capture application currently supports only Windows and Lin
 pub mod message_bus;
 #[path = "pubsub/pubsub.rs"]
 pub mod pubsub;
+#[path = "metrics/runtime_metrics.rs"]
+pub mod runtime_metrics;
 #[path = "threading/threading.rs"]
 pub mod threading;
 #[path = "workers/workers.rs"]
@@ -25,8 +27,8 @@ pub mod workers;
 // Expose one stable platform API to the device drivers.
 #[cfg(target_os = "linux")]
 pub use linux::{
-    configure_tcp_stream, current_log_timestamp, install_shutdown_signal_handlers,
-    shutdown_signal_received, PLATFORM_NAME,
+    configure_tcp_stream, current_log_timestamp, disk_free_gb, install_shutdown_signal_handlers,
+    process_memory_mb, shutdown_signal_received, system_memory_percent, CpuSampler, PLATFORM_NAME,
 };
 
 #[cfg(target_os = "linux")]
@@ -34,8 +36,8 @@ use linux::apply_current_thread_priority;
 
 #[cfg(target_os = "windows")]
 pub use windows::{
-    configure_tcp_stream, current_log_timestamp, install_shutdown_signal_handlers,
-    shutdown_signal_received, PLATFORM_NAME,
+    configure_tcp_stream, current_log_timestamp, disk_free_gb, install_shutdown_signal_handlers,
+    process_memory_mb, shutdown_signal_received, system_memory_percent, CpuSampler, PLATFORM_NAME,
 };
 
 #[cfg(target_os = "windows")]

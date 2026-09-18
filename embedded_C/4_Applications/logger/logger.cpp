@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "2_Transport/storage/local.hpp"
+#include "1_Platform/metrics/runtime_metrics.hpp"
 #include "models/topics.hpp"
 
 namespace vista::application {
@@ -30,6 +31,7 @@ LoggerReport run_raw_logger(
     std::shared_ptr<const devices::LidarRawMessage> message;
     while (subscriber.receive(message) == platform::ReceiveStatus::message) {
         writer.write_bytes(message->payload.bytes());
+        platform::record_raw_write(message->payload.size());
         ++report.message_count;
     }
     report.dropped_message_count = subscriber.dropped_messages();
@@ -45,6 +47,7 @@ LoggerReport run_pcd_logger(
     std::shared_ptr<const devices::LidarPointCloudMessage> message;
     while (subscriber.receive(message) == platform::ReceiveStatus::message) {
         writer.write_frame(message->payload);
+        platform::record_pcd_write(message->payload.points.size());
         ++report.message_count;
         report.point_count += message->payload.points.size();
     }
@@ -76,6 +79,7 @@ platform::WorkerHandle spawn_raw_logger(
             try {
                 on_complete(run_raw_logger(std::move(subscriber), path), {});
             } catch (...) {
+                platform::record_storage_write_error();
                 stop.request_stop();
                 on_complete(std::nullopt, current_exception_message());
             }
@@ -102,6 +106,7 @@ platform::WorkerHandle spawn_pcd_logger(
             try {
                 on_complete(run_pcd_logger(std::move(subscriber), path), {});
             } catch (...) {
+                platform::record_storage_write_error();
                 stop.request_stop();
                 on_complete(std::nullopt, current_exception_message());
             }

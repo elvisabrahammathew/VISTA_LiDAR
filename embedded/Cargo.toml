@@ -1,21 +1,21 @@
 [package]
-name = "vista-lidar"
+name = "vista-edge"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
-description = "Cross-platform LiDAR capture, decoding, and point-cloud preprocessing"
+description = "Cross-platform edge sensor capture and processing runtime"
 license = "MIT"
 
 [lib]
-name = "vista_lidar"
+name = "vista_edge"
 path = "lib.rs"
 
 [[bin]]
-name = "quanergy-m8-capture"
+name = "vista_edge"
 path = "main.rs"
 
 [dependencies]
 
 [lints.rust]
-# Native SDK calls are isolated in the platform and peripheral transport adapters.
-unsafe_code = "deny"
+# Unsafe native calls are allowed only inside reviewed OS/SDK adapters.
+unsafe_code = "warn"

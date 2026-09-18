@@ -5,10 +5,12 @@ mod config;
 use std::{path::Path, process::ExitCode, sync::Arc, time::Instant};
 
 use config::{validate_worker_selection, AppConfig, DEFAULT_DEVICE_CONFIG_PATH};
-use vista_lidar::{
+use vista_edge::{
     application::{
+        grafana_bridge::{spawn_grafana_bridge, GrafanaBridgeReport},
         logger::{spawn_pcd_logger, spawn_raw_logger, LoggerReport},
         pointcloud_processing::{spawn_preprocessing_worker, PreprocessingReport},
+        system_monitor::{spawn_system_monitor, SystemMonitorReport},
     },
     devices::lidar::{
         spawn_lidar_decode_worker, spawn_lidar_read_worker, Lidar, LidarConnector,
@@ -78,6 +80,14 @@ fn run() -> Result<(), String> {
         "LiDAR reconnect interval: {:.3} second(s)",
         config.lidar_reconnect_interval.as_secs_f64()
     );
+    if config.grafana.enabled {
+        println!(
+            "Grafana Live: http://{}:{}/api/live/push/{}",
+            config.grafana.host, config.grafana.port, config.grafana.namespace
+        );
+    } else {
+        println!("Grafana Live: disabled");
+    }
 
     let started = Instant::now();
     let stop = StopToken::new();
@@ -96,21 +106,60 @@ fn run() -> Result<(), String> {
         runtime.queues.processed_capacity,
     )
     .map_err(|error| error.to_string())?;
+    for topic in [
+        topics::SYSTEM_HEALTH,
+        topics::WORKER_HEALTH,
+        topics::STORAGE_HEALTH,
+        topics::POWER_THERMAL,
+    ] {
+        bus.configure_topic(topic, runtime.queues.telemetry_capacity)
+            .map_err(|error| error.to_string())?;
+    }
 
     let read_result = new_worker_result::<LidarWorkerReport>();
     let decode_result = new_worker_result::<LidarWorkerReport>();
     let raw_logger_result = new_worker_result::<LoggerReport>();
     let preprocessing_result = new_worker_result::<PreprocessingReport>();
     let pcd_logger_result = new_worker_result::<LoggerReport>();
+    let grafana_result = new_worker_result::<GrafanaBridgeReport>();
+    let system_monitor_result = new_worker_result::<SystemMonitorReport>();
 
-    let mut workers: Vec<WorkerHandle<()>> = Vec::with_capacity(5);
+    let mut workers: Vec<WorkerHandle<()>> = Vec::with_capacity(7);
     let mut read_started = false;
     let mut decode_started = false;
     let mut raw_logger_started = false;
     let mut preprocessing_started = false;
     let mut pcd_logger_started = false;
+    let mut grafana_started = false;
+    let mut system_monitor_started = false;
 
     let startup = (|| -> Result<(), String> {
+        if runtime.threads.grafana_bridge.enabled && config.grafana.enabled {
+            let handle = spawn_grafana_bridge(
+                Arc::clone(&bus),
+                runtime.threads.grafana_bridge.thread.clone(),
+                stop.clone(),
+                config.grafana.clone(),
+                completion_for(Arc::clone(&grafana_result)),
+            )
+            .map_err(|error| error.to_string())?;
+            add_worker(&mut workers, handle);
+            grafana_started = true;
+        }
+
+        if runtime.threads.system_monitor.enabled {
+            let handle = spawn_system_monitor(
+                Arc::clone(&bus),
+                runtime.threads.system_monitor.thread.clone(),
+                stop.clone(),
+                config.system_monitor.clone(),
+                completion_for(Arc::clone(&system_monitor_result)),
+            )
+            .map_err(|error| error.to_string())?;
+            add_worker(&mut workers, handle);
+            system_monitor_started = true;
+        }
+
         if runtime.threads.pcd_logger.enabled {
             if let Some(path) = config.pcd_path.clone() {
                 let handle = spawn_pcd_logger(
@@ -231,6 +280,18 @@ fn run() -> Result<(), String> {
         &pcd_logger_result,
         pcd_logger_started,
     );
+    collect_worker_error(
+        &mut failures,
+        &runtime.threads.grafana_bridge.thread.name,
+        &grafana_result,
+        grafana_started,
+    );
+    collect_worker_error(
+        &mut failures,
+        &runtime.threads.system_monitor.thread.name,
+        &system_monitor_result,
+        system_monitor_started,
+    );
     failure_if_any(failures).map_err(|error| error.to_string())?;
 
     let read = read_result
@@ -246,6 +307,12 @@ fn run() -> Result<(), String> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let pcd_logger = pcd_logger_result
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let grafana = grafana_result
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let system_monitor = system_monitor_result
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
@@ -279,6 +346,17 @@ fn run() -> Result<(), String> {
             .as_ref()
             .map_or(0, |report| report.dropped_message_count)
     );
+    if let Some(report) = &grafana.report {
+        println!(
+            "Grafana Live: published={}, failed-attempts={}, input-drops={}",
+            report.published_measurements,
+            report.failed_publish_attempts,
+            report.dropped_input_messages
+        );
+    }
+    if let Some(report) = &system_monitor.report {
+        println!("System monitor: {} sample(s)", report.sample_count);
+    }
     Ok(())
 }
 

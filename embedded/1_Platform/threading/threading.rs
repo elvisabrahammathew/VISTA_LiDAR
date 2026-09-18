@@ -9,7 +9,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use super::apply_current_thread_priority;
+use super::{apply_current_thread_priority, runtime_metrics::WorkerRuntimeGuard};
 
 pub const HIGHEST_PRIORITY: u8 = 1;
 pub const LOWEST_PRIORITY: u8 = 5;
@@ -139,6 +139,7 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     let name = config.name.clone();
+    let runtime_name = name.clone();
     let requested = config.priority;
     let (startup_sender, startup_receiver) = mpsc::sync_channel(1);
 
@@ -153,6 +154,7 @@ where
         // The worker may continue at the inherited priority if the OS rejects
         // the request; main receives a visible warning through this handshake.
         let _ = startup_sender.send(status);
+        let _runtime = WorkerRuntimeGuard::started(runtime_name, requested.level());
         worker()
     })?;
 

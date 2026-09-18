@@ -6,9 +6,13 @@
 pub mod analytics;
 #[path = "object/detection/detection.rs"]
 pub mod detection;
+#[path = "grafana_bridge/grafana_bridge.rs"]
+pub mod grafana_bridge;
 #[path = "logger/logger.rs"]
 pub mod logger;
 #[path = "processing/pointcloud/pointcloud_processing.rs"]
 pub mod pointcloud_processing;
+#[path = "monitoring/system_monitor.rs"]
+pub mod system_monitor;
 #[path = "object/tracking/tracking.rs"]
 pub mod tracking;

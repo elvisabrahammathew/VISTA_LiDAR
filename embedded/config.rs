@@ -8,8 +8,12 @@ use std::{
     time::Duration,
 };
 
-use vista_lidar::{
-    application::pointcloud_processing::{GroundRemovalConfig, PreprocessingConfig},
+use vista_edge::{
+    application::{
+        grafana_bridge::{validate_grafana_bridge_config, GrafanaBridgeConfig},
+        pointcloud_processing::{GroundRemovalConfig, PreprocessingConfig},
+        system_monitor::SystemMonitorConfig,
+    },
     devices::lidar::{DepthStreamConfig, LidarConfig, LidarType},
     platform::{self, threading::ThreadConfig},
 };
@@ -22,16 +26,20 @@ const DEFAULT_DEPTH_FPS: u32 = 30;
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 const MAXIMUM_RECONNECT_INTERVAL_SECONDS: u64 = 86_400;
+const MAXIMUM_GRAFANA_INTERVAL_MILLISECONDS: u64 = 3_600_000;
 
 const LIDAR_READ_PRIORITY: u8 = 1;
 const LIDAR_DECODE_PRIORITY: u8 = 2;
 const RAW_LOGGER_PRIORITY: u8 = 2;
 const PCD_LOGGER_PRIORITY: u8 = 2;
 const PREPROCESSING_PRIORITY: u8 = 3;
+const GRAFANA_BRIDGE_PRIORITY: u8 = 4;
+const SYSTEM_MONITOR_PRIORITY: u8 = 4;
 
 const RAW_TOPIC_CAPACITY: usize = 32;
 const DECODED_POINTCLOUD_TOPIC_CAPACITY: usize = 8;
 const PROCESSED_POINTCLOUD_TOPIC_CAPACITY: usize = 8;
+const TELEMETRY_TOPIC_CAPACITY: usize = 32;
 
 const MIN_DISTANCE_METERS: f32 = 0.1;
 const MAX_DISTANCE_METERS: f32 = 200.0;
@@ -52,6 +60,8 @@ pub(crate) struct ThreadSetConfig {
     pub raw_logger: WorkerConfig,
     pub preprocessing: WorkerConfig,
     pub pcd_logger: WorkerConfig,
+    pub grafana_bridge: WorkerConfig,
+    pub system_monitor: WorkerConfig,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,6 +69,7 @@ pub(crate) struct TopicQueueConfig {
     pub raw_capacity: usize,
     pub decoded_capacity: usize,
     pub processed_capacity: usize,
+    pub telemetry_capacity: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +92,8 @@ pub(crate) struct AppConfig {
     pub lidar_reconnect_interval: Duration,
     pub raw_path: Option<PathBuf>,
     pub pcd_path: Option<PathBuf>,
+    pub grafana: GrafanaBridgeConfig,
+    pub system_monitor: SystemMonitorConfig,
 }
 
 impl Default for AppConfig {
@@ -96,6 +109,8 @@ impl Default for AppConfig {
             lidar_reconnect_interval: DEFAULT_RECONNECT_INTERVAL,
             raw_path: None,
             pcd_path: None,
+            grafana: GrafanaBridgeConfig::default(),
+            system_monitor: SystemMonitorConfig::default(),
         }
     }
 }
@@ -112,6 +127,7 @@ impl AppConfig {
             .parent()
             .ok_or_else(|| "embedded directory has no repository parent".to_owned())?
             .join("data");
+        config.system_monitor.data_root = data_root.clone();
         config.raw_path = Some(data_root.join("raw").join(format!("{log_stem}.bin")));
         config.pcd_path = Some(data_root.join("processed").join(format!("{log_stem}.pcd")));
         Ok(config)
@@ -144,11 +160,14 @@ impl AppConfig {
                 raw_logger: worker_config("raw-logger", RAW_LOGGER_PRIORITY)?,
                 preprocessing: worker_config("pointcloud-preprocessing", PREPROCESSING_PRIORITY)?,
                 pcd_logger: worker_config("pcd-logger", PCD_LOGGER_PRIORITY)?,
+                grafana_bridge: worker_config("grafana-bridge", GRAFANA_BRIDGE_PRIORITY)?,
+                system_monitor: worker_config("system-monitor", SYSTEM_MONITOR_PRIORITY)?,
             },
             queues: TopicQueueConfig {
                 raw_capacity: RAW_TOPIC_CAPACITY,
                 decoded_capacity: DECODED_POINTCLOUD_TOPIC_CAPACITY,
                 processed_capacity: PROCESSED_POINTCLOUD_TOPIC_CAPACITY,
+                telemetry_capacity: TELEMETRY_TOPIC_CAPACITY,
             },
         })
     }
@@ -210,6 +229,16 @@ fn parse_positive_u64(value: &str, label: &str, maximum: u64) -> Result<u64, Str
 fn parse_positive_u32(value: &str, label: &str) -> Result<u32, String> {
     let parsed = parse_positive_u64(value, label, u64::from(u32::MAX))?;
     Ok(parsed as u32)
+}
+
+fn parse_boolean(value: &str, label: &str) -> Result<bool, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "yes" | "on" | "1" => Ok(true),
+        "false" | "no" | "off" | "0" => Ok(false),
+        _ => Err(format!(
+            "{label} must be true/false, yes/no, on/off, or 1/0"
+        )),
+    }
 }
 
 /// Parses the same device file format used by the C++ application.
@@ -298,6 +327,43 @@ pub(crate) fn parse_device_config(contents: &str) -> Result<AppConfig, String> {
                     MAXIMUM_RECONNECT_INTERVAL_SECONDS,
                 )?);
             }
+            "grafanaenabled" => {
+                config.grafana.enabled = parse_boolean(value, "GrafanaEnabled")?;
+            }
+            "grafanahost" => {
+                if value.is_empty() {
+                    return Err("GrafanaHost cannot be empty".to_owned());
+                }
+                config.grafana.host = value.to_owned();
+            }
+            "grafanaport" => {
+                config.grafana.port =
+                    parse_positive_u64(value, "Grafana port", u64::from(u16::MAX))? as u16;
+            }
+            "grafananamespace" => {
+                config.grafana.namespace = value.to_owned();
+            }
+            "grafanapublishintervalmilliseconds" => {
+                config.grafana.publish_interval = Duration::from_millis(parse_positive_u64(
+                    value,
+                    "Grafana publish interval",
+                    MAXIMUM_GRAFANA_INTERVAL_MILLISECONDS,
+                )?);
+            }
+            "grafanaretryintervalseconds" => {
+                config.grafana.retry_interval = Duration::from_secs(parse_positive_u64(
+                    value,
+                    "Grafana retry interval",
+                    MAXIMUM_RECONNECT_INTERVAL_SECONDS,
+                )?);
+            }
+            "systemmonitorintervalmilliseconds" => {
+                config.system_monitor.sample_interval = Duration::from_millis(parse_positive_u64(
+                    value,
+                    "system monitor interval",
+                    MAXIMUM_GRAFANA_INTERVAL_MILLISECONDS,
+                )?);
+            }
             _ => {
                 return Err(format!("unknown device key '{key}' at line {}", index + 1));
             }
@@ -318,6 +384,7 @@ pub(crate) fn parse_device_config(contents: &str) -> Result<AppConfig, String> {
                 .to_owned(),
         );
     }
+    validate_grafana_bridge_config(&config.grafana).map_err(|error| error.to_string())?;
     Ok(config)
 }
 

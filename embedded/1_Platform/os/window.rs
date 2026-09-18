@@ -6,6 +6,8 @@ use std::{
     ffi::c_void,
     io,
     net::TcpStream,
+    os::windows::ffi::OsStrExt,
+    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -42,6 +44,75 @@ struct SystemTimeFields {
     milliseconds: u16,
 }
 
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct FileTime {
+    low: u32,
+    high: u32,
+}
+
+#[repr(C)]
+struct ProcessMemoryCountersEx {
+    size: u32,
+    page_fault_count: u32,
+    peak_working_set_size: usize,
+    working_set_size: usize,
+    quota_peak_paged_pool_usage: usize,
+    quota_paged_pool_usage: usize,
+    quota_peak_non_paged_pool_usage: usize,
+    quota_non_paged_pool_usage: usize,
+    pagefile_usage: usize,
+    peak_pagefile_usage: usize,
+    private_usage: usize,
+}
+
+impl Default for ProcessMemoryCountersEx {
+    fn default() -> Self {
+        Self {
+            size: std::mem::size_of::<Self>() as u32,
+            page_fault_count: 0,
+            peak_working_set_size: 0,
+            working_set_size: 0,
+            quota_peak_paged_pool_usage: 0,
+            quota_paged_pool_usage: 0,
+            quota_peak_non_paged_pool_usage: 0,
+            quota_non_paged_pool_usage: 0,
+            pagefile_usage: 0,
+            peak_pagefile_usage: 0,
+            private_usage: 0,
+        }
+    }
+}
+
+#[repr(C)]
+struct MemoryStatusEx {
+    length: u32,
+    memory_load: u32,
+    total_physical: u64,
+    available_physical: u64,
+    total_page_file: u64,
+    available_page_file: u64,
+    total_virtual: u64,
+    available_virtual: u64,
+    available_extended_virtual: u64,
+}
+
+impl Default for MemoryStatusEx {
+    fn default() -> Self {
+        Self {
+            length: std::mem::size_of::<Self>() as u32,
+            memory_load: 0,
+            total_physical: 0,
+            available_physical: 0,
+            total_page_file: 0,
+            available_page_file: 0,
+            total_virtual: 0,
+            available_virtual: 0,
+            available_extended_virtual: 0,
+        }
+    }
+}
+
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn GetCurrentThread() -> *mut c_void;
@@ -52,6 +123,24 @@ unsafe extern "system" {
         add: i32,
     ) -> i32;
     fn GetLocalTime(system_time: *mut SystemTimeFields);
+    fn GetSystemTimes(idle: *mut FileTime, kernel: *mut FileTime, user: *mut FileTime) -> i32;
+    fn GetCurrentProcess() -> *mut c_void;
+    fn GlobalMemoryStatusEx(status: *mut MemoryStatusEx) -> i32;
+    fn GetDiskFreeSpaceExW(
+        directory: *const u16,
+        available_to_caller: *mut u64,
+        total_bytes: *mut u64,
+        total_free_bytes: *mut u64,
+    ) -> i32;
+}
+
+#[link(name = "psapi")]
+unsafe extern "system" {
+    fn GetProcessMemoryInfo(
+        process: *mut c_void,
+        counters: *mut ProcessMemoryCountersEx,
+        size: u32,
+    ) -> i32;
 }
 
 unsafe extern "system" fn record_shutdown_signal(control_type: u32) -> i32 {
@@ -93,6 +182,91 @@ pub fn current_log_timestamp() -> io::Result<String> {
         "{:04}{:02}{:02}_{:02}{:02}{:02}",
         value.year, value.month, value.day, value.hour, value.minute, value.second
     ))
+}
+
+fn file_time_value(value: FileTime) -> u64 {
+    (u64::from(value.high) << 32) | u64::from(value.low)
+}
+
+/// Stateful Windows CPU sampler based on GetSystemTimes deltas.
+#[derive(Default)]
+pub struct CpuSampler {
+    initialized: bool,
+    previous_idle: u64,
+    previous_total: u64,
+}
+
+impl CpuSampler {
+    pub fn sample(&mut self) -> f64 {
+        let mut idle = FileTime::default();
+        let mut kernel = FileTime::default();
+        let mut user = FileTime::default();
+        // SAFETY: all three pointers reference writable FILETIME-compatible values.
+        if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+            return 0.0;
+        }
+        let idle = file_time_value(idle);
+        let total = file_time_value(kernel) + file_time_value(user);
+        let percent = if self.initialized && total > self.previous_total {
+            let total_delta = total - self.previous_total;
+            let idle_delta = idle.saturating_sub(self.previous_idle);
+            100.0 * total_delta.saturating_sub(idle_delta) as f64 / total_delta as f64
+        } else {
+            0.0
+        };
+        self.initialized = true;
+        self.previous_idle = idle;
+        self.previous_total = total;
+        percent.clamp(0.0, 100.0)
+    }
+}
+
+pub fn process_memory_mb() -> f64 {
+    let mut counters = ProcessMemoryCountersEx::default();
+    // SAFETY: GetCurrentProcess returns a valid pseudo-handle and counters has
+    // the documented PROCESS_MEMORY_COUNTERS_EX layout and size.
+    let success = unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            &mut counters,
+            std::mem::size_of::<ProcessMemoryCountersEx>() as u32,
+        )
+    };
+    if success == 0 {
+        0.0
+    } else {
+        counters.working_set_size as f64 / (1024.0 * 1024.0)
+    }
+}
+
+pub fn system_memory_percent() -> f64 {
+    let mut status = MemoryStatusEx::default();
+    // SAFETY: status is writable and its length field identifies the layout.
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        0.0
+    } else {
+        f64::from(status.memory_load)
+    }
+}
+
+pub fn disk_free_gb(path: &Path) -> f64 {
+    let mut wide = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    wide.push(0);
+    let mut available = 0_u64;
+    // SAFETY: wide is null-terminated and available points to writable storage.
+    if unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        0.0
+    } else {
+        available as f64 / (1024.0 * 1024.0 * 1024.0)
+    }
 }
 
 /// Maps project priorities 1..=5 to Windows HIGHEST..LOWEST levels.

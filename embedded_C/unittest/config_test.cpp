@@ -126,5 +126,41 @@ VISTA_TEST(config_exposes_independent_worker_enable_and_priority_settings) {
     VISTA_CHECK(runtime.threads.lidar_read.thread.priority.level() == 1);
     VISTA_CHECK(runtime.threads.lidar_decode.thread.priority.level() == 2);
     VISTA_CHECK(runtime.threads.preprocessing.thread.priority.level() == 3);
+    VISTA_CHECK(runtime.threads.grafana_bridge.thread.priority.level() == 4);
+    VISTA_CHECK(runtime.threads.system_monitor.thread.priority.level() == 4);
     VISTA_CHECK(runtime.queues.raw_capacity == 32);
+    VISTA_CHECK(runtime.queues.telemetry_capacity == 16);
+}
+
+VISTA_TEST(config_file_parses_grafana_live_settings) {
+    const auto config = vista::parse_device_config_text(R"(
+Lidar: quanergy-m8
+SensorIP(quanergym8): 192.168.1.3
+TcpPort(quanergym8): 4141
+GrafanaEnabled: yes
+GrafanaHost: localhost
+GrafanaPort: 3100
+GrafanaNamespace: factory_floor
+GrafanaPublishIntervalMilliseconds: 250
+GrafanaRetryIntervalSeconds: 9
+SystemMonitorIntervalMilliseconds: 1500
+)");
+
+    VISTA_CHECK(config.grafana.enabled);
+    VISTA_CHECK(config.grafana.host == "localhost");
+    VISTA_CHECK(config.grafana.port == 3100);
+    VISTA_CHECK(config.grafana.name_space == "factory_floor");
+    VISTA_CHECK(config.grafana.publish_interval == std::chrono::milliseconds(250));
+    VISTA_CHECK(config.grafana.retry_interval == std::chrono::seconds(9));
+    VISTA_CHECK(
+        config.system_monitor.sample_interval == std::chrono::milliseconds(1500));
+}
+
+VISTA_TEST(config_file_rejects_invalid_grafana_namespace) {
+    VISTA_CHECK_THROWS(vista::parse_device_config_text(R"(
+Lidar: quanergy-m8
+SensorIP(quanergym8): 192.168.1.3
+TcpPort(quanergym8): 4141
+GrafanaNamespace: invalid/name
+)") );
 }

@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace vista::platform {
 
@@ -63,11 +64,27 @@ struct PriorityStatus {
     std::string error;
 };
 
+struct WorkerRuntimeStatus {
+    std::string name;
+    std::uint8_t priority{};
+    bool running{};
+    bool failed{};
+    double uptime_seconds{};
+};
+
+std::vector<WorkerRuntimeStatus> worker_runtime_snapshot();
+
 namespace detail {
 
 PriorityStatus configure_current_thread(
     const std::string& name,
     ThreadPriority requested) noexcept;
+void record_worker_started(
+    const std::string& name,
+    ThreadPriority priority) noexcept;
+void record_worker_finished(
+    const std::string& name,
+    bool failed) noexcept;
 
 }  // namespace detail
 
@@ -119,10 +136,13 @@ WorkerHandle spawn_worker(ThreadConfig config, Worker worker) {
          exception,
          startup = std::move(startup_promise)]() mutable {
             startup.set_value(detail::configure_current_thread(name, requested));
+            detail::record_worker_started(name, requested);
             try {
                 worker();
+                detail::record_worker_finished(name, false);
             } catch (...) {
                 *exception = std::current_exception();
+                detail::record_worker_finished(name, true);
             }
             finished->store(true, std::memory_order_release);
         });

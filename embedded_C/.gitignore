@@ -3,3 +3,4 @@
 *.bin
 *.pcd
 *.points.tmp
+/GrafanaSecret.txt

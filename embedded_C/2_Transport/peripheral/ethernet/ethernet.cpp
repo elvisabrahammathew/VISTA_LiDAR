@@ -283,26 +283,60 @@ EthernetConnection EthernetConnection::connect(
 void EthernetConnection::read_exact(std::uint8_t* output, std::size_t size) {
     std::size_t received = 0;
     while (received < size) {
-#ifdef _WIN32
-        const auto count = recv(
-            implementation_->socket,
-            reinterpret_cast<char*>(output + received),
-            static_cast<int>(size - received),
-            0);
-#else
-        const auto count = recv(
-            implementation_->socket,
-            output + received,
-            size - received,
-            0);
-#endif
+        const auto count = read_some(output + received, size - received);
         if (count == 0) {
             throw std::runtime_error("Ethernet peer closed the connection");
         }
-        if (count < 0) {
-            throw socket_error("Ethernet receive", last_socket_error());
+        received += count;
+    }
+}
+
+std::size_t EthernetConnection::read_some(
+    std::uint8_t* output,
+    std::size_t size) {
+    if (size == 0) {
+        return 0;
+    }
+#ifdef _WIN32
+    const auto count = recv(
+        implementation_->socket,
+        reinterpret_cast<char*>(output),
+        static_cast<int>(size),
+        0);
+#else
+    const auto count = recv(implementation_->socket, output, size, 0);
+#endif
+    if (count == 0) {
+        return 0;
+    }
+    if (count < 0) {
+        throw socket_error("Ethernet receive", last_socket_error());
+    }
+    return static_cast<std::size_t>(count);
+}
+
+void EthernetConnection::write_all(
+    const std::uint8_t* data,
+    std::size_t size) {
+    std::size_t sent = 0;
+    while (sent < size) {
+#ifdef _WIN32
+        const auto count = send(
+            implementation_->socket,
+            reinterpret_cast<const char*>(data + sent),
+            static_cast<int>(size - sent),
+            0);
+#else
+        const auto count = send(
+            implementation_->socket,
+            data + sent,
+            size - sent,
+            MSG_NOSIGNAL);
+#endif
+        if (count <= 0) {
+            throw socket_error("Ethernet send", last_socket_error());
         }
-        received += static_cast<std::size_t>(count);
+        sent += static_cast<std::size_t>(count);
     }
 }
 

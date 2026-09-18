@@ -16,6 +16,7 @@ namespace {
 
 constexpr std::uint64_t default_frame_timeout_ms = 5'000;
 constexpr std::uint64_t maximum_reconnect_interval_seconds = 86'400;
+constexpr std::uint64_t maximum_grafana_interval_ms = 3'600'000;
 
 #ifndef VISTA_DATA_ROOT
 #define VISTA_DATA_ROOT "../data"
@@ -70,6 +71,20 @@ std::uint64_t parse_unsigned(
             label + " must be between 1 and " + std::to_string(maximum));
     }
     return parsed;
+}
+
+bool parse_boolean(const std::string& value, const std::string& label) {
+    const auto normalized = lower_copy(value);
+    if (normalized == "true" || normalized == "yes" || normalized == "on" ||
+        normalized == "1") {
+        return true;
+    }
+    if (normalized == "false" || normalized == "no" || normalized == "off" ||
+        normalized == "0") {
+        return false;
+    }
+    throw std::invalid_argument(
+        label + " must be true/false, yes/no, on/off, or 1/0");
 }
 
 void reject_duplicate(
@@ -168,8 +183,38 @@ AppConfig parse_device_config_text(const std::string& contents) {
             config.lidar_reconnect_interval = std::chrono::seconds(
                 parse_unsigned(
                     value,
-                    "LiDAR reconnect interval",
+                     "LiDAR reconnect interval",
+                     maximum_reconnect_interval_seconds));
+        } else if (key == "grafanaenabled") {
+            config.grafana.enabled = parse_boolean(value, "GrafanaEnabled");
+        } else if (key == "grafanahost") {
+            if (value.empty()) {
+                throw std::invalid_argument("GrafanaHost cannot be empty");
+            }
+            config.grafana.host = value;
+        } else if (key == "grafanaport") {
+            config.grafana.port = static_cast<std::uint16_t>(
+                parse_unsigned(value, "Grafana port", 65'535));
+        } else if (key == "grafananamespace") {
+            config.grafana.name_space = value;
+        } else if (key == "grafanapublishintervalmilliseconds") {
+            config.grafana.publish_interval = std::chrono::milliseconds(
+                parse_unsigned(
+                    value,
+                    "Grafana publish interval",
+                    maximum_grafana_interval_ms));
+        } else if (key == "grafanaretryintervalseconds") {
+            config.grafana.retry_interval = std::chrono::seconds(
+                parse_unsigned(
+                    value,
+                    "Grafana retry interval",
                     maximum_reconnect_interval_seconds));
+        } else if (key == "systemmonitorintervalmilliseconds") {
+            config.system_monitor.sample_interval = std::chrono::milliseconds(
+                parse_unsigned(
+                    value,
+                    "system monitor interval",
+                    maximum_grafana_interval_ms));
         } else {
             throw std::invalid_argument(
                 "unknown device key '" + key + "' at line " +
@@ -192,6 +237,7 @@ AppConfig parse_device_config_text(const std::string& contents) {
             "RealSense L515 requires UsbSerial, DepthWidth, DepthHeight, and "
             "DepthFps in DeviceConfig.txt");
     }
+    application::validate_grafana_bridge_config(config.grafana);
     return config;
 }
 
@@ -227,6 +273,7 @@ AppConfig AppConfig::load() {
     auto config = parse_device_config_text(contents.str());
     const auto log_stem = format_log_timestamp(std::chrono::system_clock::now());
     const auto data_root = std::filesystem::path(VISTA_DATA_ROOT).lexically_normal();
+    config.system_monitor.data_root = data_root;
     config.raw_path = data_root / "raw" / (log_stem + ".bin");
     config.pcd_path = data_root / "processed" / (log_stem + ".pcd");
     return config;
@@ -269,8 +316,12 @@ RuntimeConfig AppConfig::runtime_config() const {
             WorkerConfig{
                 true, platform::ThreadConfig("pointcloud-preprocessing", 3)},
             WorkerConfig{true, platform::ThreadConfig("pcd-logger", 2)},
+            WorkerConfig{
+                true, platform::ThreadConfig("system-monitor", 4)},
+            WorkerConfig{
+                grafana.enabled, platform::ThreadConfig("grafana-bridge", 4)},
         },
-        TopicQueueConfig{32, 8, 8},
+        TopicQueueConfig{32, 8, 8, 16},
     };
 }
 

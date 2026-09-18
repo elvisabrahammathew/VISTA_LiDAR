@@ -3,9 +3,11 @@
 #![allow(unsafe_code)]
 
 use std::{
-    ffi::{c_int, c_long},
-    io,
+    ffi::{c_char, c_int, c_long, c_ulong, CString},
+    fs, io,
     net::TcpStream,
+    os::unix::ffi::OsStrExt,
+    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -43,12 +45,29 @@ struct BrokenDownTime {
     zone: *const i8,
 }
 
+#[repr(C)]
+struct StatVfs {
+    block_size: c_ulong,
+    fragment_size: c_ulong,
+    blocks: u64,
+    blocks_free: u64,
+    blocks_available: u64,
+    files: u64,
+    files_free: u64,
+    files_available: u64,
+    filesystem_id: c_ulong,
+    mount_flags: c_ulong,
+    maximum_name_length: c_ulong,
+    spare: [c_int; 6],
+}
+
 unsafe extern "C" {
     fn setpriority(which: c_int, who: u32, priority: c_int) -> c_int;
     fn getpriority(which: c_int, who: u32) -> c_int;
     fn signal(signal: c_int, handler: usize) -> usize;
     fn time(output: *mut c_long) -> c_long;
     fn localtime_r(input: *const c_long, output: *mut BrokenDownTime) -> *mut BrokenDownTime;
+    fn statvfs(path: *const c_char, output: *mut StatVfs) -> c_int;
 }
 
 extern "C" fn record_shutdown_signal(_: c_int) {
@@ -102,6 +121,100 @@ pub fn current_log_timestamp() -> io::Result<String> {
         local_time.minute,
         local_time.second
     ))
+}
+
+/// Stateful Linux CPU sampler based on /proc/stat deltas.
+#[derive(Default)]
+pub struct CpuSampler {
+    initialized: bool,
+    previous_idle: u64,
+    previous_total: u64,
+}
+
+impl CpuSampler {
+    pub fn sample(&mut self) -> f64 {
+        let Some((idle, total)) = read_cpu_times() else {
+            return 0.0;
+        };
+        let percent = if self.initialized && total > self.previous_total {
+            let total_delta = total - self.previous_total;
+            let idle_delta = idle.saturating_sub(self.previous_idle);
+            100.0 * total_delta.saturating_sub(idle_delta) as f64 / total_delta as f64
+        } else {
+            0.0
+        };
+        self.initialized = true;
+        self.previous_idle = idle;
+        self.previous_total = total;
+        percent.clamp(0.0, 100.0)
+    }
+}
+
+fn read_cpu_times() -> Option<(u64, u64)> {
+    let contents = fs::read_to_string("/proc/stat").ok()?;
+    let mut fields = contents.lines().next()?.split_whitespace();
+    if fields.next()? != "cpu" {
+        return None;
+    }
+    let values = fields
+        .take(8)
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    if values.len() < 5 {
+        return None;
+    }
+    Some((values[3] + values[4], values.iter().sum()))
+}
+
+pub fn process_memory_mb() -> f64 {
+    fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|contents| {
+            contents.lines().find_map(|line| {
+                line.strip_prefix("VmRSS:")
+                    .and_then(|value| value.split_whitespace().next())
+                    .and_then(|value| value.parse::<f64>().ok())
+            })
+        })
+        .map_or(0.0, |kib| kib / 1024.0)
+}
+
+pub fn system_memory_percent() -> f64 {
+    let Ok(contents) = fs::read_to_string("/proc/meminfo") else {
+        return 0.0;
+    };
+    let mut total = 0.0;
+    let mut available = 0.0;
+    for line in contents.lines() {
+        let mut fields = line.split_whitespace();
+        match fields.next() {
+            Some("MemTotal:") => total = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0.0),
+            Some("MemAvailable:") => {
+                available = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0.0)
+            }
+            _ => {}
+        }
+    }
+    if total > 0.0 {
+        100.0 * (total - available) / total
+    } else {
+        0.0
+    }
+}
+
+pub fn disk_free_gb(path: &Path) -> f64 {
+    let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+        return 0.0;
+    };
+    let mut output = std::mem::MaybeUninit::<StatVfs>::zeroed();
+    // SAFETY: path is null-terminated and output points to writable statvfs storage.
+    if unsafe { statvfs(path.as_ptr(), output.as_mut_ptr()) } != 0 {
+        return 0.0;
+    }
+    // SAFETY: statvfs returned success and initialized the complete structure.
+    let output = unsafe { output.assume_init() };
+    output.blocks_available as f64 * output.fragment_size as f64 / (1024.0 * 1024.0 * 1024.0)
 }
 
 /// Maps project priorities 1..=5 to unprivileged SCHED_OTHER nice values.

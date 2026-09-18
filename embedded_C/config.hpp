@@ -9,6 +9,8 @@
 
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
+#include "4_Applications/grafana_bridge/grafana_bridge.hpp"
+#include "4_Applications/monitoring/system_monitor.hpp"
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 
 namespace vista {
@@ -27,12 +29,15 @@ struct ThreadSetConfig {
     WorkerConfig raw_logger;
     WorkerConfig preprocessing;
     WorkerConfig pcd_logger;
+    WorkerConfig system_monitor;
+    WorkerConfig grafana_bridge;
 };
 
 struct TopicQueueConfig {
     std::size_t raw_capacity{};
     std::size_t decoded_capacity{};
     std::size_t processed_capacity{};
+    std::size_t telemetry_capacity{};
 };
 
 struct RuntimeConfig {
@@ -51,6 +56,8 @@ struct AppConfig {
     std::uint32_t depth_fps{30};
     /// Delay before retrying while the selected LiDAR is unavailable.
     std::chrono::milliseconds lidar_reconnect_interval{5'000};
+    application::GrafanaBridgeConfig grafana;
+    application::SystemMonitorConfig system_monitor;
     std::optional<std::filesystem::path> raw_path;
     std::optional<std::filesystem::path> pcd_path;
 

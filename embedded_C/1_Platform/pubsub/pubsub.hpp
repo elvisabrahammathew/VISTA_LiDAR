@@ -447,6 +447,26 @@ public:
         return subscriber_->dropped_messages;
     }
 
+    /// Number of retained messages currently waiting for this subscriber.
+    std::size_t pending_messages() const noexcept {
+        if (!state_ || !subscriber_) {
+            return 0;
+        }
+        std::lock_guard lock(state_->mutex);
+        const auto distance = detail::sequence_distance_saturated(
+            subscriber_->cursor, state_->next_write_sequence);
+        return static_cast<std::size_t>(std::min<std::uint64_t>(
+            distance, static_cast<std::uint64_t>(state_->capacity)));
+    }
+
+    std::size_t capacity() const noexcept {
+        if (!state_) {
+            return 0;
+        }
+        std::lock_guard lock(state_->mutex);
+        return state_->capacity;
+    }
+
     TopicSequence cursor() const noexcept {
         if (!state_ || !subscriber_) {
             return {};

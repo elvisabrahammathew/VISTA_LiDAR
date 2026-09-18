@@ -10,3 +10,12 @@ DepthFps(realsensel515): 30
 
 # Supported Radar: none
 Radar: None
+
+# Grafana Live output
+GrafanaEnabled: true
+GrafanaHost: 127.0.0.1
+GrafanaPort: 3000
+GrafanaNamespace: vista
+GrafanaPublishIntervalMilliseconds: 1000
+GrafanaRetryIntervalSeconds: 5
+SystemMonitorIntervalMilliseconds: 2000

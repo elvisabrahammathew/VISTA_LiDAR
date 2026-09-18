@@ -13,7 +13,7 @@ namespace {
 std::filesystem::path temporary_output(const std::string& extension) {
     static std::atomic<std::uint64_t> next_id{0};
     return std::filesystem::temp_directory_path() /
-           ("vista-lidar-cpp-test-" + std::to_string(next_id++) + "." + extension);
+           ("vista-edge-cpp-test-" + std::to_string(next_id++) + "." + extension);
 }
 
 }  // namespace

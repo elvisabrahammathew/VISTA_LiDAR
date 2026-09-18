@@ -26,6 +26,12 @@ public:
     /// Reads exactly the requested byte count, including across TCP segments.
     void read_exact(std::uint8_t* output, std::size_t size);
 
+    /// Reads at most size bytes and returns zero after an orderly peer close.
+    std::size_t read_some(std::uint8_t* output, std::size_t size);
+
+    /// Sends the complete buffer, including across partial TCP writes.
+    void write_all(const std::uint8_t* data, std::size_t size);
+
 private:
     struct Impl;
     explicit EthernetConnection(std::unique_ptr<Impl> implementation);

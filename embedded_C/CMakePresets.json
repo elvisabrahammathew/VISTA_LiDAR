@@ -13,17 +13,36 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/build/windows-vs2019",
       "cacheVariables": {
-        "VISTA_BUILD_TESTS": "ON"
+        "VISTA_BUILD_TESTS": "ON",
+        "VISTA_ENABLE_REALSENSE": "ON",
+        "VISTA_EXPECTED_ARCHITECTURE": "x86_64",
+        "VISTA_REALSENSE_FORCE_RSUSB_BACKEND": "OFF"
       }
     },
     {
-      "name": "linux-gcc",
-      "displayName": "Linux - GCC",
+      "name": "linux-x86_64-gcc",
+      "displayName": "Linux x86-64 - GCC",
       "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/out/build/linux-gcc",
+      "binaryDir": "${sourceDir}/out/build/linux-x86_64-gcc",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "VISTA_BUILD_TESTS": "ON"
+        "VISTA_BUILD_TESTS": "ON",
+        "VISTA_ENABLE_REALSENSE": "ON",
+        "VISTA_EXPECTED_ARCHITECTURE": "x86_64",
+        "VISTA_REALSENSE_FORCE_RSUSB_BACKEND": "OFF"
+      }
+    },
+    {
+      "name": "linux-arm64-gcc",
+      "displayName": "Linux ARM64 / Jetson - GCC",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/out/build/linux-arm64-gcc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VISTA_BUILD_TESTS": "ON",
+        "VISTA_ENABLE_REALSENSE": "ON",
+        "VISTA_EXPECTED_ARCHITECTURE": "arm64",
+        "VISTA_REALSENSE_FORCE_RSUSB_BACKEND": "ON"
       }
     }
   ],
@@ -34,8 +53,12 @@
       "configuration": "Debug"
     },
     {
-      "name": "linux-debug",
-      "configurePreset": "linux-gcc"
+      "name": "linux-x86_64-debug",
+      "configurePreset": "linux-x86_64-gcc"
+    },
+    {
+      "name": "linux-arm64-debug",
+      "configurePreset": "linux-arm64-gcc"
     }
   ],
   "testPresets": [
@@ -48,8 +71,15 @@
       }
     },
     {
-      "name": "linux-debug",
-      "configurePreset": "linux-gcc",
+      "name": "linux-x86_64-debug",
+      "configurePreset": "linux-x86_64-gcc",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-arm64-debug",
+      "configurePreset": "linux-arm64-gcc",
       "output": {
         "outputOnFailure": true
       }

@@ -16,7 +16,7 @@ static NEXT_FILE_ID: AtomicU64 = AtomicU64::new(0);
 fn temporary_output(extension: &str) -> PathBuf {
     let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "vista-lidar-logger-test-{}-{id}.{extension}",
+        "vista-edge-logger-test-{}-{id}.{extension}",
         std::process::id()
     ))
 }

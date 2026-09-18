@@ -41,6 +41,14 @@ int main() {
                   << static_cast<double>(config.lidar_reconnect_interval.count()) /
                          1000.0
                   << " second(s)\n";
+        std::cout << "Grafana Live: ";
+        if (config.grafana.enabled) {
+            std::cout << "http://" << config.grafana.host << ':'
+                      << config.grafana.port << "/api/live/push/"
+                      << config.grafana.name_space << '\n';
+        } else {
+            std::cout << "disabled\n";
+        }
 
         const auto started = std::chrono::steady_clock::now();
         vista::platform::StopToken stop;
@@ -60,6 +68,18 @@ int main() {
         bus.configure_topic(
             vista::models::topics::pointcloud_processed,
             runtime.queues.processed_capacity);
+        bus.configure_topic(
+            vista::models::topics::system_health,
+            runtime.queues.telemetry_capacity);
+        bus.configure_topic(
+            vista::models::topics::worker_health,
+            runtime.queues.telemetry_capacity);
+        bus.configure_topic(
+            vista::models::topics::storage_health,
+            runtime.queues.telemetry_capacity);
+        bus.configure_topic(
+            vista::models::topics::power_thermal,
+            runtime.queues.telemetry_capacity);
 
         auto read_result = std::make_shared<
             vista::platform::WorkerResult<vista::devices::LidarWorkerReport>>();
@@ -72,17 +92,50 @@ int main() {
                 vista::application::PreprocessingReport>>();
         auto pcd_logger_result = std::make_shared<
             vista::platform::WorkerResult<vista::application::LoggerReport>>();
+        auto grafana_result = std::make_shared<
+            vista::platform::WorkerResult<
+                vista::application::GrafanaBridgeReport>>();
+        auto system_monitor_result = std::make_shared<
+            vista::platform::WorkerResult<
+                vista::application::SystemMonitorReport>>();
 
         std::vector<vista::platform::WorkerHandle> workers;
-        workers.reserve(5);
+        workers.reserve(7);
         bool read_started = false;
         bool decode_started = false;
         bool raw_logger_started = false;
         bool preprocessing_started = false;
         bool pcd_logger_started = false;
+        bool grafana_started = false;
+        bool system_monitor_started = false;
 
         try {
             // The user controls worker creation and startup order in main.
+            if (runtime.threads.grafana_bridge.enabled &&
+                config.grafana.enabled) {
+                vista::platform::add_worker(
+                    workers,
+                    vista::application::spawn_grafana_bridge(
+                        bus,
+                        runtime.threads.grafana_bridge.thread,
+                        stop,
+                        config.grafana,
+                        vista::platform::completion_for(grafana_result)));
+                grafana_started = true;
+            }
+
+            if (runtime.threads.system_monitor.enabled) {
+                vista::platform::add_worker(
+                    workers,
+                    vista::application::spawn_system_monitor(
+                        bus,
+                        runtime.threads.system_monitor.thread,
+                        stop,
+                        config.system_monitor,
+                        vista::platform::completion_for(system_monitor_result)));
+                system_monitor_started = true;
+            }
+
             if (runtime.threads.pcd_logger.enabled && config.pcd_path) {
                 vista::platform::add_worker(
                     workers,
@@ -192,6 +245,16 @@ int main() {
             runtime.threads.pcd_logger.thread.name,
             pcd_logger_result,
             pcd_logger_started);
+        vista::platform::collect_worker_error(
+            failures,
+            runtime.threads.grafana_bridge.thread.name,
+            grafana_result,
+            grafana_started);
+        vista::platform::collect_worker_error(
+            failures,
+            runtime.threads.system_monitor.thread.name,
+            system_monitor_result,
+            system_monitor_started);
         vista::platform::throw_if_worker_failures(failures);
 
         const auto packet_count =
@@ -223,6 +286,14 @@ int main() {
                           ? pcd_logger_result->report->dropped_message_count
                           : 0)
                   << '\n';
+        if (grafana_result->report) {
+            std::cout << "Grafana Live: published="
+                      << grafana_result->report->published_measurements
+                      << ", failed-attempts="
+                      << grafana_result->report->failed_publish_attempts
+                      << ", input-drops="
+                      << grafana_result->report->dropped_input_messages << '\n';
+        }
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << '\n';

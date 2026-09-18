@@ -937,7 +937,7 @@ impl LibrealsenseUsbConnection {
         Err(io::Error::new(
             ErrorKind::Unsupported,
             "RealSense backend is unavailable: add the target librealsense library under \
-             third_party/realsense and rebuild",
+             the repository third_party/librealsense submodule and rebuild",
         ))
     }
 

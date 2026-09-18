@@ -154,6 +154,14 @@ public:
         return subscriber_.dropped_messages();
     }
 
+    std::size_t pending_messages() const noexcept {
+        return subscriber_.pending_messages();
+    }
+
+    std::size_t capacity() const noexcept {
+        return subscriber_.capacity();
+    }
+
     TopicSubscriber<T> take_subscriber() && {
         return std::move(subscriber_);
     }
