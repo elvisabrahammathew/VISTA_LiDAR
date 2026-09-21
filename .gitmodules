@@ -1,3 +1,9 @@
 [submodule "third_party/librealsense"]
 	path = third_party/librealsense
 	url = https://github.com/realsenseai/librealsense.git
+[submodule "third_party/unitreelidar"]
+	path = third_party/unitreelidar
+	url = https://github.com/unitreerobotics/unilidar_sdk.git
+[submodule "third_party/unilidar_sdk2"]
+	path = third_party/unilidar_sdk2
+	url = https://github.com/unitreerobotics/unilidar_sdk2.git

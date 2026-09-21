@@ -10,8 +10,8 @@ namespace {
 const char* quanergy_config = R"(
 Lidar: quanergym8
 ReconnectIntervalSeconds(Lidar): 7
-SensorIP(quanergym8): 192.168.1.20
-TcpPort(quanergym8): 5000
+SensorIP(quanergy-m8, unitree-l2): 192.168.1.20
+SensorPort(quanergy-m8, unitree-l2): 5000
 Radar: None
 )";
 
@@ -22,7 +22,7 @@ VISTA_TEST(config_file_parses_quanergy_network_settings_and_notes) {
 
     VISTA_CHECK(config.lidar_type == vista::devices::LidarType::quanergy_m8);
     VISTA_CHECK(config.sensor_ip == "192.168.1.20");
-    VISTA_CHECK(config.tcp_port == 5000);
+    VISTA_CHECK(config.sensor_port == 5000);
     VISTA_CHECK(config.lidar_reconnect_interval == std::chrono::seconds(7));
     VISTA_CHECK(!config.raw_logging_enabled);
     VISTA_CHECK(!config.pointcloud_logging_enabled);
@@ -80,6 +80,35 @@ DepthFps(realsensel515): 30
 )");
 
     VISTA_CHECK(config.usb_serial == std::string("123456789"));
+}
+
+VISTA_TEST(config_file_parses_unitree_auto_serial_and_udp_settings) {
+    const auto config = vista::parse_device_config_text(R"(
+Lidar: unitree-l2
+SensorIP(quanergy-m8, unitree-l2): 192.168.1.62
+SensorPort(quanergy-m8, unitree-l2): 6101
+ConnectionMode(unitree-l2): auto
+LocalIP(unitree-l2): 192.168.1.2
+LocalPort(unitree-l2): 6201
+SerialPort(unitree-l2): COM3
+BaudRate(unitree-l2): 4000000
+)");
+
+    VISTA_CHECK(config.lidar_type == vista::devices::LidarType::unitree_l2);
+    VISTA_CHECK(config.sensor_ip == "192.168.1.62");
+    VISTA_CHECK(config.sensor_port == 6101);
+    VISTA_CHECK(
+        config.unitree_connection_mode ==
+        vista::devices::UnitreeConnectionMode::automatic);
+    VISTA_CHECK(config.unitree_local_ip == "192.168.1.2");
+    VISTA_CHECK(config.unitree_local_port == 6201);
+    VISTA_CHECK(config.unitree_serial_port == "COM3");
+    VISTA_CHECK(config.unitree_baud_rate == 4'000'000);
+
+    const auto lidar = config.lidar_config();
+    VISTA_CHECK(lidar.unitree_l2.has_value());
+    VISTA_CHECK(lidar.unitree_l2->sensor_port == 6101);
+    VISTA_CHECK(lidar.unitree_l2->local_port == 6201);
 }
 
 VISTA_TEST(config_file_accepts_com_port_as_legacy_usb_serial_name) {

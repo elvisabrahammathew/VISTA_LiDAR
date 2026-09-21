@@ -62,12 +62,16 @@ set(VISTA_CORE_SOURCES
     1_Platform/threading/threading.cpp
     1_Platform/workers/workers.cpp
     2_Transport/peripheral/ethernet/ethernet.cpp
+    2_Transport/peripheral/serial/serial.cpp
+    2_Transport/peripheral/udp/udp.cpp
     2_Transport/peripheral/librealsense_usb/librealsense_usb.cpp
     2_Transport/messaging/http.cpp
     2_Transport/storage/local.cpp
     3_Devices/lidars/lidar.cpp
     3_Devices/lidars/quanergym8/quanergym8.cpp
     3_Devices/lidars/realsensel515/realsensel515.cpp
+    3_Devices/lidars/unitree4d/unitree4d.cpp
+    3_Devices/lidars/unitree4d/unitree_protocol.cpp
     4_Applications/grafana_bridge/grafana_bridge.cpp
     4_Applications/logger/logger.cpp
     4_Applications/monitoring/system_monitor.cpp
@@ -236,6 +240,7 @@ if(VISTA_BUILD_TESTS)
         unittest/config_test.cpp
         unittest/device_test/quanergym8_test.cpp
         unittest/device_test/realsensel515_test.cpp
+        unittest/device_test/unitree4d_test.cpp
         unittest/platform_test/pubsub_test.cpp
         unittest/platform_test/message_bus_test.cpp
         unittest/platform_test/threading_test.cpp

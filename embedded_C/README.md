@@ -7,8 +7,9 @@ The Rust source remains unchanged and can be kept as a behavioral reference.
 
 - `1_Platform`: shared MessageBus, bounded broadcast rings, 64-bit topic
   WaitSets, worker threads, and native priority mapping.
-- `2_Transport`: Ethernet, librealsense USB, HTTP messaging, and local storage.
-- `3_Devices`: common LiDAR interfaces plus Quanergy M8 and RealSense L515 drivers.
+- `2_Transport`: TCP, UDP, serial, librealsense USB, HTTP, and local storage.
+- `3_Devices`: common LiDAR interfaces plus Quanergy M8, RealSense L515, and
+  Unitree L2 drivers.
 - `4_Applications`: preprocessing, logging, and future application workers.
 - `models`: sensor-neutral point clouds and LiDAR-specific topic envelopes.
 
@@ -33,14 +34,16 @@ Important source locations:
 `-- workers/            Reusable validation, result, shutdown, and join helpers
 2_Transport/peripheral/
 |-- ethernet/           Quanergy TCP transport
-`-- librealsense_usb/   RealSense USB/SDK transport
+|-- librealsense_usb/   RealSense USB/SDK transport
+|-- serial/             Cross-platform USB serial transport
+`-- udp/                Cross-platform sensor UDP transport
 2_Transport/messaging/
 `-- http.cpp/.hpp       Cross-platform HTTP/1.1 client used by Grafana Live
 3_Devices/lidars/
 |-- lidar.cpp/.hpp      Common LiDAR interfaces and worker entry points
 |-- quanergym8/         Quanergy M8 driver
 |-- realsensel515/      Intel RealSense L515 driver
-`-- unitree4d/          Reserved Unitree 4D driver
+`-- unitree4d/          Unitree L2 transport selection and protocol decoder
 4_Applications/
 |-- grafana_bridge/     Multi-topic Grafana Live output worker
 |-- monitoring/         OS, worker, storage, power, and thermal telemetry
@@ -137,13 +140,18 @@ The program does not accept command-line configuration. Edit
 `DeviceConfig.txt` before starting it:
 
 ```text
-# Supported LiDAR: quanergy-m8, realsense-l515
+# Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
 Lidar: quanergy-m8
 RawLoggingEnabled(Lidar): 0
 PointCloudLoggingEnabled(Lidar): 0
 ReconnectIntervalSeconds(Lidar): 5
-SensorIP(quanergym8): 192.168.1.3
-TcpPort(quanergym8): 4141
+SensorIP(quanergy-m8, unitree-l2): 192.168.1.3
+SensorPort(quanergy-m8, unitree-l2): 4141
+ConnectionMode(unitree-l2): auto
+LocalIP(unitree-l2): 192.168.1.2
+LocalPort(unitree-l2): 6201
+SerialPort(unitree-l2): COM3
+BaudRate(unitree-l2): 4000000
 UsbSerial(realsensel515): 123456789012
 DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480
@@ -166,6 +174,20 @@ Use `Lidar: realsense-l515` for the L515. `UsbSerial` is optional: leave its
 value blank to use the first matching L515, or enter the serial reported by
 librealsense when selecting a specific USB device. The L515 does not use a
 Windows COM port.
+
+For the Unitree L2, select `Lidar: unitree-l2`, change the shared `SensorIP`
+and `SensorPort` to the L2 UDP endpoint (normally `192.168.1.62:6101`), and
+configure the PC endpoint with `LocalIP` and `LocalPort`. `ConnectionMode` can
+be `serial`, `udp`, or `auto`. Auto mode probes the configured serial port and
+then UDP; the first transport that delivers a complete frame with valid CRC is
+kept. On Linux, change `SerialPort` from the Windows example `COM3` to a path
+such as `/dev/ttyACM0`.
+
+The Unitree wire protocol is decoded by VISTA-owned portable code rather than
+linking the Linux-only `libunilidar_sdk2.a`. The pinned
+`../third_party/unilidar_sdk2` submodule remains in the repository as the
+official protocol and behavior reference. The same decoder is compiled on
+Windows x64, Linux x86-64, and Linux ARM64.
 
 Each connection attempt and inactive read is limited to five seconds. When the
 LiDAR is unavailable, `ReconnectIntervalSeconds(Lidar)` controls how long the

@@ -19,12 +19,22 @@ int main() {
                       << (config.usb_serial ? *config.usb_serial
                                             : "first matching L515")
                       << '\n';
+        } else if (config.lidar_type == vista::devices::LidarType::unitree_l2) {
+            std::cout << "LiDAR configuration: unitree-l2, mode="
+                      << vista::devices::to_string(
+                             config.unitree_connection_mode)
+                      << ", serial=" << config.unitree_serial_port << '@'
+                      << config.unitree_baud_rate << ", UDP sensor="
+                      << config.sensor_ip << ':'
+                      << config.sensor_port.value_or(6101) << ", local="
+                      << config.unitree_local_ip << ':'
+                      << config.unitree_local_port.value_or(6201) << '\n';
         } else {
             std::cout << "LiDAR configuration: "
                       << vista::devices::to_string(config.lidar_type) << " at "
                       << config.sensor_ip;
-            if (config.tcp_port) {
-                std::cout << ':' << *config.tcp_port;
+            if (config.sensor_port) {
+                std::cout << ':' << *config.sensor_port;
             } else {
                 std::cout << ", using driver default port";
             }

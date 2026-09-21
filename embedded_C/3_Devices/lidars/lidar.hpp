@@ -20,11 +20,20 @@ namespace vista::devices {
 enum class LidarType {
     quanergy_m8,
     realsense_l515,
-    unitree_4d,
+    unitree_l2,
 };
 
 std::string to_string(LidarType type);
 LidarType parse_lidar_type(const std::string& value);
+
+enum class UnitreeConnectionMode {
+    automatic,
+    serial,
+    udp,
+};
+
+std::string to_string(UnitreeConnectionMode mode);
+UnitreeConnectionMode parse_unitree_connection_mode(const std::string& value);
 
 struct DepthStreamConfig {
     /// Optional librealsense USB device serial; empty selects the first L515.
@@ -35,11 +44,22 @@ struct DepthStreamConfig {
     std::chrono::milliseconds frame_timeout{};
 };
 
+struct UnitreeL2Config {
+    UnitreeConnectionMode connection_mode{UnitreeConnectionMode::automatic};
+    std::string sensor_ip{"192.168.1.62"};
+    std::uint16_t sensor_port{6101};
+    std::string local_ip{"192.168.1.2"};
+    std::uint16_t local_port{6201};
+    std::string serial_port;
+    std::uint32_t baud_rate{4'000'000};
+};
+
 struct LidarConfig {
     LidarType lidar_type{LidarType::quanergy_m8};
     std::string sensor_ip{"192.168.1.3"};
     std::optional<std::uint16_t> port;
     std::optional<DepthStreamConfig> depth_stream;
+    std::optional<UnitreeL2Config> unitree_l2;
     /// Maximum time allowed for connection and for receiving the next sample.
     std::chrono::milliseconds connection_timeout{5'000};
 };

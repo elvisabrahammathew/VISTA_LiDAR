@@ -3,6 +3,8 @@
 // Concrete transport implementations are exposed directly from their headers:
 //   2_Transport/peripheral/ethernet/ethernet.hpp
 //   2_Transport/peripheral/librealsense_usb/librealsense_usb.hpp
+//   2_Transport/peripheral/serial/serial.hpp
+//   2_Transport/peripheral/udp/udp.hpp
 //   2_Transport/messaging/http.hpp
 //   2_Transport/storage/local.hpp
 //

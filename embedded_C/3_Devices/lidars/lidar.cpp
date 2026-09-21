@@ -10,6 +10,7 @@
 
 #include "3_Devices/lidars/quanergym8/quanergym8.hpp"
 #include "3_Devices/lidars/realsensel515/realsensel515.hpp"
+#include "3_Devices/lidars/unitree4d/unitree4d.hpp"
 #include "models/topics.hpp"
 
 namespace vista::devices {
@@ -127,6 +128,11 @@ LidarWorkerReport run_lidar_decoder(
     std::shared_ptr<const LidarRawMessage> message;
     while (subscriber.receive(message) == platform::ReceiveStatus::message) {
         auto frame = decoder_slot->decode_packet(message->payload);
+        // Some sensors publish non-point packets (for example Unitree IMU) or
+        // need several scan rows before one complete cloud is available.
+        if (frame.points.empty()) {
+            continue;
+        }
         publisher.publish(LidarPointCloudMessage(
             message->lidar_id,
             message->sequence,
@@ -147,8 +153,8 @@ std::string to_string(LidarType type) {
             return "quanergy-m8";
         case LidarType::realsense_l515:
             return "realsense-l515";
-        case LidarType::unitree_4d:
-            return "unitree-4d";
+        case LidarType::unitree_l2:
+            return "unitree-l2";
     }
     throw std::invalid_argument("unknown LiDAR type");
 }
@@ -163,13 +169,42 @@ LidarType parse_lidar_type(const std::string& value) {
         normalized == "realsense" || normalized == "l515") {
         return LidarType::realsense_l515;
     }
-    if (normalized == "unitree-4d" || normalized == "unitree4d" ||
-        normalized == "unitree") {
-        return LidarType::unitree_4d;
+    if (normalized == "unitree-l2" || normalized == "unitreel2" ||
+        normalized == "unitree-4d" || normalized == "unitree4d" ||
+        normalized == "unitree" || normalized == "l2") {
+        return LidarType::unitree_l2;
     }
     throw std::invalid_argument(
         "unsupported LiDAR type '" + value +
-        "'; supported values: quanergy-m8, realsense-l515, unitree-4d");
+        "'; supported values: quanergy-m8, realsense-l515, unitree-l2");
+}
+
+std::string to_string(UnitreeConnectionMode mode) {
+    switch (mode) {
+        case UnitreeConnectionMode::automatic:
+            return "auto";
+        case UnitreeConnectionMode::serial:
+            return "serial";
+        case UnitreeConnectionMode::udp:
+            return "udp";
+    }
+    throw std::invalid_argument("unknown Unitree connection mode");
+}
+
+UnitreeConnectionMode parse_unitree_connection_mode(const std::string& value) {
+    const auto normalized = lower_copy(value);
+    if (normalized == "auto" || normalized == "automatic") {
+        return UnitreeConnectionMode::automatic;
+    }
+    if (normalized == "serial" || normalized == "usb") {
+        return UnitreeConnectionMode::serial;
+    }
+    if (normalized == "udp" || normalized == "ethernet") {
+        return UnitreeConnectionMode::udp;
+    }
+    throw std::invalid_argument(
+        "unsupported Unitree connection mode '" + value +
+        "'; supported values: auto, serial, udp");
 }
 
 Lidar::Lidar(
@@ -207,8 +242,19 @@ Lidar Lidar::connect(const LidarConfig& config) {
                 std::move(reader),
                 std::move(decoder));
         }
-        case LidarType::unitree_4d:
-            throw std::runtime_error("the Unitree 4D driver is not implemented");
+        case LidarType::unitree_l2: {
+            if (!config.unitree_l2) {
+                throw std::invalid_argument(
+                    "Unitree L2 requires a serial/UDP configuration");
+            }
+            auto [reader, decoder] = UnitreeL2::connect(
+                *config.unitree_l2, config.connection_timeout);
+            return Lidar(
+                "Unitree L2",
+                "unitree-l2",
+                std::move(reader),
+                std::move(decoder));
+        }
     }
     throw std::invalid_argument("unknown LiDAR type");
 }

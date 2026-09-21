@@ -49,11 +49,21 @@ struct RuntimeConfig {
 struct AppConfig {
     devices::LidarType lidar_type{devices::LidarType::quanergy_m8};
     std::string sensor_ip{"192.168.1.3"};
-    std::optional<std::uint16_t> tcp_port;
+    std::optional<std::uint16_t> sensor_port;
     std::optional<std::string> usb_serial;
     std::uint32_t depth_width{640};
     std::uint32_t depth_height{480};
     std::uint32_t depth_fps{30};
+    devices::UnitreeConnectionMode unitree_connection_mode{
+        devices::UnitreeConnectionMode::automatic};
+#ifdef _WIN32
+    std::string unitree_serial_port{"COM3"};
+#else
+    std::string unitree_serial_port{"/dev/ttyACM0"};
+#endif
+    std::uint32_t unitree_baud_rate{4'000'000};
+    std::string unitree_local_ip{"192.168.1.2"};
+    std::optional<std::uint16_t> unitree_local_port;
     /// Controls whether the RAW logger worker and .bin output are created.
     bool raw_logging_enabled{false};
     /// Controls whether the PCD logger worker and .pcd output are created.

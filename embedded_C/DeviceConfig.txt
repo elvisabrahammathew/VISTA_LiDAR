@@ -1,10 +1,15 @@
-# Supported LiDAR: quanergy-m8, realsense-l515
-Lidar: quanergy-m8
+# Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
+Lidar: unitree-l2
 RawLoggingEnabled(Lidar): 0
 PointCloudLoggingEnabled(Lidar): 0
 ReconnectIntervalSeconds(Lidar): 5
-SensorIP(quanergym8): 192.168.1.3
-TcpPort(quanergym8): 4141
+SensorIP(quanergy-m8, unitree-l2): 192.168.1.3
+SensorPort(quanergy-m8, unitree-l2): 4141
+ConnectionMode(unitree-l2): auto
+LocalIP(unitree-l2): 192.168.1.2
+LocalPort(unitree-l2): 6201
+SerialPort(unitree-l2): COM4
+BaudRate(unitree-l2): 4000000
 UsbSerial(realsensel515): 123456789012
 DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480

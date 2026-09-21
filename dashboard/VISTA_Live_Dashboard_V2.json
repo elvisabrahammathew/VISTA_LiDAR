@@ -62,7 +62,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "This dashboard listens to Grafana Live channels under `stream/${namespace}/...`. The C++ `grafana_bridge` worker will publish one measurement per data domain: `pointcloud`, `radar_targets`, `detected_objects`, `tracked_objects`, and `system_health`. Point-cloud panels intentionally display operational summaries rather than transmitting every XYZ point to Grafana. Change the **Namespace** variable above only when `GrafanaNamespace` in `DeviceConfig.txt` is changed."
+        "content": "This dashboard listens to Grafana Live channels under `stream/vista/...`. The C++ `grafana_bridge` worker publishes one measurement per data domain. Point-cloud panels intentionally display operational summaries rather than transmitting every XYZ point to Grafana. The channel prefix must match `GrafanaNamespace: vista` in `DeviceConfig.txt`."
       },
       "transparent": true
     },
@@ -85,7 +85,7 @@
       "title": "LiDAR Online",
       "description": "Latest online state published with the processed point-cloud measurement.",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -141,7 +141,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^online$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -150,13 +150,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "online"
+              ]
+            }
+          }
         }
       ]
     },
@@ -165,7 +181,7 @@
       "type": "stat",
       "title": "Processed Points",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -202,7 +218,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^point_count$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -211,13 +227,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "point_count"
+              ]
+            }
+          }
         }
       ]
     },
@@ -226,7 +258,7 @@
       "type": "stat",
       "title": "Processing Rate",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -271,7 +303,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^fps$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -280,13 +312,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "fps"
+              ]
+            }
+          }
         }
       ]
     },
@@ -295,7 +343,7 @@
       "type": "stat",
       "title": "Processing Latency",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -340,7 +388,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^processing_ms$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -349,13 +397,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "processing_ms"
+              ]
+            }
+          }
         }
       ]
     },
@@ -364,7 +428,7 @@
       "type": "stat",
       "title": "Dropped Messages",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -405,7 +469,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^dropped_messages$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -414,13 +478,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "dropped_messages"
+              ]
+            }
+          }
         }
       ]
     },
@@ -429,7 +509,7 @@
       "type": "stat",
       "title": "Input Points",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -466,7 +546,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^input_point_count$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -475,13 +555,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "input_point_count"
+              ]
+            }
+          }
         }
       ]
     },
@@ -490,7 +586,7 @@
       "type": "timeseries",
       "title": "Point Count History",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -557,10 +653,14 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
@@ -571,7 +671,12 @@
           "id": "filterFieldsByName",
           "options": {
             "include": {
-              "pattern": "/^(Time|time|input_point_count|point_count)$/"
+              "names": [
+                "Time",
+                "time",
+                "input_point_count",
+                "point_count"
+              ]
             }
           }
         }
@@ -582,7 +687,7 @@
       "type": "timeseries",
       "title": "Point-cloud Performance",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -680,10 +785,14 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
@@ -694,7 +803,12 @@
           "id": "filterFieldsByName",
           "options": {
             "include": {
-              "pattern": "/^(Time|time|fps|processing_ms)$/"
+              "names": [
+                "Time",
+                "time",
+                "fps",
+                "processing_ms"
+              ]
             }
           }
         }
@@ -706,7 +820,7 @@
       "title": "Latest Point-cloud Bounds",
       "description": "Axis-aligned bounds of the latest processed point cloud, in metres.",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -736,16 +850,35 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pointcloud",
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
         }
       ],
       "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "min_x_m",
+                "max_x_m",
+                "min_y_m",
+                "max_y_m",
+                "min_z_m",
+                "max_z_m"
+              ]
+            }
+          }
+        },
         {
           "id": "reduce",
           "options": {
@@ -754,14 +887,6 @@
             "reducers": [
               "lastNotNull"
             ]
-          }
-        },
-        {
-          "id": "filterFieldsByName",
-          "options": {
-            "include": {
-              "pattern": "/^(min_x_m|max_x_m|min_y_m|max_y_m|min_z_m|max_z_m)$/"
-            }
           }
         }
       ]
@@ -785,7 +910,7 @@
       "title": "Radar Targets",
       "description": "Reserved for the future radar worker.",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -822,7 +947,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^target_count$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -831,13 +956,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/radar_targets",
+          "buffer": 60000,
+          "channel": "stream/vista/radar_targets",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "target_count"
+              ]
+            }
+          }
         }
       ]
     },
@@ -847,7 +988,7 @@
       "title": "Detected Objects",
       "description": "Reserved for the future detection worker.",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -884,7 +1025,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^object_count$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -893,13 +1034,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/detected_objects",
+          "buffer": 60000,
+          "channel": "stream/vista/detected_objects",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "object_count"
+              ]
+            }
+          }
         }
       ]
     },
@@ -909,7 +1066,7 @@
       "title": "Active Tracks",
       "description": "Reserved for the future tracking worker.",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -946,7 +1103,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^track_count$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -955,13 +1112,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/tracked_objects",
+          "buffer": 60000,
+          "channel": "stream/vista/tracked_objects",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "track_count"
+              ]
+            }
+          }
         }
       ]
     },
@@ -971,7 +1144,7 @@
       "title": "Maximum Object Speed",
       "description": "Reserved for the future tracking worker.",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -1016,7 +1189,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^max_speed_mps$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -1025,13 +1198,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/tracked_objects",
+          "buffer": 60000,
+          "channel": "stream/vista/tracked_objects",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "max_speed_mps"
+              ]
+            }
+          }
         }
       ]
     },
@@ -1053,7 +1242,7 @@
       "type": "stat",
       "title": "Running Workers",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -1090,7 +1279,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^worker_count$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -1099,13 +1288,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/system_health",
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "worker_count"
+              ]
+            }
+          }
         }
       ]
     },
@@ -1114,7 +1319,7 @@
       "type": "stat",
       "title": "Failed Workers",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -1155,7 +1360,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^failed_workers$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -1164,13 +1369,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/system_health",
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "failed_workers"
+              ]
+            }
+          }
         }
       ]
     },
@@ -1179,7 +1400,7 @@
       "type": "stat",
       "title": "Memory",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -1224,7 +1445,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^memory_mb$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -1233,13 +1454,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/system_health",
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "memory_mb"
+              ]
+            }
+          }
         }
       ]
     },
@@ -1248,7 +1485,7 @@
       "type": "stat",
       "title": "CPU",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -1295,7 +1532,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^cpu_percent$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -1304,13 +1541,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/system_health",
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "cpu_percent"
+              ]
+            }
+          }
         }
       ]
     },
@@ -1319,7 +1572,7 @@
       "type": "stat",
       "title": "Uptime",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -1356,7 +1609,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^uptime_seconds$/",
+          "fields": "",
           "values": false
         },
         "showPercentChange": false,
@@ -1365,13 +1618,29 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/system_health",
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "uptime_seconds"
+              ]
+            }
+          }
         }
       ]
     },
@@ -1380,7 +1649,7 @@
       "type": "timeseries",
       "title": "Host Resource History",
       "datasource": {
-        "type": "datasource",
+        "type": "grafana",
         "uid": "grafana"
       },
       "gridPos": {
@@ -1479,10 +1748,14 @@
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/system_health",
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "datasource",
+            "type": "grafana",
             "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
           },
           "queryType": "measurements",
           "refId": "A"
@@ -1493,7 +1766,12 @@
           "id": "filterFieldsByName",
           "options": {
             "include": {
-              "pattern": "/^(Time|time|cpu_percent|memory_mb)$/"
+              "names": [
+                "Time",
+                "time",
+                "cpu_percent",
+                "memory_mb"
+              ]
             }
           }
         }
@@ -1504,7 +1782,12 @@
       "type": "row",
       "title": "Pipeline and Delivery Health",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
       "panels": []
     },
     {
@@ -1512,18 +1795,43 @@
       "type": "table",
       "title": "Pipeline Health",
       "description": "RAW, decoded and processed rates; end-to-end latency; queue usage; dropped messages; and age of the last LiDAR message.",
-      "datasource": { "type": "datasource", "uid": "grafana" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "cellHeight": "sm",
-        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
         "showHeader": true
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pipeline_health",
-          "datasource": { "type": "datasource", "uid": "grafana" },
+          "buffer": 60000,
+          "channel": "stream/vista/pipeline_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
           "queryType": "measurements",
           "refId": "A"
         }
@@ -1533,11 +1841,21 @@
       "id": 26,
       "type": "timeseries",
       "title": "Pipeline History",
-      "datasource": { "type": "datasource", "uid": "grafana" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
@@ -1546,28 +1864,57 @@
             "drawStyle": "line",
             "fillOpacity": 8,
             "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 2,
             "pointSize": 3,
-            "scaleDistribution": { "type": "linear" },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/pipeline_health",
-          "datasource": { "type": "datasource", "uid": "grafana" },
+          "buffer": 60000,
+          "channel": "stream/vista/pipeline_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
           "queryType": "measurements",
           "refId": "A"
         }
@@ -1578,7 +1925,12 @@
       "type": "row",
       "title": "Worker and Grafana Bridge Health",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
       "panels": []
     },
     {
@@ -1586,18 +1938,43 @@
       "type": "table",
       "title": "Worker Health",
       "description": "One stream per worker with running state, failure state, configured priority and uptime.",
-      "datasource": { "type": "datasource", "uid": "grafana" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 51
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "cellHeight": "sm",
-        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
         "showHeader": true
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/worker_health",
-          "datasource": { "type": "datasource", "uid": "grafana" },
+          "buffer": 60000,
+          "channel": "stream/vista/worker_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
           "queryType": "measurements",
           "refId": "A"
         }
@@ -1608,18 +1985,43 @@
       "type": "table",
       "title": "Grafana Bridge Health",
       "description": "Delivery totals, HTTP status, retry state, age of the last successful push and number of subscribed topics.",
-      "datasource": { "type": "datasource", "uid": "grafana" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 51
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "cellHeight": "sm",
-        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
         "showHeader": true
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/grafana_bridge_health",
-          "datasource": { "type": "datasource", "uid": "grafana" },
+          "buffer": 60000,
+          "channel": "stream/vista/grafana_bridge_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
           "queryType": "measurements",
           "refId": "A"
         }
@@ -1630,7 +2032,12 @@
       "type": "row",
       "title": "Storage and Power/Thermal",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 59 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
       "panels": []
     },
     {
@@ -1638,18 +2045,43 @@
       "type": "table",
       "title": "Storage Health",
       "description": "Free disk space and cumulative RAW/PCD logger output counters.",
-      "datasource": { "type": "datasource", "uid": "grafana" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 60 },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "cellHeight": "sm",
-        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
         "showHeader": true
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/storage_health",
-          "datasource": { "type": "datasource", "uid": "grafana" },
+          "buffer": 60000,
+          "channel": "stream/vista/storage_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
           "queryType": "measurements",
           "refId": "A"
         }
@@ -1660,18 +2092,43 @@
       "type": "table",
       "title": "Power and Thermal",
       "description": "CPU/GPU temperatures, detected board power and fan speed. The available field is zero when the operating system exposes none of these sensors.",
-      "datasource": { "type": "datasource", "uid": "grafana" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 60 },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "cellHeight": "sm",
-        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
         "showHeader": true
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/power_thermal",
-          "datasource": { "type": "datasource", "uid": "grafana" },
+          "buffer": 60000,
+          "channel": "stream/vista/power_thermal",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
           "queryType": "measurements",
           "refId": "A"
         }
@@ -1682,18 +2139,43 @@
       "type": "table",
       "title": "System Health - Full Fields",
       "description": "Complete heartbeat including uptime, CPU, process memory, system memory percentage, running workers and failed workers.",
-      "datasource": { "type": "datasource", "uid": "grafana" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
       "options": {
         "cellHeight": "sm",
-        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
         "showHeader": true
       },
       "targets": [
         {
-          "channel": "stream/${namespace}/system_health",
-          "datasource": { "type": "datasource", "uid": "grafana" },
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
           "queryType": "measurements",
           "refId": "A"
         }
@@ -1710,29 +2192,7 @@
     "cpp"
   ],
   "templating": {
-    "list": [
-      {
-        "current": {
-          "selected": true,
-          "text": "vista",
-          "value": "vista"
-        },
-        "description": "Must match GrafanaNamespace in DeviceConfig.txt.",
-        "hide": 0,
-        "label": "Namespace",
-        "name": "namespace",
-        "options": [
-          {
-            "selected": true,
-            "text": "vista",
-            "value": "vista"
-          }
-        ],
-        "query": "vista",
-        "skipUrlSync": false,
-        "type": "constant"
-      }
-    ]
+    "list": []
   },
   "time": {
     "from": "now-5m",
@@ -1750,7 +2210,7 @@
   },
   "timezone": "browser",
   "title": "VISTA Sensor Processing - Live",
-  "uid": null,
-  "version": 2,
+  "uid": "vistalive",
+  "version": 6,
   "weekStart": ""
 }

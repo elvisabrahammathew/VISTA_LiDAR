@@ -120,11 +120,16 @@ AppConfig parse_device_config_text(const std::string& contents) {
     std::size_t line_number = 0;
     bool lidar_seen = false;
     bool sensor_ip_seen = false;
-    bool tcp_port_seen = false;
+    bool sensor_port_seen = false;
     bool usb_serial_seen = false;
     bool depth_width_seen = false;
     bool depth_height_seen = false;
     bool depth_fps_seen = false;
+    bool unitree_connection_mode_seen = false;
+    bool unitree_serial_port_seen = false;
+    bool unitree_baud_rate_seen = false;
+    bool unitree_local_ip_seen = false;
+    bool unitree_local_port_seen = false;
 
     while (std::getline(input, original_line)) {
         ++line_number;
@@ -151,7 +156,7 @@ AppConfig parse_device_config_text(const std::string& contents) {
         if (key == "lidar") {
             if (value.empty() || lower_copy(value) == "none") {
                 throw std::invalid_argument(
-                    "DeviceConfig.txt must select quanergy-m8 or realsense-l515");
+                    "DeviceConfig.txt must select a supported LiDAR");
             }
             config.lidar_type = devices::parse_lidar_type(value);
             lidar_seen = true;
@@ -165,10 +170,10 @@ AppConfig parse_device_config_text(const std::string& contents) {
             }
             config.sensor_ip = value;
             sensor_ip_seen = true;
-        } else if (key == "tcpport" || key == "port") {
-            config.tcp_port = static_cast<std::uint16_t>(
-                parse_unsigned(value, "TCP port", 65'535));
-            tcp_port_seen = true;
+        } else if (key == "sensorport" || key == "tcpport" || key == "port") {
+            config.sensor_port = static_cast<std::uint16_t>(
+                parse_unsigned(value, "sensor port", 65'535));
+            sensor_port_seen = true;
         } else if (key == "usbserial" || key == "comport") {
             // L515 is a USB device. The former ComPort name is accepted as an
             // alias, but its value is interpreted as a librealsense serial.
@@ -190,6 +195,33 @@ AppConfig parse_device_config_text(const std::string& contents) {
                 "depth frame rate",
                 std::numeric_limits<std::uint32_t>::max()));
             depth_fps_seen = true;
+        } else if (key == "connectionmode") {
+            config.unitree_connection_mode =
+                devices::parse_unitree_connection_mode(value);
+            unitree_connection_mode_seen = true;
+        } else if (key == "serialport") {
+            if (value.empty()) {
+                throw std::invalid_argument("SerialPort cannot be empty");
+            }
+            config.unitree_serial_port = value;
+            unitree_serial_port_seen = true;
+        } else if (key == "baudrate") {
+            config.unitree_baud_rate = static_cast<std::uint32_t>(
+                parse_unsigned(
+                    value,
+                    "Unitree baud rate",
+                    std::numeric_limits<std::uint32_t>::max()));
+            unitree_baud_rate_seen = true;
+        } else if (key == "localip") {
+            if (value.empty()) {
+                throw std::invalid_argument("LocalIP cannot be empty");
+            }
+            config.unitree_local_ip = value;
+            unitree_local_ip_seen = true;
+        } else if (key == "localport") {
+            config.unitree_local_port = static_cast<std::uint16_t>(
+                parse_unsigned(value, "local UDP port", 65'535));
+            unitree_local_port_seen = true;
         } else if (key == "reconnectintervalseconds" ||
                    key == "lidarreconnectintervalseconds") {
             config.lidar_reconnect_interval = std::chrono::seconds(
@@ -245,9 +277,9 @@ AppConfig parse_device_config_text(const std::string& contents) {
         throw std::invalid_argument("DeviceConfig.txt is missing a Lidar selection");
     }
     if (config.lidar_type == devices::LidarType::quanergy_m8 &&
-        (!sensor_ip_seen || !tcp_port_seen)) {
+        (!sensor_ip_seen || !sensor_port_seen)) {
         throw std::invalid_argument(
-            "Quanergy M8 requires SensorIP and TcpPort in DeviceConfig.txt");
+            "Quanergy M8 requires SensorIP and SensorPort in DeviceConfig.txt");
     }
     if (config.lidar_type == devices::LidarType::realsense_l515 &&
         (!usb_serial_seen || !depth_width_seen || !depth_height_seen ||
@@ -255,6 +287,28 @@ AppConfig parse_device_config_text(const std::string& contents) {
         throw std::invalid_argument(
             "RealSense L515 requires UsbSerial, DepthWidth, DepthHeight, and "
             "DepthFps in DeviceConfig.txt");
+    }
+    if (config.lidar_type == devices::LidarType::unitree_l2) {
+        if (!unitree_connection_mode_seen) {
+            throw std::invalid_argument(
+                "Unitree L2 requires ConnectionMode in DeviceConfig.txt");
+        }
+        const auto serial_enabled =
+            config.unitree_connection_mode != devices::UnitreeConnectionMode::udp;
+        const auto udp_enabled =
+            config.unitree_connection_mode != devices::UnitreeConnectionMode::serial;
+        if (serial_enabled &&
+            (!unitree_serial_port_seen || !unitree_baud_rate_seen)) {
+            throw std::invalid_argument(
+                "Unitree L2 serial/auto mode requires SerialPort and BaudRate");
+        }
+        if (udp_enabled &&
+            (!sensor_ip_seen || !sensor_port_seen || !unitree_local_ip_seen ||
+             !unitree_local_port_seen)) {
+            throw std::invalid_argument(
+                "Unitree L2 UDP/auto mode requires SensorIP, SensorPort, "
+                "LocalIP, and LocalPort");
+        }
     }
     application::validate_grafana_bridge_config(config.grafana);
     return config;
@@ -310,7 +364,7 @@ devices::LidarConfig AppConfig::lidar_config() const {
     devices::LidarConfig config;
     config.lidar_type = lidar_type;
     config.sensor_ip = sensor_ip;
-    config.port = tcp_port;
+    config.port = sensor_port;
     // A connection attempt or an inactive data stream is considered lost
     // after five seconds. Reconnection uses the separately configured delay.
     config.connection_timeout =
@@ -322,6 +376,16 @@ devices::LidarConfig AppConfig::lidar_config() const {
             depth_height,
             depth_fps,
             config.connection_timeout,
+        };
+    } else if (lidar_type == devices::LidarType::unitree_l2) {
+        config.unitree_l2 = devices::UnitreeL2Config{
+            unitree_connection_mode,
+            sensor_ip,
+            sensor_port.value_or(6101),
+            unitree_local_ip,
+            unitree_local_port.value_or(6201),
+            unitree_serial_port,
+            unitree_baud_rate,
         };
     }
     return config;
