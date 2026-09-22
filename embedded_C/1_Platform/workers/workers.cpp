@@ -32,6 +32,12 @@ void validate_worker_selection(
         throw std::invalid_argument(
             "pcd-logger requires the pointcloud-preprocessing worker");
     }
+    if (app.pointcloud_websocket.enabled &&
+        runtime.threads.pointcloud_websocket.enabled &&
+        !runtime.threads.preprocessing.enabled) {
+        throw std::invalid_argument(
+            "pointcloud-websocket requires the pointcloud-preprocessing worker");
+    }
 }
 
 namespace {

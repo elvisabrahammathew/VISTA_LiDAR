@@ -1,0 +1,27 @@
+{
+  "name": "vista-lidarpointcloud-panel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Grafana panel for live LiDAR point-cloud visualization.",
+  "scripts": {
+    "build": "webpack --config webpack.config.cjs --mode production",
+    "dev": "webpack --config webpack.config.cjs --mode development --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@grafana/data": "13.2.2",
+    "@types/react": "^19.1.16",
+    "@types/three": "^0.180.0",
+    "copy-webpack-plugin": "^13.0.1",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

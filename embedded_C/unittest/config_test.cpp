@@ -183,9 +183,39 @@ VISTA_TEST(config_exposes_independent_worker_enable_and_priority_settings) {
     VISTA_CHECK(runtime.threads.lidar_decode.thread.priority.level() == 2);
     VISTA_CHECK(runtime.threads.preprocessing.thread.priority.level() == 3);
     VISTA_CHECK(runtime.threads.grafana_bridge.thread.priority.level() == 4);
+    VISTA_CHECK(
+        runtime.threads.pointcloud_websocket.thread.priority.level() == 4);
     VISTA_CHECK(runtime.threads.system_monitor.thread.priority.level() == 4);
     VISTA_CHECK(runtime.queues.raw_capacity == 32);
     VISTA_CHECK(runtime.queues.telemetry_capacity == 16);
+}
+
+VISTA_TEST(config_file_parses_pointcloud_websocket_settings) {
+    const auto config = vista::parse_device_config_text(R"(
+Lidar: quanergy-m8
+SensorIP(quanergym8): 192.168.1.3
+TcpPort(quanergym8): 4141
+PointCloudWebSocketEnabled: true
+PointCloudWebSocketBindAddress: 0.0.0.0
+PointCloudWebSocketPort: 9876
+PointCloudWebSocketMaxPoints: 75000
+PointCloudWebSocketMaxClients: 3
+PointCloudWebSocketPublishIntervalMilliseconds: 125
+PointCloudWebSocketRetryIntervalSeconds: 4
+)");
+
+    VISTA_CHECK(config.pointcloud_websocket.enabled);
+    VISTA_CHECK(config.pointcloud_websocket.bind_address == "0.0.0.0");
+    VISTA_CHECK(config.pointcloud_websocket.port == 9876);
+    VISTA_CHECK(config.pointcloud_websocket.maximum_points == 75'000);
+    VISTA_CHECK(config.pointcloud_websocket.maximum_clients == 3);
+    VISTA_CHECK(
+        config.pointcloud_websocket.publish_interval ==
+        std::chrono::milliseconds(125));
+    VISTA_CHECK(
+        config.pointcloud_websocket.retry_interval ==
+        std::chrono::seconds(4));
+    VISTA_CHECK(config.runtime_config().threads.pointcloud_websocket.enabled);
 }
 
 VISTA_TEST(config_file_parses_grafana_live_settings) {

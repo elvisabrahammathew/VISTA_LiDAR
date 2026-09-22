@@ -260,6 +260,39 @@ AppConfig parse_device_config_text(const std::string& contents) {
                     value,
                     "Grafana retry interval",
                     maximum_reconnect_interval_seconds));
+        } else if (key == "pointcloudwebsocketenabled") {
+            config.pointcloud_websocket.enabled =
+                parse_boolean(value, "PointCloudWebSocketEnabled");
+        } else if (key == "pointcloudwebsocketbindaddress") {
+            if (value.empty()) {
+                throw std::invalid_argument(
+                    "PointCloudWebSocketBindAddress cannot be empty");
+            }
+            config.pointcloud_websocket.bind_address = value;
+        } else if (key == "pointcloudwebsocketport") {
+            config.pointcloud_websocket.port = static_cast<std::uint16_t>(
+                parse_unsigned(
+                    value, "point-cloud WebSocket port", 65'535));
+        } else if (key == "pointcloudwebsocketmaxpoints") {
+            config.pointcloud_websocket.maximum_points =
+                static_cast<std::size_t>(parse_unsigned(
+                    value, "point-cloud WebSocket maximum points", 2'000'000));
+        } else if (key == "pointcloudwebsocketmaxclients") {
+            config.pointcloud_websocket.maximum_clients =
+                static_cast<std::size_t>(parse_unsigned(
+                    value, "point-cloud WebSocket maximum clients", 64));
+        } else if (key == "pointcloudwebsocketpublishintervalmilliseconds") {
+            config.pointcloud_websocket.publish_interval =
+                std::chrono::milliseconds(parse_unsigned(
+                    value,
+                    "point-cloud WebSocket publish interval",
+                    maximum_grafana_interval_ms));
+        } else if (key == "pointcloudwebsocketretryintervalseconds") {
+            config.pointcloud_websocket.retry_interval = std::chrono::seconds(
+                parse_unsigned(
+                    value,
+                    "point-cloud WebSocket retry interval",
+                    maximum_reconnect_interval_seconds));
         } else if (key == "systemmonitorintervalmilliseconds") {
             config.system_monitor.sample_interval = std::chrono::milliseconds(
                 parse_unsigned(
@@ -311,6 +344,8 @@ AppConfig parse_device_config_text(const std::string& contents) {
         }
     }
     application::validate_grafana_bridge_config(config.grafana);
+    application::validate_pointcloud_websocket_config(
+        config.pointcloud_websocket);
     return config;
 }
 
@@ -415,6 +450,9 @@ RuntimeConfig AppConfig::runtime_config() const {
                 true, platform::ThreadConfig("system-monitor", 4)},
             WorkerConfig{
                 grafana.enabled, platform::ThreadConfig("grafana-bridge", 4)},
+            WorkerConfig{
+                pointcloud_websocket.enabled,
+                platform::ThreadConfig("pointcloud-websocket", 4)},
         },
         TopicQueueConfig{32, 8, 8, 16},
     };

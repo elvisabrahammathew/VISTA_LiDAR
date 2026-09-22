@@ -14,7 +14,8 @@ The Rust source remains unchanged and can be kept as a behavioral reference.
 - `models`: sensor-neutral point clouds and LiDAR-specific topic envelopes.
 
 `main.cpp` explicitly chooses and starts the independent Read, Decode,
-Preprocessing, RAW Logger, PCD Logger, System Monitor, and Grafana Bridge workers. Each worker registers its own
+Preprocessing, RAW Logger, PCD Logger, System Monitor, Grafana Bridge, and
+Point-cloud WebSocket workers. Each worker registers its own
 publisher/subscriber endpoints on the shared MessageBus. RAW and PCD logger
 workers write to filenames generated from the local system start time. Capture
 runs continuously until Ctrl+C, SIGTERM, or a worker failure requests shutdown.
@@ -38,7 +39,8 @@ Important source locations:
 |-- serial/             Cross-platform USB serial transport
 `-- udp/                Cross-platform sensor UDP transport
 2_Transport/messaging/
-`-- http.cpp/.hpp       Cross-platform HTTP/1.1 client used by Grafana Live
+|-- http.cpp/.hpp       Cross-platform HTTP/1.1 client used by Grafana Live
+`-- websocket_server.*  Cross-platform browser WebSocket server
 3_Devices/lidars/
 |-- lidar.cpp/.hpp      Common LiDAR interfaces and worker entry points
 |-- quanergym8/         Quanergy M8 driver
@@ -47,6 +49,7 @@ Important source locations:
 4_Applications/
 |-- grafana_bridge/     Multi-topic Grafana Live output worker
 |-- monitoring/         OS, worker, storage, power, and thermal telemetry
+|-- pointcloud_websocket/ Dedicated LPC1 3D point-cloud output worker
 |-- object/analytics/
 |-- object/detection/
 |-- object/tracking/
@@ -168,6 +171,15 @@ GrafanaNamespace: vista
 GrafanaPublishIntervalMilliseconds: 1000
 GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
+
+# 3D point-cloud WebSocket for the lidarpointcloud Grafana panel
+PointCloudWebSocketEnabled: true
+PointCloudWebSocketBindAddress: 127.0.0.1
+PointCloudWebSocketPort: 8765
+PointCloudWebSocketMaxPoints: 100000
+PointCloudWebSocketMaxClients: 4
+PointCloudWebSocketPublishIntervalMilliseconds: 100
+PointCloudWebSocketRetryIntervalSeconds: 2
 ```
 
 Use `Lidar: realsense-l515` for the L515. `UsbSerial` is optional: leave its
@@ -274,6 +286,24 @@ measurements can be added to the same worker without changing `main.cpp`.
 A Grafana outage does not stop LiDAR capture: the
 worker reports the first failure, keeps draining its topic queues, and retries
 using `GrafanaRetryIntervalSeconds`.
+
+The full XYZ/intensity cloud is intentionally sent through the separate
+`pointcloud-websocket` worker instead of the HTTP metrics bridge. It subscribes
+to `pointcloud/processed`, samples oversized frames to
+`PointCloudWebSocketMaxPoints`, combines packetized spinning-LiDAR messages
+over `PointCloudWebSocketPublishIntervalMilliseconds`, encodes the
+little-endian `LPC1` format, and broadcasts it to the `lidarpointcloud` panel
+at:
+
+```text
+ws://<PointCloudWebSocketBindAddress>:<PointCloudWebSocketPort>
+```
+
+With the default `127.0.0.1` binding, Grafana and the browser must run on the
+same computer as `vista_edge`. Use `0.0.0.0` only when remote browser access is
+required, then configure the firewall and use the machine's LAN address in the
+panel. A disconnected panel or a temporarily unavailable port does not stop
+LiDAR acquisition; the worker keeps draining the topic and retries the server.
 
 `system-monitor` publishes independently of the LiDAR, so CPU, memory, worker,
 storage, and delivery status remain visible while a sensor is disconnected.

@@ -26,3 +26,12 @@ GrafanaNamespace: vista
 GrafanaPublishIntervalMilliseconds: 1000
 GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
+
+# 3D point-cloud WebSocket for the lidarpointcloud Grafana panel
+PointCloudWebSocketEnabled: true
+PointCloudWebSocketBindAddress: 127.0.0.1
+PointCloudWebSocketPort: 8765
+PointCloudWebSocketMaxPoints: 100000
+PointCloudWebSocketMaxClients: 4
+PointCloudWebSocketPublishIntervalMilliseconds: 100
+PointCloudWebSocketRetryIntervalSeconds: 2

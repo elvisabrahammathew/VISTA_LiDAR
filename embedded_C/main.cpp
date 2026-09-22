@@ -59,6 +59,18 @@ int main() {
         } else {
             std::cout << "disabled\n";
         }
+        std::cout << "Point-cloud WebSocket: ";
+        if (config.pointcloud_websocket.enabled) {
+            std::cout << "ws://" << config.pointcloud_websocket.bind_address
+                      << ':' << config.pointcloud_websocket.port
+                      << " (maximum "
+                      << config.pointcloud_websocket.maximum_points
+                      << " points/frame, every "
+                      << config.pointcloud_websocket.publish_interval.count()
+                      << " ms)\n";
+        } else {
+            std::cout << "disabled\n";
+        }
 
         const auto started = std::chrono::steady_clock::now();
         vista::platform::StopToken stop;
@@ -111,9 +123,12 @@ int main() {
         auto system_monitor_result = std::make_shared<
             vista::platform::WorkerResult<
                 vista::application::SystemMonitorReport>>();
+        auto pointcloud_websocket_result = std::make_shared<
+            vista::platform::WorkerResult<
+                vista::application::PointCloudWebSocketReport>>();
 
         std::vector<vista::platform::WorkerHandle> workers;
-        workers.reserve(7);
+        workers.reserve(8);
         bool read_started = false;
         bool decode_started = false;
         bool raw_logger_started = false;
@@ -121,6 +136,7 @@ int main() {
         bool pcd_logger_started = false;
         bool grafana_started = false;
         bool system_monitor_started = false;
+        bool pointcloud_websocket_started = false;
 
         try {
             // The user controls worker creation and startup order in main.
@@ -135,6 +151,20 @@ int main() {
                         config.grafana,
                         vista::platform::completion_for(grafana_result)));
                 grafana_started = true;
+            }
+
+            if (runtime.threads.pointcloud_websocket.enabled &&
+                config.pointcloud_websocket.enabled) {
+                vista::platform::add_worker(
+                    workers,
+                    vista::application::spawn_pointcloud_websocket(
+                        bus,
+                        runtime.threads.pointcloud_websocket.thread,
+                        stop,
+                        config.pointcloud_websocket,
+                        vista::platform::completion_for(
+                            pointcloud_websocket_result)));
+                pointcloud_websocket_started = true;
             }
 
             if (runtime.threads.system_monitor.enabled) {
@@ -268,6 +298,11 @@ int main() {
             runtime.threads.system_monitor.thread.name,
             system_monitor_result,
             system_monitor_started);
+        vista::platform::collect_worker_error(
+            failures,
+            runtime.threads.pointcloud_websocket.thread.name,
+            pointcloud_websocket_result,
+            pointcloud_websocket_started);
         vista::platform::throw_if_worker_failures(failures);
 
         const auto packet_count =
@@ -308,6 +343,18 @@ int main() {
                       << grafana_result->report->failed_publish_attempts
                       << ", input-drops="
                       << grafana_result->report->dropped_input_messages << '\n';
+        }
+        if (pointcloud_websocket_result->report) {
+            std::cout
+                << "Point-cloud WebSocket: frames="
+                << pointcloud_websocket_result->report->broadcast_frames
+                << ", client-deliveries="
+                << pointcloud_websocket_result->report->client_deliveries
+                << ", input-drops="
+                << pointcloud_websocket_result->report->dropped_input_messages
+                << ", server-failures="
+                << pointcloud_websocket_result->report->server_failures
+                << '\n';
         }
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

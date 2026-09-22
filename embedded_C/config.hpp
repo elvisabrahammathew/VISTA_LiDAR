@@ -11,6 +11,7 @@
 #include "3_Devices/lidars/lidar.hpp"
 #include "4_Applications/grafana_bridge/grafana_bridge.hpp"
 #include "4_Applications/monitoring/system_monitor.hpp"
+#include "4_Applications/pointcloud_websocket/pointcloud_websocket.hpp"
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 
 namespace vista {
@@ -31,6 +32,7 @@ struct ThreadSetConfig {
     WorkerConfig pcd_logger;
     WorkerConfig system_monitor;
     WorkerConfig grafana_bridge;
+    WorkerConfig pointcloud_websocket;
 };
 
 struct TopicQueueConfig {
@@ -71,6 +73,7 @@ struct AppConfig {
     /// Delay before retrying while the selected LiDAR is unavailable.
     std::chrono::milliseconds lidar_reconnect_interval{5'000};
     application::GrafanaBridgeConfig grafana;
+    application::PointCloudWebSocketConfig pointcloud_websocket;
     application::SystemMonitorConfig system_monitor;
     std::optional<std::filesystem::path> raw_path;
     std::optional<std::filesystem::path> pcd_path;

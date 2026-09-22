@@ -48,7 +48,9 @@ endif()
 # their own compiler settings and must not inherit /permissive- or -Wpedantic.
 function(vista_enable_warnings target_name)
     if(MSVC)
-        target_compile_options(${target_name} PRIVATE /W4 /permissive- /EHsc)
+        # /FS serializes access to the shared PDB and keeps parallel Visual
+        # Studio builds from failing with C1041.
+        target_compile_options(${target_name} PRIVATE /W4 /permissive- /EHsc /FS)
     else()
         target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic)
     endif()
@@ -66,6 +68,7 @@ set(VISTA_CORE_SOURCES
     2_Transport/peripheral/udp/udp.cpp
     2_Transport/peripheral/librealsense_usb/librealsense_usb.cpp
     2_Transport/messaging/http.cpp
+    2_Transport/messaging/websocket_server.cpp
     2_Transport/storage/local.cpp
     3_Devices/lidars/lidar.cpp
     3_Devices/lidars/quanergym8/quanergym8.cpp
@@ -75,6 +78,7 @@ set(VISTA_CORE_SOURCES
     4_Applications/grafana_bridge/grafana_bridge.cpp
     4_Applications/logger/logger.cpp
     4_Applications/monitoring/system_monitor.cpp
+    4_Applications/pointcloud_websocket/pointcloud_websocket.cpp
     4_Applications/processing/pointcloud/pointcloud_processing.cpp
 )
 
@@ -237,6 +241,7 @@ if(VISTA_BUILD_TESTS)
         unittest/application_test/grafana_bridge_test.cpp
         unittest/application_test/pointcloud_processing_test.cpp
         unittest/application_test/system_monitor_test.cpp
+        unittest/application_test/pointcloud_websocket_test.cpp
         unittest/config_test.cpp
         unittest/device_test/quanergym8_test.cpp
         unittest/device_test/realsensel515_test.cpp
@@ -247,6 +252,7 @@ if(VISTA_BUILD_TESTS)
         unittest/platform_test/workers_test.cpp
         unittest/transport_test/ethernet_test.cpp
         unittest/transport_test/librealsense_usb_test.cpp
+        unittest/transport_test/websocket_server_test.cpp
     )
     vista_enable_warnings(vista_edge_tests)
     target_link_libraries(vista_edge_tests PRIVATE vista_edge_core)
