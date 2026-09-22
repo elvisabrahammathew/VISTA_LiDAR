@@ -73,6 +73,9 @@ int main() {
             vista::models::topics::lidar_raw,
             runtime.queues.raw_capacity);
         bus.configure_topic(
+            vista::models::topics::lidar_imu,
+            runtime.queues.decoded_capacity);
+        bus.configure_topic(
             vista::models::topics::pointcloud_decoded,
             runtime.queues.decoded_capacity);
         bus.configure_topic(
@@ -299,6 +302,8 @@ int main() {
         if (grafana_result->report) {
             std::cout << "Grafana Live: published="
                       << grafana_result->report->published_measurements
+                      << ", imu-messages="
+                      << grafana_result->report->received_imu_messages
                       << ", failed-attempts="
                       << grafana_result->report->failed_publish_attempts
                       << ", input-drops="

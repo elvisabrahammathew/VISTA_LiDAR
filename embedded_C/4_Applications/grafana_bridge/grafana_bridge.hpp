@@ -58,10 +58,22 @@ struct PointCloudTelemetry {
 std::string format_pointcloud_measurement(
     const PointCloudTelemetry& telemetry);
 
+struct ImuTelemetry {
+    std::string lidar_id;
+    std::uint64_t timestamp_ns{};
+    double sample_rate_hz{};
+    bool online{};
+    models::ImuFrame sample;
+};
+
+/// Converts one IMU sample to the dedicated Grafana Live measurement.
+std::string format_imu_measurement(const ImuTelemetry& telemetry);
+
 struct GrafanaBridgeReport {
     std::uint64_t received_raw_messages{};
     std::uint64_t received_decoded_messages{};
     std::uint64_t received_processed_messages{};
+    std::uint64_t received_imu_messages{};
     std::uint64_t published_measurements{};
     std::uint64_t failed_publish_attempts{};
     std::uint64_t dropped_input_messages{};

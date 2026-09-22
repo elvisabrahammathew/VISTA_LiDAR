@@ -207,6 +207,25 @@ PointCloudTelemetry offline_pointcloud(const std::string& lidar_id) {
     return value;
 }
 
+ImuTelemetry summarize_imu(
+    const devices::LidarImuMessage& message,
+    double sample_rate_hz) {
+    ImuTelemetry value;
+    value.lidar_id = message.lidar_id;
+    value.timestamp_ns = system_timestamp_ns();
+    value.sample_rate_hz = sample_rate_hz;
+    value.online = true;
+    value.sample = message.payload;
+    return value;
+}
+
+ImuTelemetry offline_imu(const std::string& lidar_id) {
+    ImuTelemetry value;
+    value.lidar_id = lidar_id;
+    value.timestamp_ns = system_timestamp_ns();
+    return value;
+}
+
 std::string format_system_health(const models::SystemHealthTelemetry& value) {
     auto line = line_stream();
     line << "system_health online=1i,uptime_seconds=" << value.uptime_seconds
@@ -449,6 +468,31 @@ std::string format_pointcloud_measurement(const PointCloudTelemetry& value) {
     return line.str();
 }
 
+std::string format_imu_measurement(const ImuTelemetry& value) {
+    auto line = line_stream();
+    line << "imu,lidar_id=" << escape_influx_tag(value.lidar_id)
+         << " online=" << (value.online ? "1i" : "0i")
+         << ",sample_rate_hz=" << value.sample_rate_hz
+         << ",orientation_x=" << value.sample.orientation_x
+         << ",orientation_y=" << value.sample.orientation_y
+         << ",orientation_z=" << value.sample.orientation_z
+         << ",orientation_w=" << value.sample.orientation_w
+         << ",angular_velocity_x_rad_s="
+         << value.sample.angular_velocity_x_rad_s
+         << ",angular_velocity_y_rad_s="
+         << value.sample.angular_velocity_y_rad_s
+         << ",angular_velocity_z_rad_s="
+         << value.sample.angular_velocity_z_rad_s
+         << ",linear_acceleration_x_m_s2="
+         << value.sample.linear_acceleration_x_m_s2
+         << ",linear_acceleration_y_m_s2="
+         << value.sample.linear_acceleration_y_m_s2
+         << ",linear_acceleration_z_m_s2="
+         << value.sample.linear_acceleration_z_m_s2
+         << ' ' << value.timestamp_ns;
+    return line.str();
+}
+
 platform::WorkerHandle spawn_grafana_bridge(
     platform::MessageBus& bus,
     platform::ThreadConfig thread_config,
@@ -460,6 +504,7 @@ platform::WorkerHandle spawn_grafana_bridge(
     auto raw = inputs.subscribe<devices::LidarRawMessage>(bus, models::topics::lidar_raw);
     auto decoded = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_decoded);
     auto processed = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_processed);
+    auto imu = inputs.subscribe<devices::LidarImuMessage>(bus, models::topics::lidar_imu);
     auto system = inputs.subscribe<models::SystemHealthTelemetry>(bus, models::topics::system_health);
     auto worker = inputs.subscribe<models::WorkerHealthTelemetry>(bus, models::topics::worker_health);
     auto storage = inputs.subscribe<models::StorageHealthTelemetry>(bus, models::topics::storage_health);
@@ -469,6 +514,7 @@ platform::WorkerHandle spawn_grafana_bridge(
         std::move(thread_config),
         [stop, inputs = std::move(inputs), raw = std::move(raw),
          decoded = std::move(decoded), processed = std::move(processed),
+         imu = std::move(imu),
          system = std::move(system), worker = std::move(worker),
          storage = std::move(storage), power = std::move(power),
          config = std::move(config), on_complete = std::move(on_complete)]() mutable {
@@ -479,17 +525,22 @@ platform::WorkerHandle spawn_grafana_bridge(
                 std::unordered_map<std::string, models::WorkerHealthTelemetry> workers;
                 std::optional<models::SystemHealthTelemetry> system_value;
                 std::optional<models::StorageHealthTelemetry> storage_value;
-                std::optional<models::PowerThermalTelemetry> power_value;
-                std::shared_ptr<const devices::LidarPointCloudMessage> pending_cloud;
-                std::size_t input_count{};
-                std::string lidar_id;
-                std::uint64_t raw_time{}, decoded_time{}, processed_time{};
-                double raw_fps{}, decoded_fps{}, processed_fps{}, latency_ms{};
+                 std::optional<models::PowerThermalTelemetry> power_value;
+                 std::shared_ptr<const devices::LidarPointCloudMessage> pending_cloud;
+                 std::shared_ptr<const devices::LidarImuMessage> pending_imu;
+                 std::size_t input_count{};
+                 std::string lidar_id;
+                 std::string imu_lidar_id;
+                 std::uint64_t raw_time{}, decoded_time{}, processed_time{};
+                 std::uint64_t imu_time{};
+                 double raw_fps{}, decoded_fps{}, processed_fps{}, latency_ms{};
+                 double imu_rate_hz{};
                 double raw_fill{}, decoded_fill{}, processed_fill{};
                 const auto started = Clock::now();
-                auto last_cloud = started;
-                auto next_publish = started;
-                bool raw_closed{}, decoded_closed{}, processed_closed{};
+                 auto last_cloud = started;
+                 auto last_imu = started;
+                 auto next_publish = started;
+                 bool raw_closed{}, decoded_closed{}, processed_closed{}, imu_closed{};
                 bool system_closed{}, worker_closed{}, storage_closed{}, power_closed{};
 
                 while (!stop.is_stop_requested()) {
@@ -508,7 +559,7 @@ platform::WorkerHandle spawn_grafana_bridge(
                         decoded_counts[message->sequence] = message->payload.points.size();
                         if (decoded_counts.size() > 256) decoded_counts.clear();
                     });
-                    drain<devices::LidarPointCloudMessage>(processed, processed_closed, ready, [&](const auto& message) {
+                     drain<devices::LidarPointCloudMessage>(processed, processed_closed, ready, [&](const auto& message) {
                         ++report.received_processed_messages;
                         processed_fps = update_rate(message->received_timestamp_ns, processed_time, processed_fps);
                         const auto now_ns = system_timestamp_ns();
@@ -522,8 +573,19 @@ platform::WorkerHandle spawn_grafana_bridge(
                             input_count = found->second;
                             decoded_counts.erase(found);
                         }
-                        pending_cloud = message;
-                    });
+                         pending_cloud = message;
+                     });
+                     drain<devices::LidarImuMessage>(imu, imu_closed, ready,
+                         [&](const auto& message) {
+                             ++report.received_imu_messages;
+                             imu_rate_hz = update_rate(
+                                 message->received_timestamp_ns,
+                                 imu_time,
+                                 imu_rate_hz);
+                             last_imu = Clock::now();
+                             imu_lidar_id = message->lidar_id;
+                             pending_imu = message;
+                         });
                     drain<models::SystemHealthTelemetry>(system, system_closed, ready,
                         [&](const auto& message) { system_value = *message; });
                     drain<models::WorkerHealthTelemetry>(worker, worker_closed, ready,
@@ -542,9 +604,19 @@ platform::WorkerHandle spawn_grafana_bridge(
                             lines.push_back(format_pointcloud_measurement(
                                 summarize_point_cloud(*pending_cloud, input_count, drops, processed_fps)));
                             pending_cloud.reset();
-                        } else if (!online) {
-                            lines.push_back(format_pointcloud_measurement(offline_pointcloud(lidar_id)));
-                        }
+                         } else if (!online) {
+                             lines.push_back(format_pointcloud_measurement(offline_pointcloud(lidar_id)));
+                         }
+                         const auto imu_online =
+                             now - last_imu < config.offline_timeout;
+                         if (pending_imu) {
+                             lines.push_back(format_imu_measurement(
+                                 summarize_imu(*pending_imu, imu_rate_hz)));
+                             pending_imu.reset();
+                         } else if (!imu_lidar_id.empty() && !imu_online) {
+                             lines.push_back(format_imu_measurement(
+                                 offline_imu(imu_lidar_id)));
+                         }
                         lines.push_back(format_pipeline_health(PipelineTelemetry{
                             system_timestamp_ns(), online,
                             online ? raw_fps : 0.0, online ? decoded_fps : 0.0,
@@ -558,11 +630,12 @@ platform::WorkerHandle spawn_grafana_bridge(
                         publisher.publish(std::move(lines), inputs.topic_count());
                         next_publish = now + config.publish_interval;
                     }
-                    if (raw_closed && decoded_closed && processed_closed && system_closed &&
+                     if (raw_closed && decoded_closed && processed_closed && imu_closed && system_closed &&
                         worker_closed && storage_closed && power_closed) break;
                 }
-                report.dropped_input_messages = raw.dropped_messages() + decoded.dropped_messages() +
-                    processed.dropped_messages() + system.dropped_messages() + worker.dropped_messages() +
+                 report.dropped_input_messages = raw.dropped_messages() + decoded.dropped_messages() +
+                     processed.dropped_messages() + imu.dropped_messages() +
+                     system.dropped_messages() + worker.dropped_messages() +
                     storage.dropped_messages() + power.dropped_messages();
                 on_complete(report, {});
             } catch (...) {

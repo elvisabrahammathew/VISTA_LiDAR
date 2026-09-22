@@ -79,6 +79,47 @@ vista::devices::RawPacket one_meter_unitree_packet() {
     return vista::devices::RawPacket(std::move(bytes), 1'000'000'002ULL);
 }
 
+vista::devices::RawPacket unitree_imu_packet() {
+    constexpr std::size_t packet_size = 80;
+    constexpr std::size_t orientation_offset = 28;
+    constexpr std::size_t angular_velocity_offset = 44;
+    constexpr std::size_t linear_acceleration_offset = 56;
+    constexpr std::size_t tail_offset = packet_size - 12;
+
+    std::vector<std::uint8_t> bytes(packet_size);
+    bytes[0] = 0x55;
+    bytes[1] = 0xAA;
+    bytes[2] = 0x05;
+    bytes[3] = 0x0A;
+    write_u32_le(bytes, 4, vista::devices::unitree_protocol::imu_packet_type);
+    write_u32_le(bytes, 8, packet_size);
+    write_u32_le(bytes, 12, 8);  // sequence
+    write_u32_le(bytes, 16, packet_size - 24);
+    write_u32_le(bytes, 20, 2);  // timestamp seconds
+    write_u32_le(bytes, 24, 3);  // timestamp nanoseconds
+    write_f32_le(bytes, orientation_offset, 0.1F);
+    write_f32_le(bytes, orientation_offset + 4, 0.2F);
+    write_f32_le(bytes, orientation_offset + 8, 0.3F);
+    write_f32_le(bytes, orientation_offset + 12, 0.9F);
+    write_f32_le(bytes, angular_velocity_offset, 1.1F);
+    write_f32_le(bytes, angular_velocity_offset + 4, 1.2F);
+    write_f32_le(bytes, angular_velocity_offset + 8, 1.3F);
+    write_f32_le(bytes, linear_acceleration_offset, 9.7F);
+    write_f32_le(bytes, linear_acceleration_offset + 4, 0.4F);
+    write_f32_le(bytes, linear_acceleration_offset + 8, -0.5F);
+    bytes[packet_size - 2] = 0x00;
+    bytes[packet_size - 1] = 0xFF;
+    write_u32_le(
+        bytes,
+        tail_offset,
+        vista::devices::unitree_protocol::crc32(
+            bytes.data() + vista::devices::unitree_protocol::frame_header_size,
+            packet_size -
+                vista::devices::unitree_protocol::frame_header_size -
+                vista::devices::unitree_protocol::frame_tail_size));
+    return vista::devices::RawPacket(std::move(bytes), 2'000'000'003ULL);
+}
+
 }  // namespace
 
 VISTA_TEST(unitree_validates_and_decodes_one_meter_point) {
@@ -106,6 +147,26 @@ VISTA_TEST(unitree_decoder_emits_cloud_after_configured_scan_count) {
     VISTA_CHECK(second.points[0].ring == 0);
     VISTA_CHECK(second.points[1].ring == 1);
     VISTA_CHECK(second.timestamp_ns == 1'000'000'002ULL);
+}
+
+VISTA_TEST(unitree_decodes_imu_packet) {
+    const auto packet = unitree_imu_packet();
+    const auto sample =
+        vista::devices::unitree_protocol::decode_imu_packet(packet.bytes());
+
+    VISTA_CHECK(sample.timestamp_ns == 2'000'000'003ULL);
+    VISTA_CHECK_NEAR(sample.orientation_x, 0.1F, 1.0e-6F);
+    VISTA_CHECK_NEAR(sample.orientation_w, 0.9F, 1.0e-6F);
+    VISTA_CHECK_NEAR(sample.angular_velocity_z_rad_s, 1.3F, 1.0e-6F);
+    VISTA_CHECK_NEAR(sample.linear_acceleration_x_m_s2, 9.7F, 1.0e-6F);
+}
+
+VISTA_TEST(unitree_decoder_routes_imu_separately_from_pointcloud) {
+    vista::devices::UnitreeL2Decoder decoder(2);
+    const auto imu = decoder.decode_imu_packet(unitree_imu_packet());
+    VISTA_CHECK(imu.has_value());
+    VISTA_CHECK(decoder.decode_packet(unitree_imu_packet()).points.empty());
+    VISTA_CHECK(!decoder.decode_imu_packet(one_meter_unitree_packet()).has_value());
 }
 
 VISTA_TEST(unitree_rejects_corrupted_crc) {

@@ -34,6 +34,27 @@ VISTA_TEST(grafana_bridge_formats_pointcloud_as_influx_line_protocol) {
         line.find(" 1725000000000000000") != std::string::npos);
 }
 
+VISTA_TEST(grafana_bridge_formats_imu_as_influx_line_protocol) {
+    vista::application::ImuTelemetry telemetry;
+    telemetry.lidar_id = "unitree-l2";
+    telemetry.timestamp_ns = 1'725'000'000'000'000'001ULL;
+    telemetry.sample_rate_hz = 200.0;
+    telemetry.online = true;
+    telemetry.sample.orientation_x = 0.1F;
+    telemetry.sample.orientation_w = 0.9F;
+    telemetry.sample.angular_velocity_z_rad_s = 1.3F;
+    telemetry.sample.linear_acceleration_x_m_s2 = 9.7F;
+
+    const auto line = vista::application::format_imu_measurement(telemetry);
+
+    VISTA_CHECK(line.find("imu,lidar_id=unitree-l2") == 0);
+    VISTA_CHECK(line.find("online=1i") != std::string::npos);
+    VISTA_CHECK(line.find("sample_rate_hz=200") != std::string::npos);
+    VISTA_CHECK(line.find("orientation_x=") != std::string::npos);
+    VISTA_CHECK(line.find("angular_velocity_z_rad_s=") != std::string::npos);
+    VISTA_CHECK(line.find("linear_acceleration_x_m_s2=") != std::string::npos);
+}
+
 VISTA_TEST(grafana_bridge_rejects_invalid_channel_namespace) {
     auto config = vista::application::GrafanaBridgeConfig{};
     config.name_space = "factory/line";

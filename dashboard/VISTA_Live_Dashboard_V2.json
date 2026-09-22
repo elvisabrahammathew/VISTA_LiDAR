@@ -62,7 +62,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "This dashboard listens to Grafana Live channels under `stream/vista/...`. The C++ `grafana_bridge` worker publishes one measurement per data domain. Point-cloud panels intentionally display operational summaries rather than transmitting every XYZ point to Grafana. The channel prefix must match `GrafanaNamespace: vista` in `DeviceConfig.txt`."
+        "content": "This dashboard listens to Grafana Live channels under `stream/vista/...`. The C++ `grafana_bridge` worker publishes one measurement per data domain. Point-cloud panels intentionally display operational summaries rather than transmitting every XYZ point to Grafana. The channel prefix must match `GrafanaNamespace: vista` in `DeviceConfig.txt`.\n\nIMU panels subscribe to `stream/vista/imu`; the LiDAR decoder publishes quaternion, angular velocity and linear acceleration through `lidar/imu`."
       },
       "transparent": true
     },
@@ -892,6 +892,808 @@
       ]
     },
     {
+      "id": 34,
+      "type": "row",
+      "title": "LiDAR IMU",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "panels": []
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "IMU Online",
+      "description": "Latest IMU state published by the LiDAR decode worker.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "OFFLINE"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "ONLINE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "online"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "IMU Sample Rate",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "sample_rate_hz"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "Orientation X",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "orientation_x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "stat",
+      "title": "Orientation Y",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "orientation_y"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "type": "stat",
+      "title": "Orientation Z",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "orientation_z"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "stat",
+      "title": "Orientation W",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "orientation_w"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Orientation Quaternion",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Quaternion",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "orientation_x",
+                "orientation_y",
+                "orientation_z",
+                "orientation_w"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Angular Velocity",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "rad/s",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "angular_velocity_x_rad_s",
+                "angular_velocity_y_rad_s",
+                "angular_velocity_z_rad_s"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "timeseries",
+      "title": "Linear Acceleration",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "m/s²",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "linear_acceleration_x_m_s2",
+                "linear_acceleration_y_m_s2",
+                "linear_acceleration_z_m_s2"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "id": 12,
       "type": "row",
       "title": "Future Sensors and Applications",
@@ -900,7 +1702,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 36
       },
       "panels": []
     },
@@ -917,7 +1719,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 24
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {
@@ -995,7 +1797,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 24
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {
@@ -1073,7 +1875,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 24
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {
@@ -1151,7 +1953,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 24
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {
@@ -1233,7 +2035,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 28
+        "y": 41
       },
       "panels": []
     },
@@ -1249,7 +2051,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 29
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -1326,7 +2128,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 29
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -1407,7 +2209,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 29
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -1492,7 +2294,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 29
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -1579,7 +2381,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 29
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -1656,7 +2458,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 46
       },
       "fieldConfig": {
         "defaults": {
@@ -1786,7 +2588,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 54
       },
       "panels": []
     },
@@ -1803,7 +2605,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 42
+        "y": 55
       },
       "fieldConfig": {
         "defaults": {},
@@ -1849,7 +2651,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 42
+        "y": 55
       },
       "fieldConfig": {
         "defaults": {
@@ -1929,7 +2731,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 63
       },
       "panels": []
     },
@@ -1946,7 +2748,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 51
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {},
@@ -1993,7 +2795,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {},
@@ -2036,7 +2838,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 59
+        "y": 72
       },
       "panels": []
     },
@@ -2053,7 +2855,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 73
       },
       "fieldConfig": {
         "defaults": {},
@@ -2100,7 +2902,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 73
       },
       "fieldConfig": {
         "defaults": {},
@@ -2147,7 +2949,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 81
       },
       "fieldConfig": {
         "defaults": {},
@@ -2211,6 +3013,6 @@
   "timezone": "browser",
   "title": "VISTA Sensor Processing - Live",
   "uid": "vistalive",
-  "version": 6,
+  "version": 7,
   "weekStart": ""
 }

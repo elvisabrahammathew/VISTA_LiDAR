@@ -1,7 +1,9 @@
 #include "3_Devices/lidars/unitree4d/unitree_protocol.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -20,6 +22,13 @@ constexpr std::size_t calibration_size = 32;
 constexpr std::size_t line_data_size = 32;
 constexpr std::size_t current_point_packet_size = 1'044;
 constexpr std::size_t legacy_point_packet_size = 1'036;
+constexpr std::size_t imu_orientation_offset = data_info_offset + 16;
+constexpr std::size_t imu_angular_velocity_offset =
+    imu_orientation_offset + 4 * sizeof(float);
+constexpr std::size_t imu_linear_acceleration_offset =
+    imu_angular_velocity_offset + 3 * sizeof(float);
+constexpr std::size_t minimum_imu_packet_size =
+    imu_linear_acceleration_offset + 3 * sizeof(float) + frame_tail_size;
 
 std::uint16_t read_u16_le(
     const std::vector<std::uint8_t>& bytes,
@@ -241,6 +250,57 @@ std::vector<models::PointXYZIRT> decode_point_packet(
         });
     }
     return points;
+}
+
+models::ImuFrame decode_imu_packet(
+    const std::vector<std::uint8_t>& frame) {
+    validate_frame(frame);
+    if (packet_type(frame) != imu_packet_type) {
+        throw std::invalid_argument("Unitree frame is not an IMU packet");
+    }
+    // The documented fields occupy 80 bytes. Accept a larger valid packet as
+    // well so reserved fields added by firmware do not break this decoder.
+    if (frame.size() < minimum_imu_packet_size) {
+        throw std::runtime_error("truncated Unitree IMU packet");
+    }
+
+    models::ImuFrame sample;
+    sample.timestamp_ns = packet_timestamp_ns(frame).value_or(0);
+    sample.orientation_x = read_f32_le(frame, imu_orientation_offset);
+    sample.orientation_y = read_f32_le(frame, imu_orientation_offset + 4);
+    sample.orientation_z = read_f32_le(frame, imu_orientation_offset + 8);
+    sample.orientation_w = read_f32_le(frame, imu_orientation_offset + 12);
+    sample.angular_velocity_x_rad_s =
+        read_f32_le(frame, imu_angular_velocity_offset);
+    sample.angular_velocity_y_rad_s =
+        read_f32_le(frame, imu_angular_velocity_offset + 4);
+    sample.angular_velocity_z_rad_s =
+        read_f32_le(frame, imu_angular_velocity_offset + 8);
+    sample.linear_acceleration_x_m_s2 =
+        read_f32_le(frame, imu_linear_acceleration_offset);
+    sample.linear_acceleration_y_m_s2 =
+        read_f32_le(frame, imu_linear_acceleration_offset + 4);
+    sample.linear_acceleration_z_m_s2 =
+        read_f32_le(frame, imu_linear_acceleration_offset + 8);
+
+    const float values[]{
+        sample.orientation_x,
+        sample.orientation_y,
+        sample.orientation_z,
+        sample.orientation_w,
+        sample.angular_velocity_x_rad_s,
+        sample.angular_velocity_y_rad_s,
+        sample.angular_velocity_z_rad_s,
+        sample.linear_acceleration_x_m_s2,
+        sample.linear_acceleration_y_m_s2,
+        sample.linear_acceleration_z_m_s2,
+    };
+    if (!std::all_of(std::begin(values), std::end(values), [](float value) {
+            return std::isfinite(value);
+        })) {
+        throw std::runtime_error("Unitree IMU packet contains a non-finite value");
+    }
+    return sample;
 }
 
 }  // namespace vista::devices::unitree_protocol

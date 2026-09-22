@@ -123,17 +123,27 @@ LidarWorkerReport run_lidar_reader(
 LidarWorkerReport run_lidar_decoder(
     const std::shared_ptr<LidarDecoderSlot>& decoder_slot,
     platform::TopicSubscriber<LidarRawMessage> subscriber,
-    platform::TopicPublisher<LidarPointCloudMessage> publisher) {
+    platform::TopicPublisher<LidarPointCloudMessage> pointcloud_publisher,
+    platform::TopicPublisher<LidarImuMessage> imu_publisher) {
     LidarWorkerReport report;
     std::shared_ptr<const LidarRawMessage> message;
     while (subscriber.receive(message) == platform::ReceiveStatus::message) {
+        if (auto imu = decoder_slot->decode_imu_packet(message->payload)) {
+            imu_publisher.publish(LidarImuMessage(
+                message->lidar_id,
+                message->sequence,
+                message->sensor_timestamp_ns,
+                message->received_timestamp_ns,
+                std::move(*imu)));
+            ++report.message_count;
+            continue;
+        }
         auto frame = decoder_slot->decode_packet(message->payload);
-        // Some sensors publish non-point packets (for example Unitree IMU) or
-        // need several scan rows before one complete cloud is available.
+        // Some sensors need several scan rows before one complete cloud exists.
         if (frame.points.empty()) {
             continue;
         }
-        publisher.publish(LidarPointCloudMessage(
+        pointcloud_publisher.publish(LidarPointCloudMessage(
             message->lidar_id,
             message->sequence,
             message->sensor_timestamp_ns,
@@ -279,6 +289,19 @@ void LidarDecoderSlot::replace(std::unique_ptr<ILidarDecoder> decoder) {
     decoder_ = std::shared_ptr<ILidarDecoder>(std::move(decoder));
 }
 
+std::optional<models::ImuFrame> LidarDecoderSlot::decode_imu_packet(
+    const RawPacket& packet) const {
+    std::shared_ptr<ILidarDecoder> decoder;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        decoder = decoder_;
+    }
+    if (!decoder) {
+        throw std::runtime_error("LiDAR decoder is unavailable");
+    }
+    return decoder->decode_imu_packet(packet);
+}
+
 models::PointCloudFrame LidarDecoderSlot::decode_packet(
     const RawPacket& packet) const {
     std::shared_ptr<ILidarDecoder> decoder;
@@ -352,18 +375,24 @@ platform::WorkerHandle spawn_lidar_decode_worker(
     auto raw_input =
         inputs.subscribe<LidarRawMessage>(bus, models::topics::lidar_raw);
     auto subscriber = std::move(raw_input).take_subscriber();
-    auto publisher = bus.publisher<LidarPointCloudMessage>(
+    auto pointcloud_publisher = bus.publisher<LidarPointCloudMessage>(
         models::topics::pointcloud_decoded);
+    auto imu_publisher =
+        bus.publisher<LidarImuMessage>(models::topics::lidar_imu);
     return platform::spawn_worker(
         std::move(thread_config),
         [stop,
          decoder_slot = std::move(decoder_slot),
          subscriber = std::move(subscriber),
-         publisher = std::move(publisher),
+         pointcloud_publisher = std::move(pointcloud_publisher),
+         imu_publisher = std::move(imu_publisher),
          on_complete = std::move(on_complete)]() mutable {
             try {
                 auto report = run_lidar_decoder(
-                    decoder_slot, std::move(subscriber), std::move(publisher));
+                    decoder_slot,
+                    std::move(subscriber),
+                    std::move(pointcloud_publisher),
+                    std::move(imu_publisher));
                 on_complete(report, {});
             } catch (...) {
                 stop.request_stop();

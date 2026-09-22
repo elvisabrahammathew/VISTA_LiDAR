@@ -196,6 +196,15 @@ UnitreeL2Decoder::UnitreeL2Decoder(std::size_t cloud_scan_count)
         cloud_scan_count_ * unitree_protocol::points_per_packet);
 }
 
+std::optional<models::ImuFrame> UnitreeL2Decoder::decode_imu_packet(
+    const RawPacket& packet) {
+    if (unitree_protocol::packet_type(packet.bytes()) !=
+        unitree_protocol::imu_packet_type) {
+        return std::nullopt;
+    }
+    return unitree_protocol::decode_imu_packet(packet.bytes());
+}
+
 models::PointCloudFrame UnitreeL2Decoder::decode_packet(
     const RawPacket& packet) {
     const auto& bytes = packet.bytes();

@@ -5,6 +5,7 @@
 #include <optional>
 #include <vector>
 
+#include "models/lidars/imu.hpp"
 #include "models/lidars/pointcloud.hpp"
 
 namespace vista::devices::unitree_protocol {
@@ -37,5 +38,9 @@ void validate_frame(const std::vector<std::uint8_t>& frame);
 std::vector<models::PointXYZIRT> decode_point_packet(
     const std::vector<std::uint8_t>& frame,
     std::uint8_t ring);
+
+/// Decodes quaternion, angular velocity and linear acceleration from type 104.
+models::ImuFrame decode_imu_packet(
+    const std::vector<std::uint8_t>& frame);
 
 }  // namespace vista::devices::unitree_protocol

@@ -12,6 +12,7 @@
 
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
+#include "models/lidars/imu.hpp"
 #include "models/lidars/lidar_message.hpp"
 #include "models/lidars/pointcloud.hpp"
 
@@ -86,6 +87,7 @@ private:
 };
 
 using LidarRawMessage = models::LidarMessage<RawPacket>;
+using LidarImuMessage = models::LidarMessage<models::ImuFrame>;
 using LidarPointCloudMessage = models::LidarMessage<models::PointCloudFrame>;
 
 struct LidarWorkerReport {
@@ -102,6 +104,12 @@ public:
 class ILidarDecoder {
 public:
     virtual ~ILidarDecoder() = default;
+    /// Returns one IMU sample when this packet type is supported by the sensor.
+    virtual std::optional<models::ImuFrame> decode_imu_packet(
+        const RawPacket& packet) {
+        (void)packet;
+        return std::nullopt;
+    }
     virtual models::PointCloudFrame decode_packet(const RawPacket& packet) = 0;
 };
 
@@ -110,6 +118,8 @@ public:
 class LidarDecoderSlot {
 public:
     void replace(std::unique_ptr<ILidarDecoder> decoder);
+    std::optional<models::ImuFrame> decode_imu_packet(
+        const RawPacket& packet) const;
     models::PointCloudFrame decode_packet(const RawPacket& packet) const;
 
 private:
