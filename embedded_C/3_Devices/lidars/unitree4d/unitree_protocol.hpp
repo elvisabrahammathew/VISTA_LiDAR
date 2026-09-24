@@ -5,7 +5,7 @@
 #include <optional>
 #include <vector>
 
-#include "models/lidars/imu.hpp"
+#include "models/imu/imu.hpp"
 #include "models/lidars/pointcloud.hpp"
 
 namespace vista::devices::unitree_protocol {

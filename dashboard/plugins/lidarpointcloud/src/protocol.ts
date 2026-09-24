@@ -1,8 +1,9 @@
-import { PointCloudFrame } from './types';
+import { GroundState, PointCloudFrame } from './types';
 
 const LPC1_HEADER_SIZE = 32;
 const LDR1_HEADER_SIZE = 24;
 const MAX_ACCEPTED_POINTS = 10_000_000;
+const LPC1_GROUND_HEADER_SIZE = 96;
 
 const readMagic = (view: DataView): string => {
   if (view.byteLength < 4) {
@@ -48,6 +49,7 @@ const decodeLpc1 = (view: DataView): PointCloudFrame => {
   const pointCount = view.getUint32(24, true);
   const pointStride = view.getUint32(28, true);
   const hasIntensity = (flags & 0x01) !== 0;
+  const hasGroundStatus = (flags & 0x02) !== 0;
 
   if (headerSize < LPC1_HEADER_SIZE || headerSize > view.byteLength) {
     throw new Error(`Invalid LPC1 header size: ${headerSize}`);
@@ -68,7 +70,35 @@ const decodeLpc1 = (view: DataView): PointCloudFrame => {
     }
   }
 
-  return { positions, intensities, pointCount, frameId, timestampNs, protocol: 'LPC1' };
+  const states: GroundState[] = ['calibrating', 'valid', 'static_fallback', 'invalid'];
+  const modes = ['static', 'ransac', 'hybrid'] as const;
+  const stateCode = hasGroundStatus && headerSize >= LPC1_GROUND_HEADER_SIZE ? view.getUint8(32) : 3;
+  const groundFlags = hasGroundStatus && headerSize >= LPC1_GROUND_HEADER_SIZE ? view.getUint8(33) : 0;
+  const modeCode = hasGroundStatus && headerSize >= LPC1_GROUND_HEADER_SIZE ? view.getUint8(34) : 255;
+  const ground = hasGroundStatus && headerSize >= LPC1_GROUND_HEADER_SIZE ? {
+    state: states[stateCode] ?? 'invalid',
+    calibrated: (groundFlags & 0x01) !== 0,
+    usingImu: (groundFlags & 0x02) !== 0,
+    usingStaticFallback: (groundFlags & 0x04) !== 0,
+    mode: modes[modeCode] ?? 'unknown',
+    planeA: view.getFloat32(36, true),
+    planeB: view.getFloat32(40, true),
+    planeC: view.getFloat32(44, true),
+    planeD: view.getFloat32(48, true),
+    tiltDeg: view.getFloat32(52, true),
+    sensorDistanceM: view.getFloat32(56, true),
+    expectedDistanceM: view.getFloat32(60, true),
+    heightErrorM: view.getFloat32(64, true),
+    inlierRatio: view.getFloat32(68, true),
+    meanResidualM: view.getFloat32(72, true),
+    rmsResidualM: view.getFloat32(76, true),
+    p95ResidualM: view.getFloat32(80, true),
+    removedRatio: view.getFloat32(84, true),
+    inputPointCount: view.getUint32(88, true),
+    removedPointCount: view.getUint32(92, true),
+  } : undefined;
+
+  return { positions, intensities, pointCount, frameId, timestampNs, protocol: 'LPC1', ground };
 };
 
 /** Decode packets produced by the earlier VISTA LDR1 point-cloud test sender. */

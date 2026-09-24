@@ -55,6 +55,32 @@ VISTA_TEST(grafana_bridge_formats_imu_as_influx_line_protocol) {
     VISTA_CHECK(line.find("linear_acceleration_x_m_s2=") != std::string::npos);
 }
 
+VISTA_TEST(grafana_bridge_formats_ground_status_as_influx_line_protocol) {
+    vista::models::GroundStatus ground;
+    ground.configured_mode="hybrid";
+    ground.state=vista::models::GroundState::valid;
+    ground.calibrated=true;
+    ground.plane_c=1.0F;
+    ground.ground_tilt_deg=1.5F;
+    ground.ground_inlier_ratio=0.72F;
+    ground.rms_residual_m=0.018F;
+    ground.removed_ground_ratio=0.61F;
+    vista::models::LidarGroundStatusMessage message(
+        "unitree-l2",1,std::nullopt,2,std::move(ground));
+
+    const auto line=vista::application::format_ground_measurement(message);
+    VISTA_CHECK(line.find("ground_status,lidar_id=unitree-l2,mode=hybrid state_code=1i")==0);
+    VISTA_CHECK(line.find(",state=")==std::string::npos);
+    VISTA_CHECK(line.find("state_code=1i")!=std::string::npos);
+    VISTA_CHECK(line.find("ground_inlier_ratio=0.72")!=std::string::npos);
+    VISTA_CHECK(line.find("rms_residual_m=")!=std::string::npos);
+
+    const auto state_line=
+        vista::application::format_ground_state_measurement(message);
+    VISTA_CHECK(state_line.find("ground_state state_code=1i ")==0);
+    VISTA_CHECK(state_line.find(',')==std::string::npos);
+}
+
 VISTA_TEST(grafana_bridge_rejects_invalid_channel_namespace) {
     auto config = vista::application::GrafanaBridgeConfig{};
     config.name_space = "factory/line";

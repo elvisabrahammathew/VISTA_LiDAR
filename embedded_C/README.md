@@ -160,6 +160,21 @@ DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480
 DepthFps(realsensel515): 30
 
+# LiDAR mounting and ground calibration (hybrid, ransac, static)
+GroundMode(lidar): hybrid
+UseImuForGround(lidar): 0
+MountX(lidar): 0.0
+MountY(lidar): 0.0
+MountZ(lidar): 0.75
+MountRollDeg(lidar): 0.0
+MountPitchDeg(lidar): 0.0
+MountYawDeg(lidar): 0.0
+FloorZ(lidar): 0.0
+GroundDistanceThreshold(lidar): 0.10
+GroundNormalToleranceDeg(lidar): 15.0
+GroundCalibrationFrames(lidar): 50
+GroundMinInlierRatio(lidar): 0.20
+
 # Supported Radar: none
 Radar: None
 
@@ -194,6 +209,16 @@ be `serial`, `udp`, or `auto`. Auto mode probes the configured serial port and
 then UDP; the first transport that delivers a complete frame with valid CRC is
 kept. On Linux, change `SerialPort` from the Windows example `COM3` to a path
 such as `/dev/ttyACM0`.
+
+Ground processing first converts sensor coordinates to the common world frame
+with `MountX/Y/Z` and `MountRoll/Pitch/YawDeg`. `FloorZ` is the floor height in
+that world frame. `static` removes only the configured floor band; `ransac`
+collects `GroundCalibrationFrames` before selecting a plane; `hybrid` uses the
+configured floor immediately and replaces it with a validated RANSAC plane.
+Calibration runs once per process start. `UseImuForGround` defaults to `0`; when
+set to `1`, a stationary gravity sample supplies roll/pitch while configured yaw
+is preserved. Missing or invalid IMU data automatically falls back to the
+configured mounting angles.
 
 The Unitree wire protocol is decoded by VISTA-owned portable code rather than
 linking the Linux-only `libunilidar_sdk2.a`. The pinned

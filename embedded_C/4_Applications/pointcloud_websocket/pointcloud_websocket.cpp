@@ -16,7 +16,8 @@ namespace vista::application {
 
 namespace {
 
-constexpr std::size_t lpc1_header_size = 32;
+constexpr std::size_t lpc1_base_header_size = 32;
+constexpr std::size_t lpc1_ground_header_size = 96;
 constexpr std::size_t lpc1_point_stride = 16;
 constexpr std::size_t absolute_maximum_points = 2'000'000;
 
@@ -90,7 +91,8 @@ void validate_pointcloud_websocket_config(
 
 std::vector<std::uint8_t> encode_lpc1_pointcloud(
     const devices::LidarPointCloudMessage& message,
-    std::size_t maximum_points) {
+    std::size_t maximum_points,
+    const models::GroundStatus* ground_status) {
     if (maximum_points == 0) {
         throw std::invalid_argument("LPC1 maximum points cannot be zero");
     }
@@ -107,12 +109,12 @@ std::vector<std::uint8_t> encode_lpc1_pointcloud(
     }
 
     std::vector<std::uint8_t> output;
-    output.reserve(
-        lpc1_header_size + encoded_count * lpc1_point_stride);
+    const auto header_size=ground_status ? lpc1_ground_header_size : lpc1_base_header_size;
+    output.reserve(header_size + encoded_count * lpc1_point_stride);
     output.insert(output.end(), {'L', 'P', 'C', '1'});
     output.push_back(1U);  // Protocol version.
-    output.push_back(1U);  // Flag bit 0: intensity is present.
-    append_u16_le(output, static_cast<std::uint16_t>(lpc1_header_size));
+    output.push_back(static_cast<std::uint8_t>(1U | (ground_status ? 2U : 0U)));
+    append_u16_le(output, static_cast<std::uint16_t>(header_size));
     append_u64_le(output, message.sequence);
     const auto timestamp = message.payload.timestamp_ns != 0
                                ? message.payload.timestamp_ns
@@ -121,6 +123,34 @@ std::vector<std::uint8_t> encode_lpc1_pointcloud(
     append_u64_le(output, timestamp);
     append_u32_le(output, static_cast<std::uint32_t>(encoded_count));
     append_u32_le(output, static_cast<std::uint32_t>(lpc1_point_stride));
+
+    if (ground_status) {
+        output.push_back(static_cast<std::uint8_t>(ground_status->state));
+        output.push_back(static_cast<std::uint8_t>(
+            (ground_status->calibrated ? 1U : 0U) |
+            (ground_status->using_imu ? 2U : 0U) |
+            (ground_status->using_static_fallback ? 4U : 0U)));
+        const auto mode=ground_status->configured_mode=="static" ? 0U :
+            ground_status->configured_mode=="ransac" ? 1U :
+            ground_status->configured_mode=="hybrid" ? 2U : 255U;
+        output.push_back(static_cast<std::uint8_t>(mode));
+        output.push_back(0U);
+        append_float_le(output,ground_status->plane_a);
+        append_float_le(output,ground_status->plane_b);
+        append_float_le(output,ground_status->plane_c);
+        append_float_le(output,ground_status->plane_d);
+        append_float_le(output,ground_status->ground_tilt_deg);
+        append_float_le(output,ground_status->sensor_to_ground_distance_m);
+        append_float_le(output,ground_status->expected_ground_distance_m);
+        append_float_le(output,ground_status->ground_height_error_m);
+        append_float_le(output,ground_status->ground_inlier_ratio);
+        append_float_le(output,ground_status->mean_residual_m);
+        append_float_le(output,ground_status->rms_residual_m);
+        append_float_le(output,ground_status->p95_residual_m);
+        append_float_le(output,ground_status->removed_ground_ratio);
+        append_u32_le(output,static_cast<std::uint32_t>(std::min<std::uint64_t>(ground_status->input_point_count,std::numeric_limits<std::uint32_t>::max())));
+        append_u32_le(output,static_cast<std::uint32_t>(std::min<std::uint64_t>(ground_status->removed_ground_point_count,std::numeric_limits<std::uint32_t>::max())));
+    }
 
     for (std::size_t index = 0; index < points.size(); index += sample_step) {
         const auto& point = points[index];
@@ -142,11 +172,15 @@ platform::WorkerHandle spawn_pointcloud_websocket(
     auto subscriber = bus.subscribe<devices::LidarPointCloudMessage>(
         models::topics::pointcloud_processed,
         thread_config.name);
+    auto ground_subscriber = bus.subscribe<models::LidarGroundStatusMessage>(
+        models::topics::ground_status,
+        thread_config.name);
 
     return platform::spawn_worker(
         std::move(thread_config),
         [stop,
          subscriber = std::move(subscriber),
+         ground_subscriber = std::move(ground_subscriber),
          config = std::move(config),
          on_complete = std::move(on_complete)]() mutable {
             try {
@@ -171,6 +205,7 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                     config.publish_interval,
                     std::chrono::milliseconds(100));
                 bool topic_closed = false;
+                std::shared_ptr<const models::LidarGroundStatusMessage> latest_ground;
 
                 const auto broadcast =
                     [&](const devices::LidarPointCloudMessage& cloud) {
@@ -179,20 +214,26 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                         }
                         const auto packet = encode_lpc1_pointcloud(
                             cloud,
-                            config.maximum_points);
+                            config.maximum_points,
+                            latest_ground ? &latest_ground->payload : nullptr);
                         const auto deliveries = server->broadcast_binary(
                             packet.data(),
                             packet.size());
                         report.client_deliveries += deliveries;
                         if (deliveries > 0) {
                             ++report.broadcast_frames;
-                            report.encoded_points +=
-                                (packet.size() - lpc1_header_size) /
-                                lpc1_point_stride;
+                            const auto step=cloud.payload.points.size()>config.maximum_points
+                                ? (cloud.payload.points.size()+config.maximum_points-1U)/config.maximum_points : 1U;
+                            report.encoded_points += cloud.payload.points.empty() ? 0U :
+                                (cloud.payload.points.size()+step-1U)/step;
                         }
                     };
 
                 while (!stop.is_stop_requested() && !topic_closed) {
+                    std::shared_ptr<const models::LidarGroundStatusMessage> ground_message;
+                    while (ground_subscriber.try_receive(ground_message)==platform::ReceiveStatus::message) {
+                        latest_ground=ground_message;
+                    }
                     const auto now = std::chrono::steady_clock::now();
                     if (!server && now >= next_listen_attempt) {
                         try {
@@ -279,6 +320,13 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                         }
                     }
 
+                    // Ground status is published immediately before the
+                    // processed cloud, so drain it again to attach the model
+                    // belonging to the frame that just woke this worker.
+                    while (ground_subscriber.try_receive(ground_message)==platform::ReceiveStatus::message) {
+                        latest_ground=ground_message;
+                    }
+
                     const auto publish_now = std::chrono::steady_clock::now();
                     if (publish_now >= next_publish) {
                         if (latest_full_frame) {
@@ -302,7 +350,7 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                     }
                 }
 
-                report.dropped_input_messages = subscriber.dropped_messages();
+                report.dropped_input_messages = subscriber.dropped_messages()+ground_subscriber.dropped_messages();
                 on_complete(report, {});
             } catch (...) {
                 // Encoding/programming failures are reported to main, but an

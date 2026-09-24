@@ -3,9 +3,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { decodePointCloudPacket } from '../protocol';
-import { LidarPointCloudOptions, PointCloudFrame } from '../types';
+import { GroundStatus, LidarPointCloudOptions, PointCloudFrame } from '../types';
 
 type Props = PanelProps<LidarPointCloudOptions>;
+
+// The world-coordinate ground view spans -30 m to +30 m on both X and Y.
+// Sixty divisions keep every visible grid square equal to one square metre.
+const GROUND_GRID_SIZE_METERS = 60;
+const GROUND_GRID_DIVISIONS = 60;
+const GROUND_GRID_MINIMUM_CAMERA_RADIUS = GROUND_GRID_SIZE_METERS / 2;
 
 interface SceneState {
   renderer: THREE.WebGLRenderer;
@@ -21,6 +27,8 @@ interface SceneState {
   inputPointCount: number;
   grid: THREE.GridHelper;
   axes: THREE.AxesHelper;
+  groundPlane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  groundNormal: THREE.ArrowHelper;
   fitted: boolean;
   animationId: number;
 }
@@ -32,6 +40,7 @@ interface StatusState {
   inputPoints: number;
   protocol: string;
   frameId: string;
+  ground?: GroundStatus;
 }
 
 const initialStatus: StatusState = {
@@ -60,7 +69,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(55, Math.max(width, 1) / Math.max(height, 1), 0.01, 10000);
-    camera.position.set(6, -6, 4);
+    camera.position.set(42, -42, 30);
     camera.up.set(0, 0, 1);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -80,12 +89,27 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
     });
     scene.add(new THREE.Points(geometry, material));
 
-    const grid = new THREE.GridHelper(20, 20, 0x547080, 0x26313a);
+    const grid = new THREE.GridHelper(
+      GROUND_GRID_SIZE_METERS,
+      GROUND_GRID_DIVISIONS,
+      0x547080,
+      0x26313a
+    );
     grid.rotation.x = Math.PI / 2;
     scene.add(grid);
 
     const axes = new THREE.AxesHelper(2);
     scene.add(axes);
+
+    const groundPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(GROUND_GRID_SIZE_METERS, GROUND_GRID_SIZE_METERS),
+      new THREE.MeshBasicMaterial({ color: 0x73bf69, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false })
+    );
+    groundPlane.visible = false;
+    scene.add(groundPlane);
+    const groundNormal = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(), 2, 0x73bf69);
+    groundNormal.visible = false;
+    scene.add(groundNormal);
 
     const state: SceneState = {
       renderer,
@@ -101,6 +125,8 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       inputPointCount: 0,
       grid,
       axes,
+      groundPlane,
+      groundNormal,
       fitted: false,
       animationId: 0,
     };
@@ -124,6 +150,12 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       state.controls.dispose();
       state.geometry.dispose();
       state.material.dispose();
+      state.groundPlane.geometry.dispose();
+      state.groundPlane.material.dispose();
+      state.groundNormal.line.geometry.dispose();
+      (state.groundNormal.line.material as THREE.Material).dispose();
+      state.groundNormal.cone.geometry.dispose();
+      (state.groundNormal.cone.material as THREE.Material).dispose();
       state.renderer.dispose();
       state.renderer.domElement.remove();
       sceneRef.current = null;
@@ -278,6 +310,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       inputPoints: frame.pointCount,
       protocol: frame.protocol,
       frameId: frame.frameId?.toString() ?? '-',
+      ground: frame.ground,
     });
   };
 
@@ -314,6 +347,14 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
           Points {status.shownPoints.toLocaleString()} / {status.inputPoints.toLocaleString()} · {status.protocol} · frame{' '}
           {status.frameId}
         </div>
+        {status.ground && (
+          <div style={{ color: groundStatusColor(status.ground), marginTop: 2 }}>
+            Ground {status.ground.state.replace('_', ' ').toUpperCase()} · {status.ground.mode} · tilt{' '}
+            {status.ground.tiltDeg.toFixed(2)}° · height error {status.ground.heightErrorM.toFixed(3)} m · inliers{' '}
+            {(status.ground.inlierRatio * 100).toFixed(1)}% · removed {(status.ground.removedRatio * 100).toFixed(1)}% ·{' '}
+            {status.ground.usingImu ? 'IMU' : 'mount config'}
+          </div>
+        )}
       </div>
       <button
         type="button"
@@ -342,7 +383,11 @@ const displayFrame = (
   frame: PointCloudFrame,
   options: LidarPointCloudOptions
 ): void => {
-  if (!state || frame.pointCount <= 0) {
+  if (!state) {
+    return;
+  }
+  updateGroundOverlay(state, frame.ground);
+  if (frame.pointCount <= 0) {
     return;
   }
 
@@ -427,6 +472,44 @@ const displayFrame = (
   }
 };
 
+const groundStatusColor = (ground: GroundStatus): string => {
+  if (ground.state === 'valid') {
+    return '#73bf69';
+  }
+  if (ground.state === 'calibrating') {
+    return '#ffb357';
+  }
+  if (ground.state === 'static_fallback') {
+    return '#ff9830';
+  }
+  return '#f2495c';
+};
+
+const updateGroundOverlay = (state: SceneState, ground?: GroundStatus): void => {
+  if (!ground) {
+    state.groundPlane.visible = false;
+    state.groundNormal.visible = false;
+    return;
+  }
+  const normal = new THREE.Vector3(ground.planeA, ground.planeB, ground.planeC);
+  if (!Number.isFinite(normal.lengthSq()) || normal.lengthSq() < 1e-8) {
+    state.groundPlane.visible = false;
+    state.groundNormal.visible = false;
+    return;
+  }
+  normal.normalize();
+  const origin = normal.clone().multiplyScalar(-ground.planeD);
+  const color = new THREE.Color(groundStatusColor(ground));
+  state.groundPlane.visible = true;
+  state.groundPlane.position.copy(origin);
+  state.groundPlane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  state.groundPlane.material.color.copy(color);
+  state.groundNormal.visible = true;
+  state.groundNormal.position.copy(origin);
+  state.groundNormal.setDirection(normal);
+  state.groundNormal.setColor(color);
+};
+
 const ensureCapacity = (state: SceneState, requiredPoints: number): void => {
   if (requiredPoints <= state.capacity) {
     return;
@@ -450,7 +533,9 @@ const fitCameraToCloud = (state: SceneState): void => {
   }
   const center = bounds.getCenter(new THREE.Vector3());
   const size = bounds.getSize(new THREE.Vector3());
-  const radius = Math.max(size.length() * 0.5, 0.5);
+  // Never zoom closer than the configured ground grid. Small point clouds
+  // therefore remain positioned inside the same stable 60 m x 60 m context.
+  const radius = Math.max(size.length() * 0.5, GROUND_GRID_MINIMUM_CAMERA_RADIUS);
   state.controls.target.copy(center);
   state.camera.near = Math.max(radius / 1000, 0.001);
   state.camera.far = Math.max(radius * 100, 100);

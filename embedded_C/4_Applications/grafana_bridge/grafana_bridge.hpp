@@ -10,6 +10,7 @@
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
+#include "models/lidars/ground_status.hpp"
 
 namespace vista::application {
 
@@ -69,11 +70,21 @@ struct ImuTelemetry {
 /// Converts one IMU sample to the dedicated Grafana Live measurement.
 std::string format_imu_measurement(const ImuTelemetry& telemetry);
 
+/// Converts ground calibration quality and the selected plane to Grafana Live.
+std::string format_ground_measurement(
+    const models::LidarGroundStatusMessage& message);
+
+/// Publishes the current state on a tag-free measurement so Grafana Stat
+/// always receives exactly one stable series.
+std::string format_ground_state_measurement(
+    const models::LidarGroundStatusMessage& message);
+
 struct GrafanaBridgeReport {
     std::uint64_t received_raw_messages{};
     std::uint64_t received_decoded_messages{};
     std::uint64_t received_processed_messages{};
     std::uint64_t received_imu_messages{};
+    std::uint64_t received_ground_messages{};
     std::uint64_t published_measurements{};
     std::uint64_t failed_publish_attempts{};
     std::uint64_t dropped_input_messages{};

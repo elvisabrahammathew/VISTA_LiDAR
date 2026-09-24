@@ -7,6 +7,7 @@ inline constexpr const char* lidar_raw = "lidar/raw";
 inline constexpr const char* lidar_imu = "lidar/imu";
 inline constexpr const char* pointcloud_decoded = "pointcloud/decoded";
 inline constexpr const char* pointcloud_processed = "pointcloud/processed";
+inline constexpr const char* ground_status = "processing/ground_status";
 
 // Platform and application monitoring topics consumed by grafana_bridge.
 inline constexpr const char* system_health = "monitor/system_health";

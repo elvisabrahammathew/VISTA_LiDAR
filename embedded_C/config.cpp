@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -73,6 +74,20 @@ std::uint64_t parse_unsigned(
     return parsed;
 }
 
+float parse_float(const std::string& value, const std::string& label) {
+    std::size_t consumed = 0;
+    float parsed{};
+    try {
+        parsed = std::stof(value, &consumed);
+    } catch (const std::exception&) {
+        throw std::invalid_argument("invalid " + label + " '" + value + "'");
+    }
+    if (consumed != value.size() || !std::isfinite(parsed)) {
+        throw std::invalid_argument(label + " must be a finite number");
+    }
+    return parsed;
+}
+
 bool parse_boolean(const std::string& value, const std::string& label) {
     const auto normalized = lower_copy(value);
     if (normalized == "true" || normalized == "yes" || normalized == "on" ||
@@ -130,6 +145,8 @@ AppConfig parse_device_config_text(const std::string& contents) {
     bool unitree_baud_rate_seen = false;
     bool unitree_local_ip_seen = false;
     bool unitree_local_port_seen = false;
+    bool ground_settings_seen = false;
+    application::GroundRemovalConfig ground;
 
     while (std::getline(input, original_line)) {
         ++line_number;
@@ -236,6 +253,67 @@ AppConfig parse_device_config_text(const std::string& contents) {
             config.pointcloud_logging_enabled =
                 parse_zero_one_switch(
                     value, "PointCloudLoggingEnabled(Lidar)");
+        } else if (key == "groundmode") {
+            ground.mode = application::parse_ground_mode(value);
+            ground_settings_seen = true;
+        } else if (key == "useimuforground") {
+            ground.use_imu =
+                parse_zero_one_switch(value, "UseImuForGround(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "mountx") {
+            ground.mount_x_m = parse_float(value, "MountX(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "mounty") {
+            ground.mount_y_m = parse_float(value, "MountY(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "mountz") {
+            ground.mount_z_m = parse_float(value, "MountZ(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "mountrolldeg") {
+            ground.mount_roll_deg =
+                parse_float(value, "MountRollDeg(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "mountpitchdeg") {
+            ground.mount_pitch_deg =
+                parse_float(value, "MountPitchDeg(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "mountyawdeg") {
+            ground.mount_yaw_deg =
+                parse_float(value, "MountYawDeg(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "floorz") {
+            ground.floor_z_m = parse_float(value, "FloorZ(Lidar)");
+            ground_settings_seen = true;
+        } else if (key == "grounddistancethreshold") {
+            ground.distance_threshold_m =
+                parse_float(value, "GroundDistanceThreshold(Lidar)");
+            if (ground.distance_threshold_m <= 0.0F) {
+                throw std::invalid_argument(
+                    "GroundDistanceThreshold(Lidar) must be positive");
+            }
+            ground_settings_seen = true;
+        } else if (key == "groundnormaltolerancedeg") {
+            ground.normal_tolerance_deg =
+                parse_float(value, "GroundNormalToleranceDeg(Lidar)");
+            if (ground.normal_tolerance_deg <= 0.0F ||
+                ground.normal_tolerance_deg > 90.0F) {
+                throw std::invalid_argument(
+                    "GroundNormalToleranceDeg(Lidar) must be in (0, 90]");
+            }
+            ground_settings_seen = true;
+        } else if (key == "groundcalibrationframes") {
+            ground.calibration_frames = static_cast<std::size_t>(
+                parse_unsigned(value, "ground calibration frames", 100'000));
+            ground_settings_seen = true;
+        } else if (key == "groundmininlierratio") {
+            ground.minimum_inlier_ratio =
+                parse_float(value, "GroundMinInlierRatio(Lidar)");
+            if (ground.minimum_inlier_ratio <= 0.0F ||
+                ground.minimum_inlier_ratio > 1.0F) {
+                throw std::invalid_argument(
+                    "GroundMinInlierRatio(Lidar) must be in (0, 1]");
+            }
+            ground_settings_seen = true;
         } else if (key == "grafanaenabled") {
             config.grafana.enabled = parse_boolean(value, "GrafanaEnabled");
         } else if (key == "grafanahost") {
@@ -343,6 +421,9 @@ AppConfig parse_device_config_text(const std::string& contents) {
                 "LocalIP, and LocalPort");
         }
     }
+    if (ground_settings_seen) {
+        config.ground_removal = ground;
+    }
     application::validate_grafana_bridge_config(config.grafana);
     application::validate_pointcloud_websocket_config(
         config.pointcloud_websocket);
@@ -433,7 +514,7 @@ RuntimeConfig AppConfig::runtime_config() const {
             200.0F,
             std::nullopt,
             0.05F,
-            std::nullopt,
+            ground_removal,
         },
         ThreadSetConfig{
             WorkerConfig{true, platform::ThreadConfig("lidar-read", 1)},

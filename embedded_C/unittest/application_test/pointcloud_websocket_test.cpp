@@ -88,3 +88,36 @@ VISTA_TEST(pointcloud_websocket_rejects_zero_maximum_points) {
     VISTA_CHECK_THROWS(
         vista::application::encode_lpc1_pointcloud(message, 0));
 }
+
+VISTA_TEST(pointcloud_websocket_embeds_ground_diagnostics_in_extended_header) {
+    vista::devices::LidarPointCloudMessage message(
+        "unitree-l2",7,std::nullopt,10,
+        vista::models::PointCloudFrame(11,{point(1.0F,2.0F,3.0F,4)}));
+    vista::models::GroundStatus ground;
+    ground.configured_mode="hybrid";
+    ground.state=vista::models::GroundState::valid;
+    ground.calibrated=true;
+    ground.using_imu=true;
+    ground.plane_c=1.0F;
+    ground.plane_d=-0.05F;
+    ground.ground_tilt_deg=1.25F;
+    ground.ground_inlier_ratio=0.75F;
+    ground.removed_ground_ratio=0.60F;
+    ground.input_point_count=100;
+    ground.removed_ground_point_count=60;
+
+    const auto packet=vista::application::encode_lpc1_pointcloud(message,100,&ground);
+    VISTA_CHECK(packet.size()==96+16);
+    VISTA_CHECK(packet[5]==3);
+    VISTA_CHECK(packet[6]==96 && packet[7]==0);
+    VISTA_CHECK(packet[32]==1);
+    VISTA_CHECK(packet[33]==3);
+    VISTA_CHECK(packet[34]==2);
+    VISTA_CHECK_NEAR(read_float_le(packet,48),-0.05F,0.0001F);
+    VISTA_CHECK_NEAR(read_float_le(packet,52),1.25F,0.0001F);
+    VISTA_CHECK_NEAR(read_float_le(packet,68),0.75F,0.0001F);
+    VISTA_CHECK_NEAR(read_float_le(packet,84),0.60F,0.0001F);
+    VISTA_CHECK(read_u32_le(packet,88)==100);
+    VISTA_CHECK(read_u32_le(packet,92)==60);
+    VISTA_CHECK_NEAR(read_float_le(packet,96),1.0F,0.0001F);
+}

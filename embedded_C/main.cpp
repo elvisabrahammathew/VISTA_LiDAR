@@ -51,6 +51,22 @@ int main() {
                   << static_cast<double>(config.lidar_reconnect_interval.count()) /
                          1000.0
                   << " second(s)\n";
+        if (config.ground_removal) {
+            const auto& ground = *config.ground_removal;
+            std::cout << "Ground removal: mode="
+                      << vista::application::to_string(ground.mode)
+                      << ", mount=(" << ground.mount_x_m << ", "
+                      << ground.mount_y_m << ", " << ground.mount_z_m
+                      << ") m, RPY=(" << ground.mount_roll_deg << ", "
+                      << ground.mount_pitch_deg << ", "
+                      << ground.mount_yaw_deg << ") deg, floor Z="
+                      << ground.floor_z_m << " m, IMU="
+                      << (ground.use_imu ? "preferred with pose fallback"
+                                         : "disabled")
+                      << '\n';
+        } else {
+            std::cout << "Ground removal: disabled\n";
+        }
         std::cout << "Grafana Live: ";
         if (config.grafana.enabled) {
             std::cout << "http://" << config.grafana.host << ':'
@@ -93,6 +109,9 @@ int main() {
         bus.configure_topic(
             vista::models::topics::pointcloud_processed,
             runtime.queues.processed_capacity);
+        bus.configure_topic(
+            vista::models::topics::ground_status,
+            runtime.queues.telemetry_capacity);
         bus.configure_topic(
             vista::models::topics::system_health,
             runtime.queues.telemetry_capacity);

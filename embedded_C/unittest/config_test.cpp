@@ -111,6 +111,59 @@ BaudRate(unitree-l2): 4000000
     VISTA_CHECK(lidar.unitree_l2->local_port == 6201);
 }
 
+VISTA_TEST(config_file_parses_mounting_ground_and_imu_settings) {
+    const auto config = vista::parse_device_config_text(R"(
+Lidar: unitree-l2
+SensorIP(quanergy-m8, unitree-l2): 192.168.1.62
+SensorPort(quanergy-m8, unitree-l2): 6101
+ConnectionMode(unitree-l2): auto
+LocalIP(unitree-l2): 192.168.1.2
+LocalPort(unitree-l2): 6201
+SerialPort(unitree-l2): COM3
+BaudRate(unitree-l2): 4000000
+GroundMode(lidar): hybrid
+UseImuForGround(lidar): 1
+MountX(lidar): -1.25
+MountY(lidar): 2.5
+MountZ(lidar): 0.75
+MountRollDeg(lidar): 1.5
+MountPitchDeg(lidar): -2.5
+MountYawDeg(lidar): 90.0
+FloorZ(lidar): 0.0
+GroundDistanceThreshold(lidar): 0.10
+GroundNormalToleranceDeg(lidar): 15.0
+GroundCalibrationFrames(lidar): 50
+GroundMinInlierRatio(lidar): 0.20
+)");
+
+    VISTA_CHECK(config.ground_removal.has_value());
+    const auto& ground = *config.ground_removal;
+    VISTA_CHECK(ground.mode == vista::application::GroundMode::hybrid);
+    VISTA_CHECK(ground.use_imu);
+    VISTA_CHECK_NEAR(ground.mount_x_m, -1.25F, 1.0e-6F);
+    VISTA_CHECK_NEAR(ground.mount_y_m, 2.5F, 1.0e-6F);
+    VISTA_CHECK_NEAR(ground.mount_z_m, 0.75F, 1.0e-6F);
+    VISTA_CHECK_NEAR(ground.mount_roll_deg, 1.5F, 1.0e-6F);
+    VISTA_CHECK_NEAR(ground.mount_pitch_deg, -2.5F, 1.0e-6F);
+    VISTA_CHECK_NEAR(ground.mount_yaw_deg, 90.0F, 1.0e-6F);
+    VISTA_CHECK(ground.calibration_frames == 50);
+    VISTA_CHECK_NEAR(ground.minimum_inlier_ratio, 0.20F, 1.0e-6F);
+    VISTA_CHECK(config.runtime_config().preprocessing.ground_removal.has_value());
+}
+
+VISTA_TEST(config_file_accepts_all_ground_modes) {
+    VISTA_CHECK(
+        vista::application::parse_ground_mode("static") ==
+        vista::application::GroundMode::static_height);
+    VISTA_CHECK(
+        vista::application::parse_ground_mode("ransac") ==
+        vista::application::GroundMode::ransac);
+    VISTA_CHECK(
+        vista::application::parse_ground_mode("hybrid") ==
+        vista::application::GroundMode::hybrid);
+    VISTA_CHECK_THROWS(vista::application::parse_ground_mode("automatic"));
+}
+
 VISTA_TEST(config_file_accepts_com_port_as_legacy_usb_serial_name) {
     const auto config = vista::parse_device_config_text(R"(
 Lidar: realsensel515

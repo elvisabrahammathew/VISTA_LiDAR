@@ -1,7 +1,7 @@
 # Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
 Lidar: unitree-l2
-RawLoggingEnabled(Lidar): 0
-PointCloudLoggingEnabled(Lidar): 0
+RawLoggingEnabled(Lidar): 1
+PointCloudLoggingEnabled(Lidar): 1
 ReconnectIntervalSeconds(Lidar): 5
 SensorIP(quanergy-m8, unitree-l2): 192.168.1.3
 SensorPort(quanergy-m8, unitree-l2): 4141
@@ -14,6 +14,21 @@ UsbSerial(realsensel515): 123456789012
 DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480
 DepthFps(realsensel515): 30
+
+# LiDAR mounting and ground calibration (hybrid, ransac, static)
+GroundMode(lidar): hybrid
+UseImuForGround(lidar): 0
+MountX(lidar): -10.0
+MountY(lidar): -10.0
+MountZ(lidar): 0.6
+MountRollDeg(lidar): 0.0
+MountPitchDeg(lidar): 0.0
+MountYawDeg(lidar): 0.0
+FloorZ(lidar): 0.0
+GroundDistanceThreshold(lidar): 0.10
+GroundNormalToleranceDeg(lidar): 15.0
+GroundCalibrationFrames(lidar): 50
+GroundMinInlierRatio(lidar): 0.10
 
 # Supported Radar: none
 Radar: None

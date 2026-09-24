@@ -22,4 +22,30 @@ export interface PointCloudFrame {
   frameId?: bigint;
   timestampNs?: bigint;
   protocol: string;
+  ground?: GroundStatus;
+}
+
+export type GroundState = 'calibrating' | 'valid' | 'static_fallback' | 'invalid';
+
+export interface GroundStatus {
+  state: GroundState;
+  calibrated: boolean;
+  usingImu: boolean;
+  usingStaticFallback: boolean;
+  mode: 'static' | 'ransac' | 'hybrid' | 'unknown';
+  planeA: number;
+  planeB: number;
+  planeC: number;
+  planeD: number;
+  tiltDeg: number;
+  sensorDistanceM: number;
+  expectedDistanceM: number;
+  heightErrorM: number;
+  inlierRatio: number;
+  meanResidualM: number;
+  rmsResidualM: number;
+  p95ResidualM: number;
+  removedRatio: number;
+  inputPointCount: number;
+  removedPointCount: number;
 }

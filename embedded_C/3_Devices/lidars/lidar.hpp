@@ -12,7 +12,7 @@
 
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
-#include "models/lidars/imu.hpp"
+#include "models/imu/imu.hpp"
 #include "models/lidars/lidar_message.hpp"
 #include "models/lidars/pointcloud.hpp"
 

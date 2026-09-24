@@ -11,6 +11,7 @@
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
+#include "models/lidars/ground_status.hpp"
 
 namespace vista::application {
 
@@ -31,7 +32,8 @@ void validate_pointcloud_websocket_config(
 /// Large frames are sampled uniformly to keep browser/network load bounded.
 std::vector<std::uint8_t> encode_lpc1_pointcloud(
     const devices::LidarPointCloudMessage& message,
-    std::size_t maximum_points);
+    std::size_t maximum_points,
+    const models::GroundStatus* ground_status = nullptr);
 
 struct PointCloudWebSocketReport {
     std::uint64_t received_messages{};

@@ -75,6 +75,8 @@ struct AppConfig {
     application::GrafanaBridgeConfig grafana;
     application::PointCloudWebSocketConfig pointcloud_websocket;
     application::SystemMonitorConfig system_monitor;
+    /// Enabled when GroundMode is present in DeviceConfig.txt.
+    std::optional<application::GroundRemovalConfig> ground_removal;
     std::optional<std::filesystem::path> raw_path;
     std::optional<std::filesystem::path> pcd_path;
 
