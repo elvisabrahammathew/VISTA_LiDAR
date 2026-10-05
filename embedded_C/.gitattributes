@@ -1,0 +1,2 @@
+# Keep the native Linux build script runnable even from a Windows checkout.
+*.sh text eol=lf

@@ -63,7 +63,7 @@ void sample(std::vector<models::PointXYZIRT>& v,const models::PointXYZIRT& p,
     else { const auto index=mix(count)%count; if(index<cap) v[static_cast<std::size_t>(index)]=p; }
 }
 struct Node {
-    std::filesystem::path path;
+    vista::fs::path path;
     MapVoxelKey origin;
     unsigned level{};
     std::uint64_t count{};
@@ -90,12 +90,12 @@ public:
         std::uint64_t touch{};
         bool dirty{},on_disk{};
     };
-    Impl(std::filesystem::path preferred,float voxel,float tile,std::size_t voxels,
+    Impl(vista::fs::path preferred,float voxel,float tile,std::size_t voxels,
          std::size_t tiles,std::size_t threshold,std::size_t lod)
         : voxel_size(voxel),edge(static_cast<std::int64_t>(std::ceil(tile/voxel))),
           cache_limit(voxels),tile_limit(tiles),confirmation(threshold),lod_limit(lod) {
         static std::atomic<std::uint64_t> counter{};
-        if(preferred.empty()) preferred=std::filesystem::temp_directory_path()/"vista-map-tiles";
+        if(preferred.empty()) preferred=vista::fs::temp_directory_path()/"vista-map-tiles";
         root=preferred; root+= "."+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+
             "."+std::to_string(++counter);
     }
@@ -125,8 +125,8 @@ public:
             return cached->second.first;
         }
         const auto file=n.path/"lod.bin";
-        if(!std::filesystem::exists(file)) return n;
-        std::ifstream in(file,std::ios::binary);
+        if(!vista::fs::exists(file)) return n;
+        vista::io::ifstream in(file,std::ios::binary);
         if(get<std::uint32_t>(in)!=0x31444f4cU) throw std::runtime_error("unsupported room-map LOD node");
         n.count=get<std::uint64_t>(in);const auto size=get<std::uint32_t>(in);
         if(size>lod_limit) throw std::runtime_error("room-map LOD node exceeds its budget");
@@ -142,9 +142,9 @@ public:
         node_cache.emplace(n.path,std::make_pair(n,++node_clock));return n;
     }
     void write_node(const Node& n) {
-        std::filesystem::create_directories(n.path);
+        vista::fs::create_directories(n.path);
         const auto file=n.path/"lod.bin"; auto temporary=file;temporary+=".tmp";
-        {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);
+        {vista::io::ofstream out(temporary,std::ios::binary|std::ios::trunc);
          put(out,std::uint32_t{0x31444f4cU});put(out,n.count);put(out,static_cast<std::uint32_t>(n.points.size()));
          for(const auto& p:n.points) put_point(out,p);out.flush();if(!out) throw std::runtime_error("cannot flush LOD node");}
         atomic_replace_map_file(temporary,file);
@@ -160,11 +160,11 @@ public:
         }
         return result;
     }
-    void read_cells(const std::filesystem::path& file,const std::function<void(const MapVoxelKey&,const MapVoxelCell&)>& visit) const {
-        if(!std::filesystem::exists(file)) return;
+    void read_cells(const vista::fs::path& file,const std::function<void(const MapVoxelKey&,const MapVoxelCell&)>& visit) const {
+        if(!vista::fs::exists(file)) return;
         ++tile_reads;
         MeasureIo timer{tile_read_ns};
-        std::ifstream in(file,std::ios::binary);
+        vista::io::ifstream in(file,std::ios::binary);
         if(get<std::uint32_t>(in)!=0x31564d52U) throw std::runtime_error("unsupported room-map voxel page");
         const auto count=get<std::uint64_t>(in);
         for(std::uint64_t i=0;i<count;++i) {auto v=get_cell(in);visit(v.first,v.second);}
@@ -198,14 +198,14 @@ public:
         const auto write_started=std::chrono::steady_clock::now();
         auto nodes=chain(tile.key);auto& leaf=nodes.back();
         const auto file=leaf.path/"cells.bin";auto temporary=file;temporary+=".tmp";
-        std::filesystem::create_directories(leaf.path);
+        vista::fs::create_directories(leaf.path);
         std::uint64_t old_count{};
         if(reference_mode && tile.on_disk) {
-            std::ifstream in(file,std::ios::binary);(void)get<std::uint32_t>(in);old_count=get<std::uint64_t>(in);
+            vista::io::ifstream in(file,std::ios::binary);(void)get<std::uint32_t>(in);old_count=get<std::uint64_t>(in);
         }
         const auto count=reference_mode?old_count+tile.reference.size():tile.cells.size();
         Node summary=leaf;std::uint64_t observed{};
-        {std::ofstream out(temporary,std::ios::binary|std::ios::trunc);
+        {vista::io::ofstream out(temporary,std::ios::binary|std::ios::trunc);
          put(out,std::uint32_t{0x31564d52U});put(out,static_cast<std::uint64_t>(count));
          const auto record=[&](const MapVoxelKey& k,const MapVoxelCell& c) {
              put_cell(out,k,c);if(c.observations>=confirmation) {++summary.count;sample(summary.points,c.point,++observed,lod_limit);}
@@ -249,9 +249,9 @@ public:
         while(cache.size()>=tile_limit) evict();
         auto tile=std::make_unique<Tile>();tile->key=t;tile->touch=++clock;
         const auto file=chain(t).back().path/"cells.bin";
-        tile->on_disk=std::filesystem::exists(file);
+        tile->on_disk=vista::fs::exists(file);
         if(tile->on_disk && !reference_mode) {
-            std::ifstream in(file,std::ios::binary);(void)get<std::uint32_t>(in);const auto count=get<std::uint64_t>(in);
+            vista::io::ifstream in(file,std::ios::binary);(void)get<std::uint32_t>(in);const auto count=get<std::uint64_t>(in);
             if(count>cache_limit) throw std::runtime_error("voxel tile exceeds RAM cache budget");
             while(resident+count>cache_limit) evict();
             read_cells(file,[&](const auto& k,const auto& c){tile->cells.emplace(k,c);});resident+=tile->cells.size();
@@ -294,14 +294,14 @@ public:
     mutable std::recursive_mutex disk_mutex;
     // std::map also supports the VS2019 filesystem implementation, whose
     // std::hash<path> specialization is unavailable on some toolset versions.
-    mutable std::map<std::filesystem::path,std::pair<Node,std::uint64_t>> node_cache;
+    mutable std::map<vista::fs::path,std::pair<Node,std::uint64_t>> node_cache;
     mutable std::uint64_t node_clock{};
     mutable std::atomic<std::uint64_t> tile_reads{}, view_queries{};
     std::atomic<std::uint64_t> cache_misses{}, tile_writes{}, lod_node_writes{};
     mutable std::atomic<std::uint64_t> last_view_ns{}, last_view_wait_ns{};
     mutable std::atomic<std::uint64_t> tile_read_ns{};
     std::atomic<std::uint64_t> tile_write_ns{},lod_update_ns{};
-    std::filesystem::path root;
+    vista::fs::path root;
     float voxel_size;
     std::int64_t edge;
     std::size_t cache_limit,tile_limit,confirmation,lod_limit,resident{},total{};
@@ -310,11 +310,11 @@ public:
     std::int64_t prune_window{-1},prune_age{};
     std::unordered_map<MapVoxelKey,std::unique_ptr<Tile>,MapVoxelHash> cache;
     std::unordered_set<MapVoxelKey,MapVoxelHash> missing_tiles; // Bounded negative lookup cache for free-space rays.
-    std::map<std::filesystem::path,Node> pending_parents;
+    std::map<vista::fs::path,Node> pending_parents;
     std::array<double,6> box{INFINITY,INFINITY,INFINITY,-INFINITY,-INFINITY,-INFINITY};
 };
 
-RoomMapTileStore::RoomMapTileStore(std::filesystem::path root,float voxel,float tile,std::size_t voxels,
+RoomMapTileStore::RoomMapTileStore(vista::fs::path root,float voxel,float tile,std::size_t voxels,
     std::size_t tiles,std::size_t threshold,std::size_t lod)
     :impl_(std::make_shared<Impl>(std::move(root),voxel,tile,voxels,tiles,threshold,lod)) {}
 RoomMapTileStore::~RoomMapTileStore()=default;
@@ -322,7 +322,7 @@ MapVoxelCell* RoomMapTileStore::find(const MapVoxelKey& k) {
     const auto key=impl_->tile_key(k);
     if(impl_->cache.find(key)==impl_->cache.end()) {
         if(impl_->missing_tiles.count(key)) return nullptr;
-        if(!std::filesystem::exists(impl_->chain(key).back().path/"cells.bin")) {
+        if(!vista::fs::exists(impl_->chain(key).back().path/"cells.bin")) {
             if(impl_->missing_tiles.size()>=4096) impl_->missing_tiles.clear();
             impl_->missing_tiles.insert(key);return nullptr;
         }
@@ -377,8 +377,8 @@ void RoomMapTileStore::append_reference(const models::PointXYZIRT& p) {
     tile.reference.push_back(p);tile.dirty=true;++impl_->resident;++impl_->total;impl_->note_bounds(p);
 }
 void RoomMapTileStore::for_each_confirmed(const RoomMapPointVisitor& visit) {
-    flush();if(!std::filesystem::exists(impl_->root)) return;
-    for(const auto& entry:std::filesystem::recursive_directory_iterator(impl_->root)) {
+    flush();if(!vista::fs::exists(impl_->root)) return;
+    for(const auto& entry:vista::fs::recursive_directory_iterator(impl_->root)) {
         if(entry.is_regular_file() && entry.path().filename()=="cells.bin")
             impl_->read_cells(entry.path(),[&](const auto&,const auto& c){if(c.observations>=impl_->confirmation) visit(c.point);});
     }
@@ -467,5 +467,5 @@ std::size_t RoomMapTileStore::resident_voxels() const {return impl_->resident;}
 std::size_t RoomMapTileStore::resident_tiles() const {return impl_->cache.size();}
 std::uint64_t RoomMapTileStore::evictions() const {return impl_->eviction_count;}
 std::uint64_t RoomMapTileStore::disk_tiles() const {return impl_->stored_tiles;}
-const std::filesystem::path& RoomMapTileStore::directory() const {return impl_->root;}
+const vista::fs::path& RoomMapTileStore::directory() const {return impl_->root;}
 } // namespace vista::transport

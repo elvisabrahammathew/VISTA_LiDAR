@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <cstddef>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <functional>
 #include <memory>
 #include <optional>
@@ -24,14 +24,14 @@ struct RoomMapConfig {
     float tile_size_m{2.0F};
     std::size_t lod_points_per_node{128};
     std::size_t preview_max_points{100'000};
-    std::filesystem::path storage_directory;
+    vista::fs::path storage_directory;
     std::size_t minimum_observations{3};
     std::chrono::milliseconds observation_interval{100};
     std::chrono::milliseconds freeze_after{30'000};  // Zero keeps integrating.
     std::chrono::milliseconds publish_interval{1'000};
     bool load_existing{false};
     /// Loading: user's input path. Building: session's preferred output filename.
-    std::filesystem::path file;
+    vista::fs::path file;
     /// Only actual measured rays may remove voxels; absence/occlusion is not evidence.
     std::size_t free_space_minimum_observations{5};
     std::size_t raycast_maximum_rays_per_window{256};
@@ -57,7 +57,7 @@ public:
     models::PointCloudFrame snapshot() const;
     /// Flushes changed tiles and exports every confirmed point, without a full-map vector.
     void save(transport::RoomMapSessionFile& output);
-    void load(const std::filesystem::path& input);
+    void load(const vista::fs::path& input);
     void flush();
     /// Checkpoints changed pages once; the returned disk reader does not lock live RAM.
     std::shared_ptr<const models::RoomMapViewSource> view_source() const;

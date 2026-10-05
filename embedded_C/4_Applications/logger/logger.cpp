@@ -25,7 +25,7 @@ std::string current_exception_message() {
 
 LoggerReport run_raw_logger(
     platform::TopicSubscriber<devices::LidarRawMessage> subscriber,
-    const std::filesystem::path& path) {
+    const vista::fs::path& path) {
     transport::RawCaptureWriter writer(path);
     LoggerReport report;
     std::shared_ptr<const devices::LidarRawMessage> message;
@@ -41,7 +41,7 @@ LoggerReport run_raw_logger(
 
 LoggerReport run_pcd_logger(
     platform::TopicSubscriber<devices::LidarPointCloudMessage> subscriber,
-    const std::filesystem::path& path) {
+    const vista::fs::path& path) {
     transport::PcdWriter writer(path);
     LoggerReport report;
     std::shared_ptr<const devices::LidarPointCloudMessage> message;
@@ -63,7 +63,7 @@ platform::WorkerHandle spawn_raw_logger(
     platform::MessageBus& bus,
     platform::ThreadConfig thread_config,
     platform::StopToken stop,
-    std::filesystem::path path,
+    vista::fs::path path,
     LoggerCompletion on_complete) {
     // This worker declares and owns its subscription to the RAW topic.
     platform::WorkerTopicInputs inputs(thread_config.name);
@@ -90,7 +90,7 @@ platform::WorkerHandle spawn_pcd_logger(
     platform::MessageBus& bus,
     platform::ThreadConfig thread_config,
     platform::StopToken stop,
-    std::filesystem::path path,
+    vista::fs::path path,
     LoggerCompletion on_complete) {
     // PCD output is intentionally based on the fully processed point cloud.
     platform::WorkerTopicInputs inputs(thread_config.name);

@@ -1,9 +1,11 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.10)
 
 project(vista_edge VERSION 0.1.0 LANGUAGES CXX)
 
 option(VISTA_BUILD_TESTS "Build the C++ unit tests" ON)
 option(VISTA_ENABLE_REALSENSE "Build RealSense L515 support" ON)
+option(VISTA_FORCE_PORTABLE_FILESYSTEM
+    "Use the GCC 7 compatible filesystem backend even on modern compilers" OFF)
 
 # The same source tree is built natively on Windows x64, Linux x86-64, and
 # Linux ARM64. ARM64 defaults to librealsense's user-space USB backend so a
@@ -58,6 +60,7 @@ endfunction()
 
 set(VISTA_CORE_SOURCES
     config.cpp
+    1_Platform/compat/filesystem.cpp
     1_Platform/metrics/runtime_metrics.cpp
     1_Platform/message_bus/message_bus.cpp
     1_Platform/pubsub/pubsub.cpp
@@ -101,16 +104,24 @@ endif()
 add_library(vista_edge_core OBJECT ${VISTA_CORE_SOURCES})
 vista_enable_warnings(vista_edge_core)
 target_include_directories(vista_edge_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+# CMake 3.10 cannot link OBJECT libraries. Compile the objects once and carry
+# link/usage requirements in a separate INTERFACE target on every platform.
+add_library(vista_edge_dependencies INTERFACE)
+target_include_directories(vista_edge_dependencies INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
+include(cmake/filesystem.cmake)
 # Keep captured data beside the repository on every build platform.
 target_compile_definitions(vista_edge_core PRIVATE
     VISTA_DATA_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../data")
 find_package(Threads REQUIRED)
-target_link_libraries(vista_edge_core PUBLIC Threads::Threads)
+target_link_libraries(vista_edge_dependencies INTERFACE Threads::Threads)
+if(UNIX)
+    target_compile_options(vista_edge_core PRIVATE -pthread)
+endif()
 include(cmake/fast_lio.cmake)
-target_link_libraries(vista_edge_core PUBLIC vista_fast_lio)
+target_link_libraries(vista_edge_dependencies INTERFACE vista_fast_lio)
 
 if(WIN32)
-    target_link_libraries(vista_edge_core PUBLIC ws2_32 psapi)
+    target_link_libraries(vista_edge_dependencies INTERFACE ws2_32 psapi)
 endif()
 
 # All external dependencies live in the repository-level third_party folder as
@@ -191,16 +202,16 @@ if(VISTA_ENABLE_REALSENSE)
     endif()
 
     target_compile_definitions(vista_edge_core PUBLIC VISTA_HAS_REALSENSE=1)
+    target_compile_definitions(vista_edge_dependencies INTERFACE VISTA_HAS_REALSENSE=1)
     target_include_directories(vista_edge_core SYSTEM PRIVATE
         "${VISTA_REALSENSE_SOURCE_DIR}/include")
-    # PUBLIC propagates the SDK link dependency to every target that consumes
-    # the VISTA object files; the SDK itself remains a static library.
-    target_link_libraries(vista_edge_core PUBLIC realsense2)
+    target_link_libraries(vista_edge_dependencies INTERFACE realsense2)
     message(STATUS
         "librealsense: building static submodule from "
         "${VISTA_REALSENSE_SOURCE_DIR} (RSUSB=${VISTA_REALSENSE_FORCE_RSUSB_BACKEND})")
 else()
     target_compile_definitions(vista_edge_core PUBLIC VISTA_HAS_REALSENSE=0)
+    target_compile_definitions(vista_edge_dependencies INTERFACE VISTA_HAS_REALSENSE=0)
     message(STATUS
         "librealsense support is disabled; the L515 backend will return an "
         "unsupported error")
@@ -208,7 +219,8 @@ endif()
 
 add_executable(vista_edge main.cpp)
 vista_enable_warnings(vista_edge)
-target_link_libraries(vista_edge PRIVATE vista_edge_core)
+target_sources(vista_edge PRIVATE $<TARGET_OBJECTS:vista_edge_core>)
+target_link_libraries(vista_edge PRIVATE vista_edge_dependencies)
 
 add_custom_command(TARGET vista_edge POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -253,6 +265,7 @@ if(VISTA_BUILD_TESTS)
         unittest/application_test/system_monitor_test.cpp
         unittest/application_test/pointcloud_websocket_test.cpp
         unittest/config_test.cpp
+        unittest/platform_test/filesystem_test.cpp
         unittest/device_test/quanergym8_test.cpp
         unittest/device_test/realsensel515_test.cpp
         unittest/device_test/unitree4d_test.cpp
@@ -267,6 +280,7 @@ if(VISTA_BUILD_TESTS)
         unittest/transport_test/room_map_websocket_test.cpp
     )
     vista_enable_warnings(vista_edge_tests)
-    target_link_libraries(vista_edge_tests PRIVATE vista_edge_core)
+    target_sources(vista_edge_tests PRIVATE $<TARGET_OBJECTS:vista_edge_core>)
+    target_link_libraries(vista_edge_tests PRIVATE vista_edge_dependencies)
     add_test(NAME vista_edge_tests COMMAND vista_edge_tests)
 endif()

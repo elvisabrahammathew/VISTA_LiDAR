@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -29,7 +29,7 @@ struct RoomMapTileMetrics {
 /// freeing memory; it NEVER discards confirmed geometry to make room.
 class RoomMapTileStore {
 public:
-    RoomMapTileStore(std::filesystem::path root, float voxel_size, float tile_size,
+    RoomMapTileStore(vista::fs::path root, float voxel_size, float tile_size,
         std::size_t cache_voxels, std::size_t cache_tiles,
         std::size_t confirmation_threshold, std::size_t lod_points);
     ~RoomMapTileStore();
@@ -57,7 +57,7 @@ public:
     std::size_t resident_tiles() const;
     std::uint64_t evictions() const;
     std::uint64_t disk_tiles() const;
-    const std::filesystem::path& directory() const;
+    const vista::fs::path& directory() const;
 private:
     class Impl;
     std::shared_ptr<Impl> impl_;

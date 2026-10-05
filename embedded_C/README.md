@@ -346,6 +346,57 @@ ctest --preset linux-arm64-debug
 ./out/build/linux-arm64-gcc/vista_edge
 ```
 
+### ADLINK NEON-2000-JNX / Ubuntu 18.04 / JetPack 4.x
+
+The legacy native path supports GCC 7.5 and CMake 3.10.2 without upgrading
+Ubuntu, JetPack, CUDA, or the system compiler. C++17 remains enabled. Modern
+Windows/Linux builds keep the standard filesystem backend; CMake automatically
+selects the pinned `../third_party/filesystem` (gulrak/ghc v1.5.16, MIT) submodule
+when the standard header/link probe fails. `VISTA_FORCE_PORTABLE_FILESYSTEM=ON`
+can exercise that backend on a modern compiler. All VISTA targets share the
+same backend; no namespace is injected into `std` and no third-party source
+is patched. GCC 8's separate `stdc++fs` link requirement is detected too.
+
+Initialize submodules, then run from the repository root on ADLINK:
+
+```bash
+git submodule update --init --recursive
+bash embedded_C/scripts/build_adlink.sh
+cd embedded_C/out/build/linux-adlink-bionic
+# Edit DeviceConfig.txt here, then:
+./vista_edge
+```
+
+The script configures a Release build with tests ON, RealSense OFF, builds with
+two jobs and runs all unit tests before reporting success. Override parallelism
+with `VISTA_BUILD_JOBS=1` if RAM is tight. It does not install packages, connect
+to hardware, start capture, or require presets/Python/CUDA. If build tools are
+missing, install `build-essential cmake` through the device's configured
+repositories. Existing compiler selection via `CC`/`CXX` is respected when
+configuring a fresh build directory; do not replace JetPack's default compiler.
+
+RealSense OFF disables only L515; Unitree serial/UDP and Quanergy still build.
+This camera-free path does not claim RealSense camera validation on JetPack 4.x.
+The application is named `vista_edge` on Linux (no `.exe` suffix), beside the
+copied `DeviceConfig.txt` and optional local `GrafanaSecret.txt`. Keep the secret
+out of Git. Configuration is read relative to the working directory, so run
+from that build directory. A subsequent rebuild may replace the copied config;
+put permanent device settings in the source `DeviceConfig.txt` or keep a backup.
+
+For Unitree, set `SerialPort(unitree-l2)` to the actual Linux device, such as
+`/dev/ttyACM0` or `/dev/ttyUSB0`, and grant the user serial access (normally the
+`dialout` group). Do not assume Windows `COM4` exists on Linux. For a Grafana
+server/browser on another PC, set the HTTP host to that PC and bind the two
+WebSocket servers to an appropriate LAN interface; panel URLs must point to
+the ADLINK address, not the browser PC's `127.0.0.1`. Restrict access with the
+firewall: these WebSocket listeners are not authenticated public services.
+
+The presets above still require CMake 3.20 or newer; CMake 3.10 users must use
+this script or the traditional build-directory commands, not `cmake --preset`.
+An ARM64 build on a newer Ubuntu is not automatically ABI-compatible with
+Ubuntu 18.04. Build natively on ADLINK or use a Bionic compiler/sysroot, and
+test real serial I/O, LIO behavior and sustained operation on the device.
+
 The ARM64 preset enables librealsense's RSUSB backend by default. This avoids a
 compile-time dependency on patched Jetson UVC kernel drivers. The RealSense
 udev rules and USB device permissions are still required. The x86-64 preset

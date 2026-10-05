@@ -1,5 +1,5 @@
 #include <chrono>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <optional>
 #include <string>
 
@@ -23,7 +23,7 @@ VISTA_TEST(system_monitor_publishes_health_without_a_sensor) {
         stop,
         vista::application::SystemMonitorConfig{
             std::chrono::milliseconds(10),
-            std::filesystem::temp_directory_path(),
+            vista::fs::temp_directory_path(),
         },
         [&](auto completed_report, auto completed_error) {
             report = std::move(completed_report);

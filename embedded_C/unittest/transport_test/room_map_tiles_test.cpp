@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <fstream>
 #include <sstream>
 #include <thread>
@@ -19,8 +19,8 @@ vista::application::RoomMapConfig config() {
     result.lod_points_per_node=2;result.preview_max_points=4;return result;
 }
 vista::models::PointXYZIRT point(float x) {return {x,0.25F,0.25F,1,0,0,0};}
-std::filesystem::path test_path() {
-    return std::filesystem::temp_directory_path()/("vista-tiled-map-test-"+
+vista::fs::path test_path() {
+    return vista::fs::temp_directory_path()/("vista-tiled-map-test-"+
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".pcd");
 }
 vista::models::RoomMapViewRequest positive_view(std::size_t budget=20) {
@@ -43,7 +43,7 @@ VISTA_TEST(room_map_tiles_keep_more_points_than_cache_and_export_complete_pcd) {
     const auto full=vista::transport::load_room_map_snapshot(path,100);
     VISTA_CHECK(full.points.size()==12);
     for(int i=0;i<12;++i) VISTA_CHECK(std::find(full.points.begin(),full.points.end(),point(i+0.25F))!=full.points.end());
-    std::filesystem::remove(path);
+    vista::fs::remove(path);
 }
 
 VISTA_TEST(room_map_tiles_exceed_old_250000_limit_with_bounded_cache_and_complete_export) {
@@ -67,7 +67,7 @@ VISTA_TEST(room_map_tiles_exceed_old_250000_limit_with_bounded_cache_and_complet
     vista::transport::stream_room_map_snapshot(path,[&](const auto&){++count;});
     VISTA_CHECK(count==300000);
     VISTA_CHECK(map.status().cache_voxels<=2000);
-    std::filesystem::remove(path);
+    vista::fs::remove(path);
 }
 
 VISTA_TEST(room_map_tiles_restore_evicted_hit_evidence_before_confirmation) {
@@ -98,7 +98,7 @@ VISTA_TEST(room_map_tiles_stream_readonly_pcd_larger_than_cache_and_preserve_dup
     vista::models::PointCloudFrame original;
     for(int i=0;i<10;++i) original.points.push_back(point(i/2+0.25F)); // Deliberate duplicates.
     vista::transport::save_room_map_snapshot(path,original);
-    const auto stamp=std::filesystem::last_write_time(path);
+    const auto stamp=vista::fs::last_write_time(path);
     vista::application::RoomMapAccumulator map(config());map.load(path);
     VISTA_CHECK(map.status().point_count==10 && map.status().cache_voxels<=2);
     VISTA_CHECK(map.status().state==vista::models::RoomMapState::loaded);
@@ -107,8 +107,8 @@ VISTA_TEST(room_map_tiles_stream_readonly_pcd_larger_than_cache_and_preserve_dup
     VISTA_CHECK(frame.points.size()==10);
     for(const auto& p:original.points)
         VISTA_CHECK(std::count(frame.points.begin(),frame.points.end(),p)==2);
-    VISTA_CHECK(std::filesystem::last_write_time(path)==stamp);
-    std::filesystem::remove(path);
+    VISTA_CHECK(vista::fs::last_write_time(path)==stamp);
+    vista::fs::remove(path);
 }
 
 VISTA_TEST(room_map_tiles_free_space_clears_evicted_geometry_not_occluded_wall) {
@@ -138,7 +138,7 @@ VISTA_TEST(room_map_stream_export_count_failure_preserves_previous_pcd) {
     vista::transport::save_room_map_snapshot(path,original);
     VISTA_CHECK_THROWS(vista::transport::write_room_map_snapshot(path,2,[&](const auto& visit){visit(point(2));}));
     VISTA_CHECK(vista::transport::load_room_map_snapshot(path,10).points==original.points);
-    std::filesystem::remove(path);auto temporary=path;temporary+=".tmp";std::filesystem::remove(temporary);
+    vista::fs::remove(path);auto temporary=path;temporary+=".tmp";vista::fs::remove(temporary);
 }
 
 VISTA_TEST(room_map_view_parser_clamps_client_budget_and_rejects_malformed_camera) {

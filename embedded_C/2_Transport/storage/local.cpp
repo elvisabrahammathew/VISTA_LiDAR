@@ -9,16 +9,16 @@ namespace {
 
 constexpr int pcd_count_field_width = 20;
 
-void create_parent_directory(const std::filesystem::path& path) {
+void create_parent_directory(const vista::fs::path& path) {
     const auto parent = path.parent_path();
     if (!parent.empty()) {
-        std::filesystem::create_directories(parent);
+        vista::fs::create_directories(parent);
     }
 }
 
 }  // namespace
 
-RawCaptureWriter::RawCaptureWriter(const std::filesystem::path& path) {
+RawCaptureWriter::RawCaptureWriter(const vista::fs::path& path) {
     create_parent_directory(path);
     output_.open(path, std::ios::binary | std::ios::trunc);
     if (!output_) {
@@ -42,7 +42,7 @@ void RawCaptureWriter::finish() {
     }
 }
 
-PcdWriter::PcdWriter(const std::filesystem::path& output_path) {
+PcdWriter::PcdWriter(const vista::fs::path& output_path) {
     create_parent_directory(output_path);
     output_.open(
         output_path,

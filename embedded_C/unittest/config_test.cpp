@@ -1,6 +1,6 @@
 #include <chrono>
 #include <ctime>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <string>
 
 #include "config.hpp"
@@ -324,7 +324,7 @@ VISTA_TEST(config_building_generates_one_session_timestamp_for_all_outputs) {
     config.pointcloud_logging_enabled=true;
     const auto start=std::chrono::system_clock::now();
     const auto stem=vista::format_log_timestamp(start);
-    const std::filesystem::path root="session-test-data";
+    const vista::fs::path root="session-test-data";
     vista::configure_session_output_paths(config,root,start);
     const auto map_path=root/"maps"/("RoomMap_"+stem+".pcd");
     VISTA_CHECK(config.room_map.file==map_path);
@@ -337,7 +337,7 @@ VISTA_TEST(config_building_generates_one_session_timestamp_for_all_outputs) {
 VISTA_TEST(config_loading_keeps_explicit_input_and_does_not_guess_empty_input) {
     auto config=vista::parse_device_config_text(quanergy_config);
     config.room_map.load_existing=true;
-    const std::filesystem::path reference="maps/RoomMap_20260916_131405.pcd";
+    const vista::fs::path reference="maps/RoomMap_20260916_131405.pcd";
     config.room_map.file=reference;
     vista::configure_session_output_paths(config,"session-test-data",std::chrono::system_clock::now());
     VISTA_CHECK(config.room_map.file==reference);

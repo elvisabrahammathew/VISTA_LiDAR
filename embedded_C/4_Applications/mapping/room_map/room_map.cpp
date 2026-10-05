@@ -364,7 +364,7 @@ void RoomMapAccumulator::restore(const models::PointCloudFrame& cloud) {
     impl_->timestamp_ns = cloud.timestamp_ns;
     impl_->state = models::RoomMapState::loaded;
 }
-void RoomMapAccumulator::load(const std::filesystem::path& file) {
+void RoomMapAccumulator::load(const vista::fs::path& file) {
     reset();
     std::lock_guard<std::mutex> lock(impl_->mutex);
     impl_->cells->set_reference();

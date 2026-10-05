@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <fstream>
 #include <vector>
 
@@ -11,17 +11,17 @@ namespace vista::transport {
 
 class RawCaptureWriter {
 public:
-    explicit RawCaptureWriter(const std::filesystem::path& path);
+    explicit RawCaptureWriter(const vista::fs::path& path);
     void write_bytes(const std::vector<std::uint8_t>& bytes);
     void finish();
 
 private:
-    std::ofstream output_;
+    vista::io::ofstream output_;
 };
 
 class PcdWriter {
 public:
-    explicit PcdWriter(const std::filesystem::path& output_path);
+    explicit PcdWriter(const vista::fs::path& output_path);
     ~PcdWriter();
 
     PcdWriter(const PcdWriter&) = delete;
@@ -34,7 +34,7 @@ private:
     /// Updates the fixed-width WIDTH/POINTS fields and flushes live PCD data.
     void update_header();
 
-    std::fstream output_;
+    vista::io::fstream output_;
     std::streampos width_value_position_{};
     std::streampos points_value_position_{};
     std::uint64_t point_count_{};

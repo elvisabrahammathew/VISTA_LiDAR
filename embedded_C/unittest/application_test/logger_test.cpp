@@ -1,5 +1,5 @@
 #include <atomic>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -10,9 +10,9 @@
 
 namespace {
 
-std::filesystem::path temporary_output(const std::string& extension) {
+vista::fs::path temporary_output(const std::string& extension) {
     static std::atomic<std::uint64_t> next_id{0};
-    return std::filesystem::temp_directory_path() /
+    return vista::fs::temp_directory_path() /
            ("vista-edge-cpp-test-" + std::to_string(next_id++) + "." + extension);
 }
 
@@ -34,14 +34,14 @@ VISTA_TEST(logger_preserves_raw_bytes) {
 
     const auto report =
         vista::application::run_raw_logger(std::move(subscriber), path);
-    std::ifstream input(path, std::ios::binary);
+    vista::io::ifstream input(path, std::ios::binary);
     const std::vector<std::uint8_t> bytes{
         std::istreambuf_iterator<char>(input),
         std::istreambuf_iterator<char>()};
     VISTA_CHECK(report.message_count == 1);
     VISTA_CHECK(bytes == std::vector<std::uint8_t>({1, 2, 3, 4}));
     input.close();
-    std::filesystem::remove(path);
+    vista::fs::remove(path);
 }
 
 VISTA_TEST(logger_writes_pcd_header_and_point) {
@@ -63,7 +63,7 @@ VISTA_TEST(logger_writes_pcd_header_and_point) {
 
     const auto report =
         vista::application::run_pcd_logger(std::move(subscriber), path);
-    std::ifstream input(path);
+    vista::io::ifstream input(path);
     const std::string contents{
         std::istreambuf_iterator<char>(input),
         std::istreambuf_iterator<char>()};
@@ -73,5 +73,5 @@ VISTA_TEST(logger_writes_pcd_header_and_point) {
     VISTA_CHECK(
         contents.find("1.000000 2.000000 3.000000 4 5 0") != std::string::npos);
     input.close();
-    std::filesystem::remove(path);
+    vista::fs::remove(path);
 }

@@ -23,7 +23,7 @@
 
 namespace vista::transport {
 
-RoomMapSessionFile::RoomMapSessionFile(std::filesystem::path preferred_path)
+RoomMapSessionFile::RoomMapSessionFile(vista::fs::path preferred_path)
     : preferred_path_(std::move(preferred_path)), path_(preferred_path_) {
     if (preferred_path_.empty()) throw std::invalid_argument("room-map session path is empty");
 }
@@ -31,20 +31,20 @@ RoomMapSessionFile::~RoomMapSessionFile() {
     if (claimed_ && !saved_) {
         // This empty claim belongs to this session, never to an older map.
         std::error_code ignored;
-        std::filesystem::remove(path_, ignored);
+        vista::fs::remove(path_, ignored);
     }
 }
 void RoomMapSessionFile::claim() {
     if (!preferred_path_.parent_path().empty())
-        std::filesystem::create_directories(preferred_path_.parent_path());
+        vista::fs::create_directories(preferred_path_.parent_path());
     // Exclusive create closes the exists()/write race between simultaneous
     // sessions. A crash may leave a claim, which a later session safely skips.
     for (std::size_t suffix = 0; suffix < 10'000; ++suffix) {
         path_ = suffix == 0 ? preferred_path_ : preferred_path_.parent_path() /
-            (preferred_path_.stem().native() + std::filesystem::path("_" + std::to_string(suffix)).native() +
+            (preferred_path_.stem().native() + vista::fs::path("_" + std::to_string(suffix)).native() +
              preferred_path_.extension().native());
         auto temporary = path_; temporary += ".tmp";
-        if (std::filesystem::exists(temporary)) continue; // Preserve stale/foreign temporary output too.
+        if (vista::fs::exists(temporary)) continue; // Preserve stale/foreign temporary output too.
 #ifdef _WIN32
         const auto handle = CreateFileW(path_.c_str(), GENERIC_WRITE, 0, nullptr,
                                        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -80,20 +80,20 @@ void RoomMapSessionFile::save(std::uint64_t count, const RoomMapPointEnumerator&
     saved_ = true;
 }
 
-void save_room_map_snapshot(const std::filesystem::path& path,
+void save_room_map_snapshot(const vista::fs::path& path,
                             const models::PointCloudFrame& frame) {
     write_room_map_snapshot(path, frame.points.size(), [&](const RoomMapPointVisitor& visit) {
         for (const auto& point : frame.points) visit(point);
     });
 }
-void write_room_map_snapshot(const std::filesystem::path& path, std::uint64_t count,
+void write_room_map_snapshot(const vista::fs::path& path, std::uint64_t count,
                              const RoomMapPointEnumerator& enumerate) {
     if (path.empty()) throw std::invalid_argument("room-map file path is empty");
-    if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path());
+    if (!path.parent_path().empty()) vista::fs::create_directories(path.parent_path());
     auto temporary = path;
     temporary += ".tmp";
     {
-        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        vista::io::ofstream output(temporary, std::ios::binary | std::ios::trunc);
         if (!output) throw std::runtime_error("cannot write room map: " + temporary.string());
         output << "# VISTA room map in world coordinates (meters)\n"
                << "VERSION 0.7\nFIELDS x y z intensity\nSIZE 4 4 4 1\n"
@@ -114,7 +114,7 @@ void write_room_map_snapshot(const std::filesystem::path& path, std::uint64_t co
     }
     atomic_replace_map_file(temporary, path);
 }
-void atomic_replace_map_file(const std::filesystem::path& temporary, const std::filesystem::path& path) {
+void atomic_replace_map_file(const vista::fs::path& temporary, const vista::fs::path& path) {
 #ifdef _WIN32
     if (!MoveFileExW(temporary.c_str(), path.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
@@ -122,19 +122,19 @@ void atomic_replace_map_file(const std::filesystem::path& temporary, const std::
                                  std::to_string(GetLastError()));
     }
 #else
-    std::filesystem::rename(temporary, path);
+    vista::fs::rename(temporary, path);
 #endif
 }
 
-models::PointCloudFrame load_room_map_snapshot(const std::filesystem::path& path,
+models::PointCloudFrame load_room_map_snapshot(const vista::fs::path& path,
                                                std::size_t maximum_points) {
     models::PointCloudFrame frame;
     stream_room_map_snapshot(path, [&](const models::PointXYZIRT& point) { frame.points.push_back(point); }, maximum_points);
     return frame;
 }
-std::uint64_t stream_room_map_snapshot(const std::filesystem::path& path,
+std::uint64_t stream_room_map_snapshot(const vista::fs::path& path,
     const RoomMapPointVisitor& visit, std::uint64_t maximum_points) {
-    std::ifstream input(path, std::ios::binary);
+    vista::io::ifstream input(path, std::ios::binary);
     if (!input) throw std::runtime_error("cannot read room map: " + path.string());
     std::string line;
     std::uint64_t declared_points{}, read_points{};

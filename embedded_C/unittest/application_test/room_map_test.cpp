@@ -1,6 +1,6 @@
 #include <array>
 #include <chrono>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -100,7 +100,7 @@ VISTA_TEST(room_map_ignores_invalid_points_and_does_not_auto_freeze_empty_map) {
 }
 
 VISTA_TEST(room_map_snapshot_roundtrip_and_replacement) {
-    const auto path=std::filesystem::temp_directory_path()/
+    const auto path=vista::fs::temp_directory_path()/
         ("vista-room-map-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".pcd");
     const vista::models::PointCloudFrame cloud(0,{map_point(1.1234567F,0,0),map_point(2,3,4)});
     vista::transport::save_room_map_snapshot(path,cloud);
@@ -115,11 +115,11 @@ VISTA_TEST(room_map_snapshot_roundtrip_and_replacement) {
     VISTA_CHECK(map.status().state==vista::models::RoomMapState::loaded);
     VISTA_CHECK(!map.integrate(smaller,100ms));
     VISTA_CHECK(map.snapshot().points.size()==2);
-    std::filesystem::remove(path);
+    vista::fs::remove(path);
 }
 
 VISTA_TEST(room_map_session_file_claims_suffixes_and_updates_only_its_own_file) {
-    const auto root=std::filesystem::temp_directory_path()/
+    const auto root=vista::fs::temp_directory_path()/
         ("vista-session-claims-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto preferred=root/"RoomMap_20260916_131405.pcd";
     const auto first_suffix=root/"RoomMap_20260916_131405_1.pcd";
@@ -128,7 +128,7 @@ VISTA_TEST(room_map_session_file_claims_suffixes_and_updates_only_its_own_file) 
     const vista::models::PointCloudFrame first(2,{map_point(2,0,0)});
     const vista::models::PointCloudFrame second(3,{map_point(3,0,0)});
     vista::transport::save_room_map_snapshot(preferred,original);
-    const auto original_stamp=std::filesystem::last_write_time(preferred);
+    const auto original_stamp=vista::fs::last_write_time(preferred);
     {
         vista::transport::RoomMapSessionFile a(preferred),b(preferred);
         a.save(first); b.save(second); // Same preferred timestamp; exclusive claims differ.
@@ -138,17 +138,17 @@ VISTA_TEST(room_map_session_file_claims_suffixes_and_updates_only_its_own_file) 
         VISTA_CHECK(vista::transport::load_room_map_snapshot(first_suffix,10).points==second.points);
         VISTA_CHECK(vista::transport::load_room_map_snapshot(second_suffix,10).points==second.points);
     }
-    VISTA_CHECK(std::filesystem::last_write_time(preferred)==original_stamp);
+    VISTA_CHECK(vista::fs::last_write_time(preferred)==original_stamp);
     VISTA_CHECK(vista::transport::load_room_map_snapshot(preferred,10).points==original.points);
-    std::filesystem::remove(first_suffix); std::filesystem::remove(second_suffix);
-    std::filesystem::remove(preferred); std::filesystem::remove(root); // Exact empty test directory.
+    vista::fs::remove(first_suffix); vista::fs::remove(second_suffix);
+    vista::fs::remove(preferred); vista::fs::remove(root); // Exact empty test directory.
 }
 
 VISTA_TEST(room_map_session_file_is_lazy_and_does_not_create_no_data_output) {
-    const auto preferred=std::filesystem::temp_directory_path()/
+    const auto preferred=vista::fs::temp_directory_path()/
         ("vista-lazy-map-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".pcd");
     { vista::transport::RoomMapSessionFile session(preferred); }
-    VISTA_CHECK(!std::filesystem::exists(preferred));
+    VISTA_CHECK(!vista::fs::exists(preferred));
 }
 
 VISTA_TEST(room_map_preserves_confirmed_wall_behind_a_person_who_stays) {
@@ -277,7 +277,7 @@ VISTA_TEST(room_map_disabled_worker_serves_empty_status_without_consuming_geomet
 VISTA_TEST(room_map_worker_load_failure_never_rebuilds_or_creates_file) {
     vista::platform::MessageBus bus; vista::platform::StopToken stop;
     auto config=settings(); config.load_existing=true; config.publish_interval=10ms;
-    config.file=std::filesystem::temp_directory_path()/
+    config.file=vista::fs::temp_directory_path()/
         ("vista-missing-map-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".pcd");
     auto observer=bus.subscribe<vista::models::RoomMapStatus>(vista::models::topics::room_map_status,"test-load-error");
     auto producer=bus.publisher<vista::devices::LidarPointCloudMessage>(vista::models::topics::pointcloud_cleaned);
@@ -293,17 +293,17 @@ VISTA_TEST(room_map_worker_load_failure_never_rebuilds_or_creates_file) {
     VISTA_CHECK(received==vista::platform::ReceiveStatus::message);
     VISTA_CHECK(status->state==vista::models::RoomMapState::load_error);
     VISTA_CHECK(status->received_messages==0 && status->point_count==0);
-    VISTA_CHECK(!std::filesystem::exists(config.file));
+    VISTA_CHECK(!vista::fs::exists(config.file));
 }
 
 VISTA_TEST(room_map_worker_loading_never_overwrites_source_snapshot) {
     vista::platform::MessageBus bus; vista::platform::StopToken stop;
     auto config=settings(); config.load_existing=true; config.publish_interval=10ms;
-    config.file=std::filesystem::temp_directory_path()/
+    config.file=vista::fs::temp_directory_path()/
         ("vista-reference-map-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".pcd");
     const auto original=ray_frame({map_point(1.1F,0,0),map_point(1.2F,0,0)});
     vista::transport::save_room_map_snapshot(config.file,original);
-    const auto original_stamp=std::filesystem::last_write_time(config.file);
+    const auto original_stamp=vista::fs::last_write_time(config.file);
     auto observer=bus.subscribe<vista::models::RoomMapStatus>(vista::models::topics::room_map_status,"test-loaded-status");
     auto producer=bus.publisher<vista::devices::LidarPointCloudMessage>(vista::models::topics::pointcloud_cleaned);
     std::string error;
@@ -317,15 +317,15 @@ VISTA_TEST(room_map_worker_loading_never_overwrites_source_snapshot) {
     VISTA_CHECK(received==vista::platform::ReceiveStatus::message);
     VISTA_CHECK(status->state==vista::models::RoomMapState::loaded && status->received_messages==0);
     VISTA_CHECK(status->point_count==2);
-    VISTA_CHECK(std::filesystem::last_write_time(config.file)==original_stamp);
+    VISTA_CHECK(vista::fs::last_write_time(config.file)==original_stamp);
     VISTA_CHECK(vista::transport::load_room_map_snapshot(config.file,10).points==original.points);
-    std::filesystem::remove(config.file);
+    vista::fs::remove(config.file);
 }
 
 VISTA_TEST(room_map_worker_building_always_saves_on_clean_shutdown) {
     vista::platform::MessageBus bus; vista::platform::StopToken stop;
     auto config=settings(); config.minimum_observations=1; config.publish_interval=10ms;
-    config.file=std::filesystem::temp_directory_path()/
+    config.file=vista::fs::temp_directory_path()/
         ("vista-auto-save-map-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".pcd");
     auto observer=bus.subscribe<vista::devices::LidarPointCloudMessage>(vista::models::topics::room_map,"test-auto-save-map");
     auto producer=bus.publisher<vista::devices::LidarPointCloudMessage>(vista::models::topics::pointcloud_cleaned);
@@ -343,19 +343,19 @@ VISTA_TEST(room_map_worker_building_always_saves_on_clean_shutdown) {
     }
     stop.request_stop(); bus.close(); worker.join();
     VISTA_CHECK(error.empty() && confirmed);
-    VISTA_CHECK(std::filesystem::exists(config.file));
+    VISTA_CHECK(vista::fs::exists(config.file));
     VISTA_CHECK(vista::transport::load_room_map_snapshot(config.file,10).points==snapshot->payload.points);
-    std::filesystem::remove(config.file);
+    vista::fs::remove(config.file);
 }
 
 VISTA_TEST(room_map_worker_no_data_does_not_overwrite_an_older_map) {
     vista::platform::MessageBus bus; vista::platform::StopToken stop;
     auto config=settings(); config.publish_interval=10ms;
-    config.file=std::filesystem::temp_directory_path()/
+    config.file=vista::fs::temp_directory_path()/
         ("vista-preserve-map-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".pcd");
     const auto original=ray_frame({map_point(1.1F,0,0)});
     vista::transport::save_room_map_snapshot(config.file,original);
-    const auto original_stamp=std::filesystem::last_write_time(config.file);
+    const auto original_stamp=vista::fs::last_write_time(config.file);
     auto observer=bus.subscribe<vista::models::RoomMapStatus>(vista::models::topics::room_map_status,"test-map-no-data");
     std::string error;
     auto worker=vista::application::spawn_room_map_worker(bus,vista::platform::ThreadConfig("test-map-no-data",4),stop,config,
@@ -365,9 +365,9 @@ VISTA_TEST(room_map_worker_no_data_does_not_overwrite_an_older_map) {
     stop.request_stop(); bus.close(); worker.join();
     VISTA_CHECK(error.empty() && received==vista::platform::ReceiveStatus::message);
     VISTA_CHECK(status->point_count==0);
-    VISTA_CHECK(std::filesystem::last_write_time(config.file)==original_stamp);
+    VISTA_CHECK(vista::fs::last_write_time(config.file)==original_stamp);
     VISTA_CHECK(vista::transport::load_room_map_snapshot(config.file,10).points==original.points);
-    std::filesystem::remove(config.file);
+    vista::fs::remove(config.file);
 }
 
 VISTA_TEST(room_map_worker_republishes_same_unchanged_snapshot_for_late_subscribers) {

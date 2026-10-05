@@ -3,7 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <optional>
 #include <string>
 
@@ -108,8 +108,8 @@ struct AppConfig {
     std::optional<application::GroundRemovalConfig> ground_removal;
     /// Common mounting transform is independent of the ground-processing branch.
     std::optional<application::GroundRemovalConfig> mounting;
-    std::optional<std::filesystem::path> raw_path;
-    std::optional<std::filesystem::path> pcd_path;
+    std::optional<vista::fs::path> raw_path;
+    std::optional<vista::fs::path> pcd_path;
 
     static AppConfig load();
     devices::LidarConfig lidar_config() const;
@@ -123,7 +123,7 @@ std::string format_log_timestamp(
 /// Uses ONE session timestamp for RAW, processed PCD, and the new room-map name.
 /// RoomMapFile is an input path only in read-only loading mode.
 void configure_session_output_paths(AppConfig& config,
-    const std::filesystem::path& data_root,
+    const vista::fs::path& data_root,
     std::chrono::system_clock::time_point session_start);
 
 }  // namespace vista

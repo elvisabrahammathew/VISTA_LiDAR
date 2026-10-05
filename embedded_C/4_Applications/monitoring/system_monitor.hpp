@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <functional>
 #include <optional>
 #include <string>
@@ -14,7 +14,7 @@ namespace vista::application {
 
 struct SystemMonitorConfig {
     std::chrono::milliseconds sample_interval{2'000};
-    std::filesystem::path data_root{"../data"};
+    vista::fs::path data_root{"../data"};
 };
 
 struct SystemMonitorReport {

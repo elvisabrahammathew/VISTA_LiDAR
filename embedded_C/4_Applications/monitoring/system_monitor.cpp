@@ -71,7 +71,7 @@ public:
         idle = file_time_value(idle_time);
         total = file_time_value(kernel_time) + file_time_value(user_time);
 #else
-        std::ifstream input("/proc/stat");
+        vista::io::ifstream input("/proc/stat");
         std::string cpu;
         std::uint64_t user{}, nice{}, system{}, idle_value{}, io_wait{};
         std::uint64_t irq{}, soft_irq{}, steal{};
@@ -112,7 +112,7 @@ double process_memory_mb() {
     }
     return static_cast<double>(counters.WorkingSetSize) / (1024.0 * 1024.0);
 #else
-    std::ifstream input("/proc/self/status");
+    vista::io::ifstream input("/proc/self/status");
     std::string key;
     while (input >> key) {
         if (key == "VmRSS:") {
@@ -135,7 +135,7 @@ double system_memory_percent() {
                ? static_cast<double>(status.dwMemoryLoad)
                : 0.0;
 #else
-    std::ifstream input("/proc/meminfo");
+    vista::io::ifstream input("/proc/meminfo");
     std::string key;
     std::uint64_t total{}, available{};
     while (input >> key) {
@@ -155,17 +155,17 @@ double system_memory_percent() {
 #endif
 }
 
-double disk_free_gb(const std::filesystem::path& path) {
+double disk_free_gb(const vista::fs::path& path) {
     std::error_code error;
-    const auto space = std::filesystem::space(path, error);
+    const auto space = vista::fs::space(path, error);
     return error ? 0.0
                  : static_cast<double>(space.available) /
                        (1024.0 * 1024.0 * 1024.0);
 }
 
 #ifndef _WIN32
-bool read_number(const std::filesystem::path& path, double& value) {
-    std::ifstream input(path);
+bool read_number(const vista::fs::path& path, double& value) {
+    vista::io::ifstream input(path);
     return static_cast<bool>(input >> value);
 }
 
@@ -173,8 +173,8 @@ models::PowerThermalTelemetry power_thermal_sample(std::uint64_t timestamp) {
     models::PowerThermalTelemetry result;
     result.timestamp_ns = timestamp;
     std::error_code error;
-    const std::filesystem::path thermal_root("/sys/class/thermal");
-    for (std::filesystem::directory_iterator iterator(thermal_root, error), end;
+    const vista::fs::path thermal_root("/sys/class/thermal");
+    for (vista::fs::directory_iterator iterator(thermal_root, error), end;
          !error && iterator != end;
          iterator.increment(error)) {
         const auto directory = iterator->path();
@@ -185,7 +185,7 @@ models::PowerThermalTelemetry power_thermal_sample(std::uint64_t timestamp) {
         if (!read_number(directory / "temp", raw_temperature)) {
             continue;
         }
-        std::ifstream type_input(directory / "type");
+        vista::io::ifstream type_input(directory / "type");
         std::string type;
         std::getline(type_input, type);
         const auto temperature = raw_temperature > 1'000.0
@@ -202,13 +202,13 @@ models::PowerThermalTelemetry power_thermal_sample(std::uint64_t timestamp) {
         result.available = true;
     }
 
-    const std::filesystem::path hwmon_root("/sys/class/hwmon");
+    const vista::fs::path hwmon_root("/sys/class/hwmon");
     error.clear();
-    for (std::filesystem::directory_iterator iterator(hwmon_root, error), end;
+    for (vista::fs::directory_iterator iterator(hwmon_root, error), end;
          !error && iterator != end;
          iterator.increment(error)) {
         std::error_code child_error;
-        for (std::filesystem::directory_iterator child(iterator->path(), child_error), child_end;
+        for (vista::fs::directory_iterator child(iterator->path(), child_error), child_end;
              !child_error && child != child_end;
              child.increment(child_error)) {
             const auto name = child->path().filename().string();

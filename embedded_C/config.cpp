@@ -545,7 +545,7 @@ std::string format_log_timestamp(
 }
 
 void configure_session_output_paths(AppConfig& config,
-    const std::filesystem::path& data_root,
+    const vista::fs::path& data_root,
     std::chrono::system_clock::time_point session_start) {
     const auto root = data_root.lexically_normal();
     const auto session_stem = format_log_timestamp(session_start);
@@ -567,7 +567,7 @@ void configure_session_output_paths(AppConfig& config,
 
 AppConfig AppConfig::load() {
     const auto session_start = std::chrono::system_clock::now();
-    std::ifstream input(default_device_config_path);
+    vista::io::ifstream input(default_device_config_path);
     if (!input) {
         throw std::runtime_error(
             "could not read device configuration '" +
@@ -577,7 +577,7 @@ AppConfig AppConfig::load() {
     contents << input.rdbuf();
 
     auto config = parse_device_config_text(contents.str());
-    const auto data_root = std::filesystem::path(VISTA_DATA_ROOT).lexically_normal();
+    const auto data_root = vista::fs::path(VISTA_DATA_ROOT).lexically_normal();
     configure_session_output_paths(config, data_root, session_start);
     return config;
 }

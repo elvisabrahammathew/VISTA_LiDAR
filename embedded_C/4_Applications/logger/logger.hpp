@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
+#include "1_Platform/compat/filesystem.hpp"
 #include <functional>
 #include <optional>
 #include <string>
@@ -26,22 +26,22 @@ platform::WorkerHandle spawn_raw_logger(
     platform::MessageBus& bus,
     platform::ThreadConfig thread_config,
     platform::StopToken stop,
-    std::filesystem::path path,
+    vista::fs::path path,
     LoggerCompletion on_complete);
 
 platform::WorkerHandle spawn_pcd_logger(
     platform::MessageBus& bus,
     platform::ThreadConfig thread_config,
     platform::StopToken stop,
-    std::filesystem::path path,
+    vista::fs::path path,
     LoggerCompletion on_complete);
 
 LoggerReport run_raw_logger(
     platform::TopicSubscriber<devices::LidarRawMessage> subscriber,
-    const std::filesystem::path& path);
+    const vista::fs::path& path);
 
 LoggerReport run_pcd_logger(
     platform::TopicSubscriber<devices::LidarPointCloudMessage> subscriber,
-    const std::filesystem::path& path);
+    const vista::fs::path& path);
 
 }  // namespace vista::application
