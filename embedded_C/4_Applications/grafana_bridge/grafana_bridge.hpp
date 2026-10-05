@@ -1,4 +1,5 @@
 #pragma once
+#include "models/localization.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -88,6 +89,7 @@ std::string format_ground_state_measurement(
 
 /// Tag-free mapping diagnostics for stable Grafana Stat fields.
 std::string format_room_map_measurement(const models::RoomMapStatus& status);
+std::string format_localization_measurement(const models::LocalizationStatus& status);
 
 struct GrafanaBridgeReport {
     std::uint64_t received_raw_messages{};

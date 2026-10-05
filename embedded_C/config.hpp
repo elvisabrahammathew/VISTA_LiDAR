@@ -14,6 +14,7 @@
 #include "4_Applications/pointcloud_websocket/pointcloud_websocket.hpp"
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 #include "4_Applications/mapping/room_map/room_map.hpp"
+#include "4_Applications/mapping/lio/lio.hpp"
 
 namespace vista {
 
@@ -37,6 +38,8 @@ struct ThreadSetConfig {
     WorkerConfig ground_processing;
     WorkerConfig room_mapping;
     WorkerConfig room_map_websocket;
+    WorkerConfig localization;
+    WorkerConfig live_preprocessing;
 };
 
 struct TopicQueueConfig {
@@ -78,8 +81,15 @@ struct AppConfig {
     std::chrono::milliseconds lidar_reconnect_interval{5'000};
     application::GrafanaBridgeConfig grafana;
     /// Both WebSocket enabled flags are derived from grafana.enabled, not separate TXT switches.
-    application::PointCloudWebSocketConfig pointcloud_websocket;
+    application::PointCloudWebSocketConfig pointcloud_websocket = [] {
+        application::PointCloudWebSocketConfig value;
+        value.input_topic = "pointcloud/cleaned_sensor";
+        // A world ground plane must never be drawn over sensor-coordinate XYZ.
+        value.include_ground_status = false;
+        return value;
+    }();
     application::RoomMapConfig room_map;
+    application::LioConfig lio;
     application::PointCloudWebSocketConfig room_map_websocket = [] {
         application::PointCloudWebSocketConfig value;
         value.enabled = false; // AppConfig parsing derives this from GrafanaEnabled.

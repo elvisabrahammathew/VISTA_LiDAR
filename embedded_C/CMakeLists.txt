@@ -81,6 +81,8 @@ set(VISTA_CORE_SOURCES
     4_Applications/logger/logger.cpp
     4_Applications/mapping/room_map/room_map.cpp
     4_Applications/mapping/room_map/room_map_websocket.cpp
+    4_Applications/mapping/lio/lio.cpp
+    4_Applications/mapping/lio/lio_adapter.cpp
     4_Applications/monitoring/system_monitor.cpp
     4_Applications/pointcloud_websocket/pointcloud_websocket.cpp
     4_Applications/processing/pointcloud/pointcloud_processing.cpp
@@ -104,6 +106,8 @@ target_compile_definitions(vista_edge_core PRIVATE
     VISTA_DATA_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../data")
 find_package(Threads REQUIRED)
 target_link_libraries(vista_edge_core PUBLIC Threads::Threads)
+include(cmake/fast_lio.cmake)
+target_link_libraries(vista_edge_core PUBLIC vista_fast_lio)
 
 if(WIN32)
     target_link_libraries(vista_edge_core PUBLIC ws2_32 psapi)
@@ -243,6 +247,7 @@ if(VISTA_BUILD_TESTS)
         unittest/test_main.cpp
         unittest/application_test/logger_test.cpp
         unittest/application_test/room_map_test.cpp
+        unittest/application_test/lio_test.cpp
         unittest/application_test/grafana_bridge_test.cpp
         unittest/application_test/pointcloud_processing_test.cpp
         unittest/application_test/system_monitor_test.cpp

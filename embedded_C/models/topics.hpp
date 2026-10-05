@@ -6,6 +6,11 @@ namespace vista::models::topics {
 inline constexpr const char* lidar_raw = "lidar/raw";
 inline constexpr const char* lidar_imu = "lidar/imu";
 inline constexpr const char* pointcloud_decoded = "pointcloud/decoded";
+// Sensor XYZ, floor intact: never gated by localization or transformed by mounting.
+inline constexpr const char* pointcloud_cleaned_sensor = "pointcloud/cleaned_sensor";
+// Motion-compensated localization outputs. Any active IMU uses lidar/imu above.
+inline constexpr const char* pointcloud_world = "localization/pointcloud_world";
+inline constexpr const char* localization_status = "localization/status";
 // World-coordinate cloud including the floor, used by mapping and ground processing.
 inline constexpr const char* pointcloud_cleaned = "pointcloud/cleaned";
 inline constexpr const char* pointcloud_processed = "pointcloud/processed";

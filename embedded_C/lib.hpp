@@ -20,5 +20,6 @@
 #include "4_Applications/pointcloud_websocket/pointcloud_websocket.hpp"
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 #include "config.hpp"
+#include "4_Applications/mapping/lio/lio.hpp"
 #include "models/telemetry.hpp"
 #include "models/topics.hpp"

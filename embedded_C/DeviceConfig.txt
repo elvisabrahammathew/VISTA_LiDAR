@@ -17,7 +17,7 @@ DepthFps(realsensel515): 30
 
 # LiDAR mounting and ground calibration (hybrid, ransac, static, none)
 GroundMode(lidar): hybrid
-UseImuForGround(lidar): 0
+UseImuForGround(lidar): 1
 MountX(lidar): -10.0
 MountY(lidar): -10.0
 MountZ(lidar): 0.6
@@ -29,6 +29,27 @@ GroundDistanceThreshold(lidar): 0.10
 GroundNormalToleranceDeg(lidar): 15.0
 GroundCalibrationFrames(lidar): 50
 GroundMinInlierRatio(lidar): 0.10
+
+# Moving mapping: keep stationary at startup; Mount is the INITIAL LiDAR world pose
+LioEnabled: 0
+LioLidarToImuTranslationX: 0.007698
+LioLidarToImuTranslationY: 0.014655
+LioLidarToImuTranslationZ: -0.00667
+LioLidarToImuRollDeg: 0.0
+LioLidarToImuPitchDeg: 0.0
+LioLidarToImuYawDeg: 0.0
+LioScanVoxelSizeMeters: 0.15
+LioMapVoxelSizeMeters: 0.20
+LioLocalMapRadiusMeters: 30.0
+LioLocalMapMaxPoints: 50000
+LioScanMaxPoints: 5000
+LioInitializationSamples: 50
+LioMaxImuGapMilliseconds: 100
+LioMinMatchRatio: 0.15
+LioMaxResidualMeters: 0.15
+LioMaxTranslationStepMeters: 2.0
+LioMaxRotationStepDeg: 30.0
+LioSynchronizationTimeoutMilliseconds: 500
 
 # Supported Radar: none
 Radar: None

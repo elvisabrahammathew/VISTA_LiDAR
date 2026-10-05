@@ -72,8 +72,8 @@
     {
       "id": 51,
       "type": "vista-lidarpointcloud-panel",
-      "title": "Live Point Cloud - After Ground Removal",
-      "description": "Real-time pointcloud/processed from the C++ ground-processing worker. Floor points are removed; the ground model overlay remains available.",
+      "title": "Live Point Cloud - Sensor Frame",
+      "description": "Sensor-coordinate XYZ with floor retained. Independent finite/range/voxel filters feed WebSocket :8765; live rendering continues while LIO initializes, degrades or loses localization. Ground plane overlays are intentionally absent here. World mapping uses accepted poses only on :8766.",
       "gridPos": {
         "h": 18,
         "w": 12,
@@ -130,12 +130,372 @@
       "targets": []
     },
     {
+      "datasource": {
+        "uid": "grafana",
+        "type": "grafana"
+      },
+      "transformations": [
+        {
+          "options": {
+            "include": {
+              "names": [
+                "state_code"
+              ]
+            }
+          },
+          "id": "filterFieldsByName"
+        }
+      ],
+      "title": "Localization State",
+      "description": "TRACKING means a fresh accepted pose. DEGRADED can mean stale processing, not necessarily missing IMU. LOST holds the map and preserves the root fault reason; clock/coverage faults require restart.",
+      "type": "stat",
+      "targets": [
+        {
+          "buffer": 60000,
+          "filter": {
+            "fields": []
+          },
+          "refId": "A",
+          "datasource": {
+            "uid": "grafana",
+            "type": "grafana"
+          },
+          "channel": "stream/vista/localization",
+          "queryType": "measurements"
+        }
+      ],
+      "id": 86,
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ],
+            "mode": "absolute"
+          },
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "4": {
+                  "color": "red",
+                  "text": "LOST"
+                },
+                "3": {
+                  "color": "orange",
+                  "text": "DEGRADED"
+                },
+                "0": {
+                  "color": "orange",
+                  "text": "WAITING IMU"
+                },
+                "1": {
+                  "color": "yellow",
+                  "text": "INITIALIZING"
+                },
+                "2": {
+                  "color": "green",
+                  "text": "TRACKING"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "fields": "",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "h": 8,
+        "w": 4
+      }
+    },
+    {
+      "id": 85,
+      "type": "table",
+      "title": "Localization Pose and Quality",
+      "gridPos": {
+        "x": 4,
+        "y": 19,
+        "h": 8,
+        "w": 20
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "options": "Position X",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Position Y",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Position Z",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Match Residual",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Match Ratio",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "percentunit",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Time",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "dateTimeAsLocal",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Position Variance",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "none",
+                "id": "unit"
+              },
+              {
+                "value": 6,
+                "id": "decimals"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/localization",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "pose_valid",
+                "position_x_m",
+                "position_y_m",
+                "position_z_m",
+                "match_ratio",
+                "residual_m",
+                "position_variance",
+                "local_map_points",
+                "rejected_scans",
+                "dropped_messages",
+                "reason"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "pose_valid": 0,
+              "position_x_m": 1,
+              "position_y_m": 2,
+              "position_z_m": 3,
+              "match_ratio": 4,
+              "residual_m": 5,
+              "position_variance": 6,
+              "local_map_points": 7,
+              "rejected_scans": 8,
+              "dropped_messages": 9,
+              "reason": 10,
+              "Time": 11,
+              "time": 11
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "pose_valid": "Pose Valid",
+              "position_x_m": "Position X",
+              "position_y_m": "Position Y",
+              "position_z_m": "Position Z",
+              "match_ratio": "Match Ratio",
+              "residual_m": "Match Residual",
+              "position_variance": "Position Variance",
+              "local_map_points": "Local Map Points",
+              "rejected_scans": "Rejected Scans",
+              "dropped_messages": "LIO Input Drops",
+              "reason": "Reason"
+            }
+          }
+        }
+      ],
+      "description": "Only a valid LiDAR-corrected pose feeds the Room Map. On missing IMU, timing faults or rejected localization the map is held, while sensor-frame live point cloud continues. Reason distinguishes clock reset, source changes, missing temporal coverage and stale processing."
+    },
+    {
       "id": 52,
       "type": "stat",
       "title": "Ground State",
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 27,
         "w": 4,
         "h": 4
       },
@@ -241,7 +601,7 @@
       "title": "Ground Validation",
       "gridPos": {
         "x": 4,
-        "y": 19,
+        "y": 27,
         "w": 20,
         "h": 8
       },
@@ -527,7 +887,7 @@
       "title": "Room Map State",
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 31,
         "w": 4,
         "h": 4
       },
@@ -638,7 +998,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 35
       },
       "datasource": {
         "type": "grafana",
@@ -994,7 +1354,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "datasource": {
         "type": "grafana",
@@ -1349,7 +1709,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "datasource": {
         "type": "grafana",
@@ -1657,7 +2017,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 59
       },
       "options": {
         "mode": "markdown",
@@ -1673,7 +2033,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 65
       },
       "panels": []
     },
@@ -1681,7 +2041,7 @@
       "id": 3,
       "type": "stat",
       "title": "LiDAR Online",
-      "description": "Selected LiDAR online state. Tag-free pointcloud_current prevents startup placeholder or previous-device ghost series.",
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately.",
       "datasource": {
         "type": "grafana",
         "uid": "grafana"
@@ -1690,7 +2050,7 @@
         "h": 4,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 66
       },
       "fieldConfig": {
         "defaults": {
@@ -1788,7 +2148,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 58
+        "y": 66
       },
       "fieldConfig": {
         "defaults": {
@@ -1885,7 +2245,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 58
+        "y": 66
       },
       "fieldConfig": {
         "defaults": {
@@ -1963,7 +2323,7 @@
         "h": 18,
         "w": 12,
         "x": 0,
-        "y": 62
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -2075,7 +2435,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately."
     },
     {
       "id": 41,
@@ -2089,7 +2450,7 @@
         "h": 18,
         "w": 6,
         "x": 12,
-        "y": 62
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -2242,7 +2603,7 @@
         "h": 18,
         "w": 6,
         "x": 18,
-        "y": 62
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -2381,7 +2742,7 @@
         "h": 16,
         "w": 12,
         "x": 0,
-        "y": 80
+        "y": 88
       },
       "fieldConfig": {
         "defaults": {
@@ -2507,7 +2868,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately."
     },
     {
       "id": 43,
@@ -2521,7 +2883,7 @@
         "h": 16,
         "w": 12,
         "x": 12,
-        "y": 80
+        "y": 88
       },
       "fieldConfig": {
         "defaults": {
@@ -2657,7 +3019,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 96
+        "y": 104
       },
       "panels": []
     },
@@ -2673,7 +3035,7 @@
         "h": 6,
         "w": 4,
         "x": 0,
-        "y": 97
+        "y": 105
       },
       "fieldConfig": {
         "defaults": {
@@ -2752,7 +3114,7 @@
         "h": 12,
         "w": 20,
         "x": 4,
-        "y": 97
+        "y": 105
       },
       "fieldConfig": {
         "defaults": {
@@ -3094,7 +3456,7 @@
         "h": 6,
         "w": 4,
         "x": 0,
-        "y": 103
+        "y": 111
       },
       "fieldConfig": {
         "defaults": {
@@ -3176,7 +3538,7 @@
         "h": 18,
         "w": 12,
         "x": 0,
-        "y": 109
+        "y": 117
       },
       "fieldConfig": {
         "defaults": {
@@ -3317,7 +3679,7 @@
         "h": 18,
         "w": 12,
         "x": 12,
-        "y": 109
+        "y": 117
       },
       "fieldConfig": {
         "defaults": {
@@ -3492,7 +3854,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 127
+        "y": 135
       },
       "fieldConfig": {
         "defaults": {
@@ -3719,7 +4081,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 135
+        "y": 143
       },
       "panels": []
     },
@@ -3736,7 +4098,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 136
+        "y": 144
       },
       "fieldConfig": {
         "defaults": {
@@ -3815,7 +4177,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 136
+        "y": 144
       },
       "fieldConfig": {
         "defaults": {
@@ -3894,7 +4256,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 136
+        "y": 144
       },
       "fieldConfig": {
         "defaults": {
@@ -3973,7 +4335,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 136
+        "y": 144
       },
       "fieldConfig": {
         "defaults": {
@@ -4055,11 +4417,11 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 140
+        "y": 148
       },
       "options": {
         "mode": "markdown",
-        "content": "Operational summaries use Grafana Live under the configured namespace (vista). The 3D views connect to the live point cloud at ws://127.0.0.1:8765 and the room map at ws://127.0.0.1:8766. Change those URLs if the browser and VISTA run on different machines.\n\nEach dashboard metric has one primary display. Room-map cache occupancy, map input drops and mapping I/O timings are separate from host resources and Grafana bridge input drops. Raw Message Rate counts raw packets; Processed Message Rate counts processed messages, not necessarily hardware scans. Ground Validation, Room Map Build and Free Space, Room Map Cache and Operation Timing, Room Map I/O and Counters, and Grafana Bridge Health show buffered Live history with newest rows first. Worker Health alone shows one latest row per worker. Live buffers are not persistent history storage. The bridge sends only fields consumed by this dashboard; XYZ geometry uses the separate WebSockets.\n\nThe 3D plugin has its own point/frame and ground-summary overlay. This overlay is built into the plugin and cannot currently be hidden through dashboard JSON. It does not create an additional Grafana Live query."
+        "content": "Operational summaries use Grafana Live under the configured namespace (vista). The 3D views connect to the live point cloud at ws://127.0.0.1:8765 and the room map at ws://127.0.0.1:8766. Change those URLs if the browser and VISTA run on different machines.\n\nEach dashboard metric has one primary display. Room-map cache occupancy, map input drops and mapping I/O timings are separate from host resources and Grafana bridge input drops. Raw Message Rate counts raw packets; Processed Message Rate counts independent cleaned sensor messages (including floor), not localization successes or necessarily hardware scans. Live sensor XYZ continues on LIO failure; world mapping is held until a fresh valid pose is available. World ground diagnostics are separate and are not overlaid on sensor-frame live geometry. Ground Validation, Room Map Build and Free Space, Room Map Cache and Operation Timing, Room Map I/O and Counters, and Grafana Bridge Health show buffered Live history with newest rows first. Worker Health alone shows one latest row per worker. Live buffers are not persistent history storage. The bridge sends only fields consumed by this dashboard; XYZ geometry uses the separate WebSockets.\n\nThe 3D plugin has its own point/frame and ground-summary overlay. This overlay is built into the plugin and cannot currently be hidden through dashboard JSON. It does not create an additional Grafana Live query."
       },
       "transparent": true
     }
@@ -4095,7 +4457,6 @@
   "timezone": "browser",
   "title": "VISTA Sensor Processing - Live and Room Map",
   "uid": "vistalive",
-  "version": 3,
+  "version": 8,
   "weekStart": ""
 }
-

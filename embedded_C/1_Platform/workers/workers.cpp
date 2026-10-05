@@ -23,6 +23,10 @@ void validate_worker_selection(
         throw std::invalid_argument(
             "pointcloud-preprocessing requires the lidar-decode worker");
     }
+    if(app.lio.enabled && (!runtime.threads.localization.enabled || !runtime.threads.lidar_decode.enabled))
+        throw std::invalid_argument("moving mapping requires the LIO and decoder workers");
+    if(runtime.threads.live_preprocessing.enabled && !runtime.threads.lidar_decode.enabled)
+        throw std::invalid_argument("live-pointcloud-preprocessing requires the lidar-decode worker");
     if (app.raw_path && runtime.threads.raw_logger.enabled &&
         !runtime.threads.lidar_read.enabled) {
         throw std::invalid_argument("raw-logger requires the lidar-read worker");
@@ -34,9 +38,9 @@ void validate_worker_selection(
     }
     if (app.pointcloud_websocket.enabled &&
         runtime.threads.pointcloud_websocket.enabled &&
-        !runtime.threads.ground_processing.enabled) {
+        !runtime.threads.live_preprocessing.enabled) {
         throw std::invalid_argument(
-            "pointcloud-websocket requires the ground-processing worker");
+            "pointcloud-websocket requires the live-pointcloud-preprocessing worker");
     }
     if (runtime.threads.ground_processing.enabled && !runtime.threads.preprocessing.enabled)
         throw std::invalid_argument("ground-processing requires the pointcloud-preprocessing worker");

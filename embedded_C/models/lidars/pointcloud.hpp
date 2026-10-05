@@ -17,6 +17,9 @@ struct PointXYZIRT {
     std::uint8_t ring{};
     std::uint8_t return_id{};
     std::uint64_t timestamp_ns{};
+    /// Transient ray metadata for a moving scan. PCD/tile/WebSocket point
+    /// formats stay unchanged; stored geometry does not need acquisition origins.
+    std::optional<std::array<float,3>> ray_origin_world_m{};
 
     bool operator==(const PointXYZIRT& other) const {
         return x == other.x && y == other.y && z == other.z &&

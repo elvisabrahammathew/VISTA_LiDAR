@@ -7,3 +7,12 @@
 [submodule "third_party/unilidar_sdk2"]
 	path = third_party/unilidar_sdk2
 	url = https://github.com/unitreerobotics/unilidar_sdk2.git
+[submodule "third_party/fast_lio"]
+	path = third_party/fast_lio
+	url = https://github.com/hku-mars/FAST_LIO.git
+[submodule "third_party/eigen"]
+	path = third_party/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "third_party/boost_preprocessor"]
+	path = third_party/boost_preprocessor
+	url = https://github.com/boostorg/preprocessor.git

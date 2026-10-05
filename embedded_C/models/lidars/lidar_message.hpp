@@ -15,18 +15,26 @@ struct LidarMessage {
     std::optional<std::uint64_t> sensor_timestamp_ns;
     std::uint64_t received_timestamp_ns{};
     T payload;
+    // Calendar time remains above for Grafana. Localization uses only these
+    // monotonic host timestamps, captured before queues/decoding.
+    std::uint64_t received_monotonic_ns{};
+    std::optional<std::uint64_t> measurement_timestamp_ns;
 
     LidarMessage(
         std::string id,
         std::uint64_t message_sequence,
         std::optional<std::uint64_t> sensor_timestamp,
         std::uint64_t received_timestamp,
-        T value)
+        T value,
+        std::uint64_t received_monotonic = 0,
+        std::optional<std::uint64_t> measurement_timestamp = std::nullopt)
         : lidar_id(std::move(id)),
           sequence(message_sequence),
           sensor_timestamp_ns(sensor_timestamp),
           received_timestamp_ns(received_timestamp),
-          payload(std::move(value)) {}
+          payload(std::move(value)),
+          received_monotonic_ns(received_monotonic),
+          measurement_timestamp_ns(measurement_timestamp) {}
 };
 
 }  // namespace vista::models

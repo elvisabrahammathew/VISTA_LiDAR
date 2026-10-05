@@ -16,7 +16,7 @@ The Rust source remains unchanged and can be kept as a behavioral reference.
 `main.cpp` explicitly chooses and starts the independent Read, Decode,
 Preprocessing, RAW Logger, PCD Logger, System Monitor, Grafana Bridge, and
 Point-cloud WebSocket, Ground Processing, Room Mapping, and Room-map WebSocket
-workers. Each worker registers its own
+workers, independent sensor-frame Live Preprocessing, plus optional LiDAR-inertial odometry for moving mapping. Each worker registers its own
 publisher/subscriber endpoints on the shared MessageBus. RAW and PCD logger
 workers write to filenames generated from the local system start time. Capture
 runs continuously until Ctrl+C, SIGTERM, or a worker failure requests shutdown.
@@ -28,12 +28,39 @@ completion results, priority reporting, shutdown, and join/error handling.
 
 ## Room mapping, free-space rays, and Grafana output
 
+With `LioEnabled: 1`, a ROS-free FAST-LIO adapter aligns IMU/scan timestamps,
+initializes while stationary, deskews measurements and estimates a LiDAR-corrected
+pose. Only accepted world-coordinate clouds enter preprocessing and room mapping;
+missing IMU or bad localization never falls back to a fixed pose. Mount XYZ/RPY
+is the initial pose, while LiDAR-to-IMU extrinsics are configured separately.
+See [the LIO guide](4_Applications/mapping/lio/README.md) for the common host
+monotonic clock, single IMU topic, limits, licensing and hardware validation requirements.
+`LioEnabled: 0` retains the fixed-mount flow. No detection/tracking is added.
+
 Preprocessing publishes `pointcloud/cleaned` in world coordinates after finite/range
-filtering, mounting, ROI, and voxel downsampling. These are retained measured
+filtering, mounting (fixed mode only), ROI, and voxel downsampling. These are retained measured
 points, not centroid-synthesized rays. Each cleaned frame carries the world
 sensor origin; mounting remains active with GroundMode none. Ground Processing
 consumes cleaned points and publishes processed points/ground diagnostics. The
-existing live panel and PCD logger use processed points; mapping keeps the floor.
+PCD logger uses processed world points; mapping keeps the floor. The live panel
+instead consumes `pointcloud/cleaned_sensor` from an independent worker, with
+finite/range/voxel filtering but NO mount transform, ground removal or world ROI.
+It continues when LIO is INITIALIZING, WAITING IMU, DEGRADED or LOST. Grafana's
+LiDAR online/count/rate telemetry describes this live branch, not pose validity.
+World ground diagnostics remain separate; they are not overlaid on sensor XYZ.
+On localization failure the existing Room Map is held; no invalid pose is integrated.
+No detection/tracking worker is added in this change.
+
+The IMU topic retains up to 4096 samples (~8 s at 500 Hz) and synchronization/
+deskew retain 0.5 s of overlap history. Buffers remain bounded; this does not
+guarantee real-time performance under sustained overload. An uncovered IMU
+propagation interval after LIO starts latches LOST and requires restart, rather
+than silently reseeding the map origin. A stale accepted result is DEGRADED,
+not automatically classified as missing IMU. Original fault reasons are retained.
+Only the FAST-LIO numerical target uses optimized code in Visual Studio Debug
+(debug symbols remain, variables may be optimized out). Other VISTA workers
+retain normal Debug runtime checks. Test physical motion and sensor calibration
+on target hardware before treating the map as accurate.
 
 ### Build a new room map
 
@@ -41,7 +68,7 @@ RoomMapEnabled 1 with RoomMapLoadExisting 0 selects building mode. Only this
 mode subscribes to live cleaned geometry. Each voxel needs three hit windows
 (default 100 ms) to be shown. Repeated points in one window count once.
 
-Real rays from the world sensor origin to measured endpoints provide free-space
+Real rays from the acquisition-time world sensor origin to measured endpoints provide free-space
 evidence BEFORE the surface. Confirmed voxels behind a person/other occluder
 are preserved. Missing frames, missing returns, and merely absent points never
 clear confirmed geometry. Centroids are map storage only, not ray endpoints.
@@ -519,7 +546,7 @@ using `GrafanaRetryIntervalSeconds`.
 
 The full XYZ/intensity cloud is intentionally sent through the separate
 `pointcloud-websocket` worker instead of the HTTP metrics bridge. It subscribes
-to `pointcloud/processed`, samples oversized frames to
+to `pointcloud/cleaned_sensor` (sensor coordinates, floor retained), samples oversized frames to
 `PointCloudWebSocketMaxPoints`, combines packetized spinning-LiDAR messages
 over `PointCloudWebSocketPublishIntervalMilliseconds`, encodes the
 little-endian `LPC1` format, and broadcasts it to the `lidarpointcloud` panel

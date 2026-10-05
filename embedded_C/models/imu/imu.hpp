@@ -1,10 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include "models/lidars/lidar_message.hpp"
 
 namespace vista::models {
 
-/// One IMU sample decoded from a LiDAR-integrated motion sensor.
+/// One IMU sample from the single active integrated OR external motion sensor.
 /// Angular velocity uses radians/second and acceleration uses metres/second^2.
 struct ImuFrame {
     std::uint64_t timestamp_ns{};
@@ -19,5 +21,10 @@ struct ImuFrame {
     float linear_acceleration_y_m_s2{};
     float linear_acceleration_z_m_s2{};
 };
+
+/// Common lidar/imu envelope. lidar_id is the originating sensor ID (legacy
+/// name), not a source-selection config. External drivers must populate host
+/// monotonic timing using platform::MeasurementClock at acquisition, not decode.
+using ImuMessage = LidarMessage<ImuFrame>;
 
 }  // namespace vista::models

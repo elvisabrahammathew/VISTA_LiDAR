@@ -12,6 +12,7 @@
 #include "3_Devices/lidars/realsensel515/realsensel515.hpp"
 #include "3_Devices/lidars/unitree4d/unitree4d.hpp"
 #include "models/topics.hpp"
+#include "1_Platform/timing/measurement_clock.hpp"
 
 namespace vista::devices {
 
@@ -85,13 +86,14 @@ LidarWorkerReport run_lidar_reader(
             // read timeout or transport error leaves this loop and reconnects.
             while (!stop.is_stop_requested()) {
                 auto packet = parts.reader->read_raw_packet();
+                const auto received_monotonic = platform::monotonic_timestamp_ns();
                 const auto sensor_timestamp = packet.timestamp_ns();
                 publisher.publish(LidarRawMessage(
                     lidar_id,
                     report.message_count,
                     sensor_timestamp,
                     system_timestamp_ns(),
-                    std::move(packet)));
+                    std::move(packet), received_monotonic));
                 ++report.message_count;
             }
         } catch (const std::exception& error) {
@@ -126,15 +128,21 @@ LidarWorkerReport run_lidar_decoder(
     platform::TopicPublisher<LidarPointCloudMessage> pointcloud_publisher,
     platform::TopicPublisher<LidarImuMessage> imu_publisher) {
     LidarWorkerReport report;
+    platform::MeasurementClock measurement_clock;
     std::shared_ptr<const LidarRawMessage> message;
     while (subscriber.receive(message) == platform::ReceiveStatus::message) {
         if (auto imu = decoder_slot->decode_imu_packet(message->payload)) {
+            // Same clock adapter for both integrated streams, evaluated with the
+            // original RAW receipt time. Queue/decode delays never enter LIO dt.
+            const auto measurement_time = measurement_clock.align(
+                imu->timestamp_ns ? std::optional<std::uint64_t>(imu->timestamp_ns) : std::nullopt,
+                message->received_monotonic_ns);
             imu_publisher.publish(LidarImuMessage(
                 message->lidar_id,
                 message->sequence,
                 message->sensor_timestamp_ns,
                 message->received_timestamp_ns,
-                std::move(*imu)));
+                std::move(*imu), message->received_monotonic_ns, measurement_time));
             ++report.message_count;
             continue;
         }
@@ -143,12 +151,16 @@ LidarWorkerReport run_lidar_decoder(
         if (frame.points.empty()) {
             continue;
         }
+        // Raw packet time is the last packet's acquisition reference, NOT the
+        // start/end of an aggregated scan. Retain per-point deltas from it.
+        const auto measurement_time = measurement_clock.align(
+            message->sensor_timestamp_ns, message->received_monotonic_ns);
         pointcloud_publisher.publish(LidarPointCloudMessage(
             message->lidar_id,
             message->sequence,
             message->sensor_timestamp_ns,
             message->received_timestamp_ns,
-            std::move(frame)));
+            std::move(frame), message->received_monotonic_ns, measurement_time));
         ++report.message_count;
     }
     report.dropped_message_count = subscriber.dropped_messages();

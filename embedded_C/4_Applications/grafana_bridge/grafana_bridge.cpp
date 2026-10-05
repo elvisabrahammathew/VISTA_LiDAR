@@ -19,6 +19,7 @@
 #include "2_Transport/messaging/http.hpp"
 #include "models/telemetry.hpp"
 #include "models/topics.hpp"
+#include "models/localization.hpp"
 
 namespace vista::application {
 namespace {
@@ -465,6 +466,20 @@ std::string format_imu_measurement(const ImuTelemetry& value) {
     return line.str();
 }
 
+std::string format_localization_measurement(const models::LocalizationStatus& value) {
+    auto line=line_stream();
+    std::string reason;
+    for(char c:value.reason){if(c=='\\' || c=='"')reason.push_back('\\');if(c!='\n' && c!='\r')reason.push_back(c);}
+    line << "localization state_code=" << static_cast<unsigned int>(value.state) << 'i'
+         << ",pose_valid=" << (value.pose_valid?1:0) << 'i'
+         << ",position_x_m=" << value.position_m[0] << ",position_y_m=" << value.position_m[1] << ",position_z_m=" << value.position_m[2]
+         << ",match_ratio=" << value.match_ratio << ",residual_m=" << value.residual_m
+         << ",position_variance=" << value.position_variance << ",local_map_points=" << value.local_map_points << 'i'
+         << ",rejected_scans=" << value.rejected_scans << 'i' << ",dropped_messages=" << value.dropped_messages << 'i'
+         << ",reason=\"" << reason << "\" " << system_timestamp_ns();
+    return line.str();
+}
+
 std::string format_ground_measurement(
     const models::LidarGroundStatusMessage& message) {
     const auto& value=message.payload;
@@ -537,10 +552,13 @@ platform::WorkerHandle spawn_grafana_bridge(
     platform::WorkerTopicInputs inputs(thread_config.name);
     auto raw = inputs.subscribe<devices::LidarRawMessage>(bus, models::topics::lidar_raw);
     auto decoded = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_decoded);
-    auto processed = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_processed);
+    // Live health/counts are independent of world-pose validity. Keep the
+    // existing compact Grafana field/channel names for dashboard compatibility.
+    auto processed = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_cleaned_sensor);
     auto imu = inputs.subscribe<devices::LidarImuMessage>(bus, models::topics::lidar_imu);
     auto ground = inputs.subscribe<models::LidarGroundStatusMessage>(bus, models::topics::ground_status);
     auto room_map = inputs.subscribe<models::RoomMapStatus>(bus, models::topics::room_map_status);
+    auto localization = inputs.subscribe<models::LocalizationStatus>(bus, models::topics::localization_status);
     auto system = inputs.subscribe<models::SystemHealthTelemetry>(bus, models::topics::system_health);
     auto worker = inputs.subscribe<models::WorkerHealthTelemetry>(bus, models::topics::worker_health);
     // Storage/power remain available on the internal bus, but the current
@@ -551,7 +569,7 @@ platform::WorkerHandle spawn_grafana_bridge(
         [stop, inputs = std::move(inputs), raw = std::move(raw),
          decoded = std::move(decoded), processed = std::move(processed),
          imu = std::move(imu), ground = std::move(ground),
-         room_map = std::move(room_map),
+         room_map = std::move(room_map),localization=std::move(localization),
          system = std::move(system), worker = std::move(worker),
          config = std::move(config), on_complete = std::move(on_complete)]() mutable {
             try {
@@ -564,6 +582,8 @@ platform::WorkerHandle spawn_grafana_bridge(
                  std::shared_ptr<const devices::LidarImuMessage> pending_imu;
                  std::shared_ptr<const models::LidarGroundStatusMessage> pending_ground;
                  std::optional<models::RoomMapStatus> pending_room_map;
+                 std::optional<models::LocalizationStatus> pending_localization;
+                 bool localization_closed{};
                  std::size_t input_count{};
                  std::string lidar_id=config.selected_lidar_id;
                  std::string imu_lidar_id;
@@ -627,6 +647,8 @@ platform::WorkerHandle spawn_grafana_bridge(
                         [&](const auto& message) { system_value = *message; });
                     drain<models::RoomMapStatus>(room_map, room_map_closed, ready,
                         [&](const auto& message) { pending_room_map = *message; });
+                    drain<models::LocalizationStatus>(localization,localization_closed,ready,
+                        [&](const auto& message){pending_localization=*message;});
                     drain<models::WorkerHealthTelemetry>(worker, worker_closed, ready,
                         [&](const auto& message) { workers[message->worker_name] = *message; });
 
@@ -667,17 +689,18 @@ platform::WorkerHandle spawn_grafana_bridge(
                             pending_room_map.reset();
                         }
                         if (system_value) lines.push_back(format_system_health(*system_value));
+                        if(pending_localization){lines.push_back(format_localization_measurement(*pending_localization));pending_localization.reset();}
                         for (const auto& entry : workers) lines.push_back(format_worker_health(entry.second));
                         publisher.publish(std::move(lines), inputs.topic_count());
                         next_publish = now + config.publish_interval;
                     }
                      if (raw_closed && decoded_closed && processed_closed && imu_closed && ground_closed && system_closed &&
-                        worker_closed && room_map_closed) break;
+                        worker_closed && room_map_closed && localization_closed) break;
                 }
                  report.dropped_input_messages = raw.dropped_messages() + decoded.dropped_messages() +
                      processed.dropped_messages() + imu.dropped_messages() + ground.dropped_messages() +
                      system.dropped_messages() + worker.dropped_messages() +
-                    room_map.dropped_messages();
+                    room_map.dropped_messages()+localization.dropped_messages();
                 on_complete(report, {});
             } catch (...) {
                 stop.request_stop();

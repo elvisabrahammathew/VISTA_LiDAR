@@ -239,7 +239,10 @@ public:
                 for (std::size_t sample = 0; sample < sample_count && steps_this_window < 250'000; ++sample) {
                     const auto index = (sample * cloud.points.size() / sample_count +
                         static_cast<std::size_t>(window) % cloud.points.size()) % cloud.points.size();
-                    trace_free_ray(*cloud.sensor_origin_world_m, cloud.points[index]);
+                    const auto& point=cloud.points[index];
+                    const auto& origin=point.ray_origin_world_m ? *point.ray_origin_world_m : *cloud.sensor_origin_world_m;
+                    if(std::all_of(origin.begin(),origin.end(),[](float value){return std::isfinite(value);}))
+                        trace_free_ray(origin,point);
                 }
                 // This counter includes points not selected because of CPU sampling limits.
                 ray_budget_skipped_points += cloud.points.size() - (rays_this_window - rays_before);

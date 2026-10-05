@@ -87,7 +87,7 @@ private:
 };
 
 using LidarRawMessage = models::LidarMessage<RawPacket>;
-using LidarImuMessage = models::LidarMessage<models::ImuFrame>;
+using LidarImuMessage = models::ImuMessage; // Compatibility name; one shared IMU topic/type.
 using LidarPointCloudMessage = models::LidarMessage<models::PointCloudFrame>;
 
 struct LidarWorkerReport {

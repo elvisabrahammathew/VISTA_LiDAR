@@ -254,6 +254,36 @@ AppConfig parse_device_config_text(const std::string& contents) {
             config.pointcloud_logging_enabled =
                 parse_zero_one_switch(
                     value, "PointCloudLoggingEnabled(Lidar)");
+        } else if (key == "lioenabled") {
+            config.lio.enabled=parse_boolean(value,"LioEnabled");
+        } else if (key == "liolidartoimutranslationx" || key == "liolidartoimutranslationy" || key == "liolidartoimutranslationz") {
+            config.lio.lidar_to_imu_translation_m[key.back()=='x'?0:key.back()=='y'?1:2]=parse_float(value,key);
+        } else if (key == "liolidartoimurolldeg" || key == "liolidartoimupitchdeg" || key == "liolidartoimuyawdeg") {
+            config.lio.lidar_to_imu_rpy_deg[key=="liolidartoimurolldeg"?0:key=="liolidartoimupitchdeg"?1:2]=parse_float(value,key);
+        } else if (key == "lioscanvoxelsizemeters") {
+            config.lio.scan_voxel_m=parse_float(value,key);
+        } else if (key == "liomapvoxelsizemeters") {
+            config.lio.map_voxel_m=parse_float(value,key);
+        } else if (key == "liolocalmapradiusmeters") {
+            config.lio.local_radius_m=parse_float(value,key);
+        } else if (key == "liolocalmapmaxpoints") {
+            config.lio.local_max_points=static_cast<std::size_t>(parse_unsigned(value,key,2'000'000));
+        } else if (key == "lioscanmaxpoints") {
+            config.lio.scan_max_points=static_cast<std::size_t>(parse_unsigned(value,key,100'000));
+        } else if (key == "lioinitializationsamples") {
+            config.lio.initialization_samples=static_cast<std::size_t>(parse_unsigned(value,key,100'000));
+        } else if (key == "liomaximugapmilliseconds") {
+            config.lio.maximum_imu_gap_s=parse_float(value,key)/1000.0;
+        } else if (key == "liominmatchratio") {
+            config.lio.minimum_match_ratio=parse_float(value,key);
+        } else if (key == "liomaxresidualmeters") {
+            config.lio.maximum_residual_m=parse_float(value,key);
+        } else if (key == "liomaxtranslationstepmeters") {
+            config.lio.maximum_translation_step_m=parse_float(value,key);
+        } else if (key == "liomaxrotationstepdeg") {
+            config.lio.maximum_rotation_step_deg=parse_float(value,key);
+        } else if (key == "liosynchronizationtimeoutmilliseconds") {
+            config.lio.synchronization_timeout=std::chrono::milliseconds(parse_unsigned(value,key,60'000));
         } else if (key == "groundmode") {
             ground_enabled = lower_copy(value) != "none" && lower_copy(value) != "off";
             if (ground_enabled) ground.mode = application::parse_ground_mode(value);
@@ -472,6 +502,11 @@ AppConfig parse_device_config_text(const std::string& contents) {
         config.mounting = ground;
         if (ground_enabled) config.ground_removal = ground;
     }
+    if(config.mounting){
+        config.lio.initial_position_m={ground.mount_x_m,ground.mount_y_m,ground.mount_z_m};
+        config.lio.initial_rpy_deg={ground.mount_roll_deg,ground.mount_pitch_deg,ground.mount_yaw_deg};
+    }
+    application::validate_lio_config(config.lio);
     // Keep the internal flags, deriving them after parsing so TXT order is irrelevant.
     config.pointcloud_websocket.enabled = config.grafana.enabled;
     config.room_map_websocket.enabled = config.grafana.enabled;
@@ -587,6 +622,7 @@ RuntimeConfig AppConfig::runtime_config() const {
             0.05F,
             ground_removal,
             mounting,
+            lio.enabled,
         },
         ThreadSetConfig{
             WorkerConfig{true, platform::ThreadConfig("lidar-read", 1)},
@@ -611,6 +647,8 @@ RuntimeConfig AppConfig::runtime_config() const {
             WorkerConfig{true, platform::ThreadConfig("room-mapping", 4)},
             WorkerConfig{grafana.enabled,
                 platform::ThreadConfig("room-map-websocket", 5)},
+            WorkerConfig{lio.enabled,platform::ThreadConfig("lidar-inertial-odometry",3)},
+            WorkerConfig{true,platform::ThreadConfig("live-pointcloud-preprocessing",3)},
         },
         TopicQueueConfig{32, 8, 8, 16},
     };

@@ -100,6 +100,9 @@ int main() {
                       << ':' << config.room_map_websocket.port << '\n';
 
         const auto started = std::chrono::steady_clock::now();
+        std::cout << "Mapping pose: " << (config.lio.enabled ? "FAST-LIO (stationary initialization required)" : "fixed mount") << '\n';
+        if(config.lio.enabled)
+            std::cout << "LIO time: host monotonic clock; IMU topic: lidar/imu (one active IMU).\n";
         vista::platform::StopToken stop;
         vista::platform::MessageBus bus;
         auto decoder_slot =
@@ -113,7 +116,7 @@ int main() {
             runtime.queues.raw_capacity);
         bus.configure_topic(
             vista::models::topics::lidar_imu,
-            runtime.queues.decoded_capacity);
+            4096); // Bounded ~8 s at 500 Hz, including slow Debug LIO solves.
         bus.configure_topic(
             vista::models::topics::pointcloud_decoded,
             runtime.queues.decoded_capacity);
@@ -121,6 +124,9 @@ int main() {
             vista::models::topics::pointcloud_processed,
             runtime.queues.processed_capacity);
         bus.configure_topic(vista::models::topics::pointcloud_cleaned, runtime.queues.processed_capacity);
+        bus.configure_topic(vista::models::topics::pointcloud_cleaned_sensor, runtime.queues.processed_capacity);
+        bus.configure_topic(vista::models::topics::pointcloud_world,4);
+        bus.configure_topic(vista::models::topics::localization_status,runtime.queues.telemetry_capacity);
         // Map snapshots are much larger than individual sensor packets; retain only two.
         bus.configure_topic(vista::models::topics::room_map, 2);
         bus.configure_topic(vista::models::topics::room_map_view, 2);
@@ -169,7 +175,11 @@ int main() {
             vista::platform::WorkerResult<vista::application::PointCloudWebSocketReport>>();
 
         std::vector<vista::platform::WorkerHandle> workers;
-        workers.reserve(11);
+        workers.reserve(13);
+        auto live_result=std::make_shared<vista::platform::WorkerResult<vista::application::PreprocessingReport>>();
+        bool live_started=false;
+        auto lio_result=std::make_shared<vista::platform::WorkerResult<vista::application::LioReport>>();
+        bool lio_started=false;
         bool read_started = false;
         bool decode_started = false;
         bool raw_logger_started = false;
@@ -270,6 +280,17 @@ int main() {
                 preprocessing_started = true;
             }
 
+            if(runtime.threads.live_preprocessing.enabled) {
+                vista::platform::add_worker(workers,vista::application::spawn_live_preprocessing_worker(
+                    bus,runtime.threads.live_preprocessing.thread,stop,runtime.preprocessing,
+                    vista::platform::completion_for(live_result)));
+                live_started=true;
+            }
+            if(runtime.threads.localization.enabled) {
+                vista::platform::add_worker(workers,vista::application::spawn_lio_worker(
+                    bus,runtime.threads.localization.thread,stop,config.lio,vista::platform::completion_for(lio_result)));
+                lio_started=true;
+            }
             if (runtime.threads.lidar_decode.enabled) {
                 vista::platform::add_worker(
                     workers,
@@ -376,6 +397,8 @@ int main() {
                                              room_map_result, room_map_started);
         vista::platform::collect_worker_error(failures, runtime.threads.room_map_websocket.thread.name,
                                              room_map_websocket_result, room_map_websocket_started);
+        vista::platform::collect_worker_error(failures,runtime.threads.localization.thread.name,lio_result,lio_started);
+        vista::platform::collect_worker_error(failures,runtime.threads.live_preprocessing.thread.name,live_result,live_started);
         vista::platform::throw_if_worker_failures(failures);
 
         const auto packet_count =

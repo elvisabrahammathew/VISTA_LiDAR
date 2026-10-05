@@ -55,6 +55,10 @@ struct PreprocessingConfig {
     std::optional<GroundRemovalConfig> ground_removal;
     /// Mounting remains active even when ground removal is disabled.
     std::optional<GroundRemovalConfig> mounting;
+    /// LIO already supplied world XYZ and the moving sensor origin.
+    bool input_world_coordinates{false};
+    /// Independent live branch: filters only, no world mounting/ground removal.
+    bool preserve_sensor_coordinates{false};
 };
 
 struct PreprocessingReport {
@@ -114,6 +118,11 @@ platform::WorkerHandle spawn_preprocessing_worker(
     platform::StopToken stop,
     PreprocessingConfig config,
     PreprocessingCompletion on_complete);
+
+/// Consumes decoded clouds even when LIO is waiting/degraded/lost.
+platform::WorkerHandle spawn_live_preprocessing_worker(
+    platform::MessageBus&, platform::ThreadConfig, platform::StopToken,
+    PreprocessingConfig, PreprocessingCompletion);
 
 /// Independent consumer of pointcloud/cleaned; publishes processed cloud and ground status.
 platform::WorkerHandle spawn_ground_processing_worker(

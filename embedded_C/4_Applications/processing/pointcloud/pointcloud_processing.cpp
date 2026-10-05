@@ -282,14 +282,23 @@ public:
 
     models::PointCloudFrame clean(models::PointCloudFrame frame) {
         const auto min2=config.min_distance_m*config.min_distance_m,max2=config.max_distance_m*config.max_distance_m;
+        const auto origin=config.input_world_coordinates && frame.sensor_origin_world_m
+            ? *frame.sensor_origin_world_m : std::array<float,3>{0,0,0};
         frame.points.erase(std::remove_if(frame.points.begin(),frame.points.end(),[=](const auto& point){
             if (!std::isfinite(point.x)||!std::isfinite(point.y)||!std::isfinite(point.z)) return true;
-            const auto distance2=point.x*point.x+point.y*point.y+point.z*point.z;
+            const auto dx=point.x-origin[0],dy=point.y-origin[1],dz=point.z-origin[2];
+            const auto distance2=dx*dx+dy*dy+dz*dz;
             return distance2<min2 || distance2>max2;
         }),frame.points.end());
         const auto& mount=config.mounting ? config.mounting : config.ground_removal;
-        if (mount) transform_to_world(frame,*mount);
-        frame.sensor_origin_world_m = mount
+        if (config.input_world_coordinates && !frame.sensor_origin_world_m)
+            throw std::invalid_argument("world cloud requires its localized sensor origin");
+        if (config.preserve_sensor_coordinates) {
+            frame.sensor_origin_world_m.reset();
+            for (auto& point : frame.points) point.ray_origin_world_m.reset();
+        }
+        if (!config.input_world_coordinates && !config.preserve_sensor_coordinates && mount) transform_to_world(frame,*mount);
+        if (!config.input_world_coordinates && !config.preserve_sensor_coordinates) frame.sensor_origin_world_m = mount
             ? std::array<float, 3>{mount->mount_x_m, mount->mount_y_m, mount->mount_z_m}
             : std::array<float, 3>{0.0F, 0.0F, 0.0F};
         if (config.region_of_interest) {
@@ -311,7 +320,7 @@ public:
         if (config.ground_removal) {
             calibrate_if_needed(frame.points,*config.ground_removal);
             const auto removed=remove_ground(frame,*config.ground_removal);
-            update_ground_status(frame.timestamp_ns,input_point_count,removed,frame.points.size(),*config.ground_removal);
+            update_ground_status(frame.timestamp_ns,input_point_count,removed,frame.points.size(),*config.ground_removal,frame.sensor_origin_world_m);
         }
         return frame;
     }
@@ -369,7 +378,8 @@ private:
         frame.points.erase(std::remove_if(frame.points.begin(),frame.points.end(),[&](const auto& point){return point_plane_distance(*plane,point)<=ground.distance_threshold_m;}),frame.points.end());
         return before-frame.points.size();
     }
-    void update_ground_status(std::uint64_t timestamp,std::size_t input_count,std::size_t removed,std::size_t output_count,const GroundRemovalConfig& ground) {
+    void update_ground_status(std::uint64_t timestamp,std::size_t input_count,std::size_t removed,std::size_t output_count,const GroundRemovalConfig& ground,
+        const std::optional<std::array<float,3>>& moving_origin) {
         models::GroundStatus status;
         status.timestamp_ns=timestamp;
         status.configured_mode=to_string(ground.mode);
@@ -380,13 +390,14 @@ private:
         if (ground.mode==GroundMode::static_height || calibrated_plane) status.state=models::GroundState::valid;
         else if (!calibration_finished) status.state=models::GroundState::calibrating;
         else status.state=models::GroundState::static_fallback;
+        const auto origin=moving_origin.value_or(std::array<float,3>{ground.mount_x_m,ground.mount_y_m,ground.mount_z_m});
         if (const auto plane=selected_ground_plane(ground)) {
             status.plane_a=plane->normal.x; status.plane_b=plane->normal.y; status.plane_c=plane->normal.z; status.plane_d=plane->d;
             status.ground_tilt_deg=std::acos(std::clamp(plane->normal.z,-1.0F,1.0F))*180.0F/pi;
             status.sensor_to_ground_distance_m=std::fabs(
-                plane->normal.x*ground.mount_x_m+plane->normal.y*ground.mount_y_m+plane->normal.z*ground.mount_z_m+plane->d);
+                plane->normal.x*origin[0]+plane->normal.y*origin[1]+plane->normal.z*origin[2]+plane->d);
         }
-        status.expected_ground_distance_m=std::fabs(ground.mount_z_m-ground.floor_z_m);
+        status.expected_ground_distance_m=std::fabs(origin[2]-ground.floor_z_m);
         status.ground_height_error_m=status.sensor_to_ground_distance_m-status.expected_ground_distance_m;
         status.calibration_frame_count=calibration_frame_count;
         status.calibration_sample_count=calibration_finished ? calibration_sample_count : calibration_samples.size();
@@ -431,11 +442,15 @@ models::PointCloudFrame preprocess_point_cloud(models::PointCloudFrame frame,con
 }
 
 namespace {
-platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete,bool ground_stage) {
+platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete,bool ground_stage,bool sensor_stage=false) {
     platform::WorkerTopicInputs inputs(thread_config.name);
-    auto pointcloud_input=inputs.subscribe<devices::LidarPointCloudMessage>(bus,ground_stage ? models::topics::pointcloud_cleaned : models::topics::pointcloud_decoded);
-    auto imu_input=inputs.subscribe<devices::LidarImuMessage>(bus,models::topics::lidar_imu);
-    auto publisher=bus.publisher<devices::LidarPointCloudMessage>(ground_stage ? models::topics::pointcloud_processed : models::topics::pointcloud_cleaned);
+    auto pointcloud_input=inputs.subscribe<devices::LidarPointCloudMessage>(bus,ground_stage ? models::topics::pointcloud_cleaned :
+        (config.input_world_coordinates ? models::topics::pointcloud_world : models::topics::pointcloud_decoded));
+    std::optional<platform::WorkerTopicInput<devices::LidarImuMessage>> imu_input;
+    // Sensor cleaning needs neither gravity nor IMU. Do not wake this worker
+    // at IMU rate or allocate an unused per-subscriber sample queue.
+    if(!sensor_stage) imu_input.emplace(inputs.subscribe<devices::LidarImuMessage>(bus,models::topics::lidar_imu));
+    auto publisher=bus.publisher<devices::LidarPointCloudMessage>(sensor_stage ? models::topics::pointcloud_cleaned_sensor : (ground_stage ? models::topics::pointcloud_processed : models::topics::pointcloud_cleaned));
     auto ground_publisher=bus.publisher<models::LidarGroundStatusMessage>(models::topics::ground_status);
     return platform::spawn_worker(std::move(thread_config),[stop,ground_stage,inputs=std::move(inputs),pointcloud_input=std::move(pointcloud_input),imu_input=std::move(imu_input),publisher=std::move(publisher),ground_publisher=std::move(ground_publisher),config=std::move(config),on_complete=std::move(on_complete)]() mutable {
         try {
@@ -443,9 +458,9 @@ platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform
             std::optional<models::GroundState> last_ground_state;
             while (!pointcloud_closed) {
                 const auto ready=inputs.wait();
-                if (imu_input.is_ready(ready)) {
+                if (imu_input && imu_input->is_ready(ready)) {
                     std::shared_ptr<const devices::LidarImuMessage> message;
-                    while (imu_input.try_receive(message)==platform::ReceiveStatus::message) processor.update_imu(message->payload);
+                    while (imu_input->try_receive(message)==platform::ReceiveStatus::message) processor.update_imu(message->payload);
                 }
                 if (pointcloud_input.is_ready(ready)) {
                     std::shared_ptr<const devices::LidarPointCloudMessage> message;
@@ -468,9 +483,9 @@ platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform
                         if (!ground_status.configured_mode.empty()) {
                             ground_publisher.publish(models::LidarGroundStatusMessage(
                                 message->lidar_id,message->sequence,message->sensor_timestamp_ns,
-                                message->received_timestamp_ns,std::move(ground_status)));
+                                message->received_timestamp_ns,std::move(ground_status),message->received_monotonic_ns,message->measurement_timestamp_ns));
                         }
-                        publisher.publish(devices::LidarPointCloudMessage(message->lidar_id,message->sequence,message->sensor_timestamp_ns,message->received_timestamp_ns,std::move(processed)));
+                        publisher.publish(devices::LidarPointCloudMessage(message->lidar_id,message->sequence,message->sensor_timestamp_ns,message->received_timestamp_ns,std::move(processed),message->received_monotonic_ns,message->measurement_timestamp_ns));
                     }
                 }
             }
@@ -486,6 +501,16 @@ platform::WorkerHandle spawn_preprocessing_worker(platform::MessageBus& bus,plat
 
 platform::WorkerHandle spawn_ground_processing_worker(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete) {
     return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),true);
+}
+
+platform::WorkerHandle spawn_live_preprocessing_worker(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete) {
+    config.input_world_coordinates=false;
+    config.preserve_sensor_coordinates=true;
+    config.mounting.reset();
+    config.ground_removal.reset();
+    // The existing ROI is in world coordinates, not in the moving sensor frame.
+    config.region_of_interest.reset();
+    return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),false,true);
 }
 
 }  // namespace vista::application
