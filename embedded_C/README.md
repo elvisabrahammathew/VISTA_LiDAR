@@ -15,7 +15,8 @@ The Rust source remains unchanged and can be kept as a behavioral reference.
 
 `main.cpp` explicitly chooses and starts the independent Read, Decode,
 Preprocessing, RAW Logger, PCD Logger, System Monitor, Grafana Bridge, and
-Point-cloud WebSocket workers. Each worker registers its own
+Point-cloud WebSocket, Ground Processing, Room Mapping, and Room-map WebSocket
+workers. Each worker registers its own
 publisher/subscriber endpoints on the shared MessageBus. RAW and PCD logger
 workers write to filenames generated from the local system start time. Capture
 runs continuously until Ctrl+C, SIGTERM, or a worker failure requests shutdown.
@@ -24,6 +25,209 @@ runs continuously until Ctrl+C, SIGTERM, or a worker failure requests shutdown.
 each selected worker in the order chosen by the user. The
 `1_Platform/workers` module contains lifecycle helpers only: validation,
 completion results, priority reporting, shutdown, and join/error handling.
+
+## Room mapping, free-space rays, and Grafana output
+
+Preprocessing publishes `pointcloud/cleaned` in world coordinates after finite/range
+filtering, mounting, ROI, and voxel downsampling. These are retained measured
+points, not centroid-synthesized rays. Each cleaned frame carries the world
+sensor origin; mounting remains active with GroundMode none. Ground Processing
+consumes cleaned points and publishes processed points/ground diagnostics. The
+existing live panel and PCD logger use processed points; mapping keeps the floor.
+
+### Build a new room map
+
+RoomMapEnabled 1 with RoomMapLoadExisting 0 selects building mode. Only this
+mode subscribes to live cleaned geometry. Each voxel needs three hit windows
+(default 100 ms) to be shown. Repeated points in one window count once.
+
+Real rays from the world sensor origin to measured endpoints provide free-space
+evidence BEFORE the surface. Confirmed voxels behind a person/other occluder
+are preserved. Missing frames, missing returns, and merely absent points never
+clear confirmed geometry. Centroids are map storage only, not ray endpoints.
+A cell is cleared after five free windows by default; hits anywhere in the
+same window take priority across packet boundaries. A fresh hit resets its
+free-evidence counter. Tentative candidates can still expire.
+
+The DDA traversal avoids corner-only contacts and preserves a surface margin
+of at least one voxel diagonal. Rays are sampled to bound CPU work; the actual
+cleanup delay may exceed five windows. Unknown/free voxels are NOT allocated.
+There is no total candidate/confirmed voxel-count cap. Spatial tiles are written
+to disk before LRU eviction from the bounded RAM working set.
+
+### Out-of-core spatial storage and camera-dependent LOD
+
+The mapper uses a sparse octree with bounded representative samples at every
+level. This follows Potree's principles of spatial hierarchy, multi-resolution
+samples, and camera/frustum selection; it is not the Potree package/file format.
+The existing Grafana plugin is reused, rather than introducing a second plugin.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| RoomMapCacheMaxVoxels | 250000 | Maximum voxel records in the RAM tile cache, not the complete map. |
+| RoomMapCacheMaxTiles | 128 | Maximum resident spatial tiles, including sparse tiles. |
+| RoomMapTileSizeMeters | 2.0 | Tile edge; rounded up to a whole number of map voxels. |
+| RoomMapLodPointsPerNode | 128 | Bounded representative samples in each octree node. |
+| RoomMapWebSocketMaxPoints | 100000 | Server budget for one camera view, not the stored map. |
+
+One tile must fit RoomMapCacheMaxVoxels and have at most 64 voxels per axis.
+For 2 m tiles and 0.05 m voxels, a tile contains at most 40^3 = 64000 cells.
+RAM also includes bounded previews, network packets, ray evidence, and index
+traversal buffers; the voxel budget is not a byte-accurate whole-process limit.
+Disk LOD summaries have a separate bounded 512-node cache, invalidated on node
+replacement; this avoids reopening the same summaries for every camera query.
+The sparse on-disk index avoids a RAM catalogue proportional to total tiles.
+
+Building creates a uniquely named RoomMap_<session-time>.tiles.<id> directory
+beside the session PCD. Voxel evidence and LOD nodes are stored here as the map
+grows. Export streams every confirmed point into one ASCII PCD; it does not
+construct a whole-map vector and does not export merely the displayed preview.
+Large read-only PCDs are streamed into a separate tile index; duplicates and the
+original PCD are preserved. Keep the .tiles directories while the application
+is running. They are retained after shutdown, not deleted automatically.
+This version loads references from PCD, not directly from an old .tiles directory;
+automatic crash recovery of partially updated indexes is not implemented.
+
+The shared mapping/room_map_view topic carries a source handle and revision.
+The map WebSocket receives a bounded VIEW camera/frustum request per panel,
+selects a non-overlapping octree cut, and sends only that view. Near regions get
+more detail; distant/out-of-view regions cost less or are omitted. The plugin
+replaces its current view instead of accumulating every rendered point forever.
+mapping/room_map remains a bounded overview for compatibility, NOT a full map.
+It is materialized only while a subscriber exists; late subscribers still receive
+an overview on the next publication tick. The normal LOD WebSocket uses only
+mapping/room_map_view and does not force a second large preview to be built.
+The total map remains available on disk/PCD even when render budgets are small.
+
+This removes the fixed total count, not physical resource limits: disk can fill,
+I/O can lag, queues can drop input, and very large PCD exports can take time.
+Watch cache evictions, disk tiles, input drops, memory, and STORAGE ERROR on the
+dashboard. A storage failure reports an optional map-worker error, not a sensor
+shutdown. LOD readers query disk without flushing RAM or holding the accumulator
+update mutex. Disk reads and atomic page replacement still share a separate disk
+mutex: an eviction/checkpoint can wait for a view query, while resident-tile hit
+updates can proceed. These are live disk views, not immutable historical revisions;
+during building, geometry may be newer than the most recently published metadata.
+Spatial extent is finite (eight signed roots, 24 tile levels); this is not SLAM.
+
+Hits and completed free evidence are processed in tile order to reduce LRU
+thrashing. Read-only lookups do not mark pages dirty. Evidence-only page writes
+do not rebuild LOD nodes unless confirmed count/samples change. Mapping batches
+yield after a completed frame at a 20 ms budget (one frame may exceed it), rather
+than draining up to 64 slow frames before reporting status. No extra worker was
+added: complete PCD export remains in mapping on freeze/clean shutdown.
+
+Room Map Performance Diagnostics exposes integration/checkpoint/view time,
+map/disk lock waits, mapping input drops, and tile/LOD I/O counters. Cumulative
+read/write/LOD wall times include decoding/callback work, not just hardware I/O.
+
+Additional TXT settings (building mode only):
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| RoomMapFreeSpaceMinObservations | 5 | Distinct free windows before removing a cell; minimum 2. |
+| RoomMapRaycastMaxRaysPerWindow | 256 | Maximum sampled rays per observation window. |
+| RoomMapRaycastMaxRangeMeters | 30.0 | Maximum traversed free-space range, not mapping's hit range. |
+| RoomMapRaycastSurfaceMarginMeters | 0.10 | Stop before the measured surface; at least one voxel diagonal is preserved. |
+
+A hard limit of 250000 voxel traversal steps per window bounds traversal work
+even with very fine voxels. Counters distinguish rays, traversal steps,
+unprocessed ray work, free checks, cleared confirmed voxels, and missing
+world origins. Missing origins permit fusion but disable clearing safely.
+
+RoomMapFreezeAfterSeconds 30 freezes both fusion AND clearing after active
+acquisition. Use 0 to continue updating while people may enter/leave. Once
+frozen, the same immutable snapshot is served to late/reconnecting clients.
+There is no runtime control TXT file; change DeviceConfig and restart.
+
+Building sessions always save a replaceable ASCII PCD on freeze and clean
+shutdown, independently of RAW/processed logging; there is no save toggle.
+Each building session automatically selects
+../data/maps/RoomMap_YYYYMMDD_HHMMSS.pcd using local system time at startup,
+the same timestamp as RAW/processed logs. RoomMapFile is ignored in building
+mode and is used only as the input path when RoomMapLoadExisting is 1.
+The first save exclusively claims a new file on Windows/Linux; an existing
+filename (including another session starting in the same second) adds _1,
+_2, etc. All later saves in that session update only its own file. The console
+prints the actual filename when saving. Do not terminate power/debug abruptly if you need
+the latest continuously building snapshot saved. No-data startup does not
+create an empty PCD or overwrite an older map; a map whose confirmed geometry
+was entirely cleared can save an empty update to its own session file.
+
+### Load a read-only reference
+
+RoomMapEnabled 1 with RoomMapLoadExisting 1 reads RoomMapFile and preserves
+every saved point exactly, even if the current voxel setting differs. Loaded
+mode does not subscribe to live geometry, integrate hits, cast rays, or save
+over the original file. A missing/invalid/empty file reports LOAD ERROR; live
+capture continues, and mapping does NOT silently fall back to reconstruction.
+Set RoomMapFile to the exact existing PCD path; an empty value is LOAD ERROR,
+not a request to select the newest map automatically.
+
+RoomMapEnabled 0 publishes DISABLED status and empty map snapshots. The map
+service remains alive to supply status/replays, but does not build or load.
+
+Detection and tracking are not implemented by this change. Live sensor read,
+decode, preprocessing, and ground processing remain available independently
+of mapping. The reference is ready for future application consumers. Preserve
+the sensor mounting/world frame when reusing it.
+
+### Grafana master switch and dashboard
+
+GrafanaEnabled controls the bridge and BOTH WebSocket enabled flags. True
+starts Grafana Bridge, live WebSocket (8765), and map WebSocket (8766); false
+starts none of those outputs without disabling capture/mapping/file storage.
+WebSocket enabled keys no longer appear in the TXT. Legacy enabled keys are
+accepted but cannot override GrafanaEnabled, regardless of TXT line order.
+Address, port, point/client limits, and retry settings are still configurable.
+The ports must differ whenever Grafana output is enabled, including map-disabled
+mode. Room-map WebSocket opens even when mapping is disabled/has a load error,
+and receives empty snapshots; the map-state stat explains why data is absent.
+
+Import ../dashboard/VISTA_Live_Dashboard_V4_Free_Space.json and overwrite UID
+vistalive. It keeps both 3D panels, numeric map states (EMPTY, BUILDING, FROZEN,
+LOADED / READ ONLY, DISABLED, LOAD ERROR, STORAGE ERROR), and ray/cache diagnostics.
+Both map network/panel budgets default to 100000 points per camera view.
+Total disk/PCD geometry is not limited by that number.
+
+Selected-LiDAR stats use stream/vista/pointcloud_current (with the configured
+namespace in place of vista). Its tag-free fields keep startup OFFLINE and live
+ONLINE samples in one series. The bridge now sends only fields consumed by the
+current dashboard; the legacy tagged pointcloud formatter remains an API but its
+channel is no longer published. Data Age includes bridge/queue/publication waiting;
+Message Rate is messages/s, not necessarily hardware scan FPS. Pipeline History
+owns the bridge's raw/decoded/processed drop counter, not mapping drops.
+
+`RoomMapPublishIntervalMilliseconds` is the single map checkpoint/publication
+cadence. Changed tile/LOD data is checkpointed before announcing a new revision;
+8766 sends that revision without a second interval delay. Unchanged heartbeats
+support late worker startup but do not resend 3D geometry. Reconnects and camera
+changes still receive a view; repeated same-map camera queries are bounded by
+that same configured interval. Freeze/shutdown can perform a final checkpoint.
+Periodic checkpoints do not rewrite the entire session PCD: PCD export remains
+on freeze/clean shutdown. Checkpoint means flushed tile/LOD files, not fsync-level
+power-loss durability. Grafana metrics keep their independent publish interval.
+Rebuild/restart VISTA and reimport this existing dashboard (UID vistalive). This
+update does not change the plugin protocol or require a newer plugin than 1.1.0.
+
+Update the installed vista-lidarpointcloud-panel to version 1.1.0 using this
+repository's dashboard/plugins/lidarpointcloud/dist. This version accepts map
+metadata, sends camera/frustum requests, shows stored vs rendered counts, and
+keeps live LPC1/LDR1 streams compatible. Copy the dist contents into the existing local plugin
+directory, restart Grafana, then refresh the browser. No new plugin ID is needed.
+For a remote browser, replace 127.0.0.1 with the VISTA machine's address and set
+the server bind address/firewall appropriately.
+
+This is stationary-sensor mapping, not SLAM, semantic person removal, or a mesh.
+A person who stays may become map geometry; occluded confirmed room points
+stay behind them. Points disappear only when later measured rays provide free
+evidence while building. No inference can reconstruct never-observed surfaces.
+Keep the LiDAR fixed and prefer a stable calibrated mount over changing IMU
+orientation when constructing a reusable reference.
+
+Unit-test sources cover hit/free windows, occlusion, disappearance, occupied
+precedence, negative directions/nonzero origins, ray work limits, strict load
+failure, read-only references, master-switch behavior, storage and late replay.
 
 Important source locations:
 
@@ -188,7 +392,6 @@ GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
 
 # 3D point-cloud WebSocket for the lidarpointcloud Grafana panel
-PointCloudWebSocketEnabled: true
 PointCloudWebSocketBindAddress: 127.0.0.1
 PointCloudWebSocketPort: 8765
 PointCloudWebSocketMaxPoints: 100000
@@ -296,17 +499,19 @@ setup remains supported. HTTP 401 errors explicitly identify the environment
 variable or local secret file that must be corrected.
 
 When enabled, `grafana-bridge` owns subscriptions to both the decoded and the
-processed point-cloud topics. It calculates point counts, processing rate,
-latency, queue drops, and XYZ bounds, then pushes one Influx line-protocol
-measurement per configured interval to:
+processed point-cloud topics. It calculates counts, message rate, data age and
+queue drops without scanning XYZ bounds, then batches compact Influx line-protocol
+measurements per configured interval to:
 
 ```text
 http://<GrafanaHost>:<GrafanaPort>/api/live/push/<GrafanaNamespace>
 ```
 
-The bridge currently sends `pointcloud`, `pipeline_health`, `system_health`,
-`worker_health`, `storage_health`, `power_thermal`, and
-`grafana_bridge_health`. Future radar, detection, tracking, and analytics
+The bridge sends `pointcloud_current`, `imu`, `ground_state`, `ground_status`,
+`room_map_status`, `pipeline_health`, `system_health`, `worker_health`, and
+`grafana_bridge_health`. It no longer subscribes to storage/power topics; those
+remain available internally. Ground plane parameters remain in the 3D header,
+not duplicated in HTTP metrics. Future radar, detection, tracking, and analytics
 measurements can be added to the same worker without changing `main.cpp`.
 A Grafana outage does not stop LiDAR capture: the
 worker reports the first failure, keeps draining its topic queues, and retries

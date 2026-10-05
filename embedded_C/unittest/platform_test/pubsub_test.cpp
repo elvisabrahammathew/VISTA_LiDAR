@@ -6,6 +6,20 @@
 #include "1_Platform/pubsub/pubsub.hpp"
 #include "unittest/test.hpp"
 
+VISTA_TEST(pubsub_reports_active_subscribers_including_late_joins) {
+    vista::platform::Topic<int> topic("test/lazy-preview",2);
+    auto publisher=topic.publisher();
+    VISTA_CHECK(publisher.subscriber_count()==0);
+    {
+        auto subscriber=topic.subscribe("late-preview");
+        VISTA_CHECK(publisher.subscriber_count()==1);
+        publisher.publish(7);
+        std::shared_ptr<const int> value;
+        VISTA_CHECK(subscriber.receive(value)==vista::platform::ReceiveStatus::message && *value==7);
+    }
+    VISTA_CHECK(publisher.subscriber_count()==0);
+}
+
 VISTA_TEST(pubsub_broadcasts_one_shared_message) {
     vista::platform::Topic<int> topic("test/topic", 2);
     auto first = topic.subscribe("first");

@@ -28,16 +28,23 @@ void validate_worker_selection(
         throw std::invalid_argument("raw-logger requires the lidar-read worker");
     }
     if (app.pcd_path && runtime.threads.pcd_logger.enabled &&
-        !runtime.threads.preprocessing.enabled) {
+        !runtime.threads.ground_processing.enabled) {
         throw std::invalid_argument(
-            "pcd-logger requires the pointcloud-preprocessing worker");
+            "pcd-logger requires the ground-processing worker");
     }
     if (app.pointcloud_websocket.enabled &&
         runtime.threads.pointcloud_websocket.enabled &&
-        !runtime.threads.preprocessing.enabled) {
+        !runtime.threads.ground_processing.enabled) {
         throw std::invalid_argument(
-            "pointcloud-websocket requires the pointcloud-preprocessing worker");
+            "pointcloud-websocket requires the ground-processing worker");
     }
+    if (runtime.threads.ground_processing.enabled && !runtime.threads.preprocessing.enabled)
+        throw std::invalid_argument("ground-processing requires the pointcloud-preprocessing worker");
+    if (runtime.threads.room_mapping.enabled && app.room_map.enabled && !app.room_map.load_existing &&
+        !runtime.threads.preprocessing.enabled)
+        throw std::invalid_argument("room-mapping requires the pointcloud-preprocessing worker");
+    if (runtime.threads.room_map_websocket.enabled && !runtime.threads.room_mapping.enabled)
+        throw std::invalid_argument("room-map-websocket requires the room-mapping worker");
 }
 
 namespace {

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -27,10 +29,14 @@ struct PointXYZIRT {
 struct PointCloudFrame {
     std::uint64_t timestamp_ns{};
     std::vector<PointXYZIRT> points;
+    /// Valid only after mounting: ray origins and endpoints share world coordinates.
+    /// Missing origin disables free-space clearing rather than guessing an origin.
+    std::optional<std::array<float, 3>> sensor_origin_world_m;
 
     PointCloudFrame() = default;
-    PointCloudFrame(std::uint64_t timestamp, std::vector<PointXYZIRT> values)
-        : timestamp_ns(timestamp), points(std::move(values)) {}
+    PointCloudFrame(std::uint64_t timestamp, std::vector<PointXYZIRT> values,
+                    std::optional<std::array<float, 3>> origin = std::nullopt)
+        : timestamp_ns(timestamp), points(std::move(values)), sensor_origin_world_m(origin) {}
 };
 
 }  // namespace vista::models

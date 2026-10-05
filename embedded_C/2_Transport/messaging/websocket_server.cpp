@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <netdb.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -409,19 +410,21 @@ std::string make_websocket_accept_key(const std::string& client_key) {
 }
 
 struct WebSocketServer::Impl {
+    struct Client { SocketHandle socket; std::uint64_t id; std::vector<std::uint8_t> input; };
     Impl(WebSocketServerConfig value, SocketHandle listener)
         : config(std::move(value)), listen_socket(listener) {}
 
     ~Impl() {
-        for (const auto client : clients) {
-            close_socket(client);
+        for (const auto& client : clients) {
+            close_socket(client.socket);
         }
         close_socket(listen_socket);
     }
 
     WebSocketServerConfig config;
     SocketHandle listen_socket{invalid_socket};
-    std::vector<SocketHandle> clients;
+    std::vector<Client> clients;
+    std::uint64_t next_client_id{};
 };
 
 WebSocketServer::WebSocketServer(std::unique_ptr<Impl> implementation)
@@ -443,6 +446,28 @@ WebSocketServer& WebSocketServer::operator=(WebSocketServer&&) noexcept = defaul
 WebSocketServer::~WebSocketServer() = default;
 
 std::size_t WebSocketServer::poll_accept() {
+    // A frozen map may send no frames for hours. Reclaim disconnected/closing
+    // panels before enforcing MaxClients, even when no broadcast is occurring.
+    auto& clients = implementation_->clients;
+    for (auto iterator = clients.begin(); iterator != clients.end();) {
+#ifdef _WIN32
+        WSAPOLLFD readiness{iterator->socket, POLLRDNORM, 0};
+        const auto ready = WSAPoll(&readiness, 1, 0);
+#else
+        pollfd readiness{iterator->socket, POLLIN, 0};
+        const auto ready = poll(&readiness, 1, 0);
+#endif
+        bool closed = ready > 0 && (readiness.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0;
+        if (!closed && ready > 0 && (readiness.revents & (POLLIN | POLLRDNORM)) != 0) {
+            char first_byte{};
+            const auto count = recv(iterator->socket, &first_byte, 1, MSG_PEEK);
+            closed = count == 0 || (count < 0 && !would_block(last_socket_error())) ||
+                     (count > 0 && iterator->input.empty() &&
+                      (static_cast<unsigned char>(first_byte) & 0x0FU) == 8U);
+        }
+        if (closed) { close_socket(iterator->socket); iterator = clients.erase(iterator); }
+        else ++iterator;
+    }
     std::size_t accepted{};
     for (;;) {
         SocketGuard client(::accept(
@@ -486,7 +511,7 @@ std::size_t WebSocketServer::poll_accept() {
                     response.size())) {
                 continue;
             }
-            implementation_->clients.push_back(client.release());
+            implementation_->clients.push_back({client.release(),++implementation_->next_client_id,{}});
             ++accepted;
         } catch (const std::exception&) {
             // A malformed or abandoned browser handshake must not stop the
@@ -504,10 +529,10 @@ std::size_t WebSocketServer::broadcast_binary(
     auto& clients = implementation_->clients;
     for (auto iterator = clients.begin(); iterator != clients.end();) {
         const auto sent =
-            send_all(*iterator, header.data(), header.size()) &&
-            send_all(*iterator, data, size);
+            send_all(iterator->socket, header.data(), header.size()) &&
+            send_all(iterator->socket, data, size);
         if (!sent) {
-            close_socket(*iterator);
+            close_socket(iterator->socket);
             iterator = clients.erase(iterator);
         } else {
             ++deliveries;
@@ -515,6 +540,77 @@ std::size_t WebSocketServer::broadcast_binary(
         }
     }
     return deliveries;
+}
+
+std::vector<std::uint64_t> WebSocketServer::client_ids() const {
+    std::vector<std::uint64_t> result;
+    for(const auto& client:implementation_->clients) result.push_back(client.id);
+    return result;
+}
+bool WebSocketServer::send_frame(std::uint64_t id,std::uint8_t opcode,
+    const std::uint8_t* data,std::size_t size) {
+    auto& clients=implementation_->clients;
+    const auto it=std::find_if(clients.begin(),clients.end(),[&](const auto& c){return c.id==id;});
+    if(it==clients.end()) return false;
+    auto header=binary_frame_header(size);header[0]=static_cast<std::uint8_t>(0x80U|opcode);
+    if(send_all(it->socket,header.data(),header.size()) && send_all(it->socket,data,size)) return true;
+    close_socket(it->socket);clients.erase(it);return false;
+}
+bool WebSocketServer::send_binary(std::uint64_t id,const std::uint8_t* data,std::size_t size) {
+    return send_frame(id,2,data,size);
+}
+bool WebSocketServer::send_text(std::uint64_t id,const std::string& text) {
+    return send_frame(id,1,reinterpret_cast<const std::uint8_t*>(text.data()),text.size());
+}
+std::vector<WebSocketTextMessage> WebSocketServer::poll_text() {
+    std::vector<WebSocketTextMessage> result;
+    auto& clients=implementation_->clients;
+    for(auto it=clients.begin();it!=clients.end();) {
+#ifdef _WIN32
+        WSAPOLLFD readiness{it->socket,POLLRDNORM,0};const auto ready=WSAPoll(&readiness,1,0);
+#else
+        pollfd readiness{it->socket,POLLIN,0};const auto ready=poll(&readiness,1,0);
+#endif
+        bool failed=ready>0 && (readiness.revents&(POLLERR|POLLHUP|POLLNVAL))!=0;
+        if(!failed && ready>0 && (readiness.revents&(POLLIN|POLLRDNORM))!=0) {
+            std::array<char,2048> buffer{};
+            const auto count=recv(it->socket,buffer.data(),static_cast<int>(buffer.size()),0);
+            if(count<=0) failed=true;
+            else it->input.insert(it->input.end(),buffer.begin(),buffer.begin()+count);
+        }
+        // One complete request is <= 2048 bytes. Excess input is rejected, not
+        // accumulated indefinitely by a slow/malicious browser.
+        if(it->input.size()>4096) failed=true;
+        for(unsigned frame=0;!failed && frame<32 && it->input.size()>=2;++frame) {
+            const auto& bytes=it->input;
+            const auto opcode=bytes[0]&15U;
+            if((bytes[0]&0xf0U)!=0x80U || !(bytes[1]&0x80U) ||
+                (opcode!=1U && opcode!=8U && opcode!=9U && opcode!=10U)) {failed=true;break;}
+            std::size_t length=bytes[1]&0x7fU,offset=2;
+            if(length==127) {failed=true;break;}
+            if(length==126) {
+                if(bytes.size()<4) break;
+                length=static_cast<std::size_t>(bytes[2])*256U+bytes[3];offset=4;
+            }
+            if(length>2048 || (opcode>=8 && length>125)) {failed=true;break;}
+            if(bytes.size()<offset+4+length) break;
+            std::string payload(length,'\0');
+            for(std::size_t i=0;i<length;++i) payload[i]=static_cast<char>(bytes[offset+4+i]^bytes[offset+(i%4)]);
+            it->input.erase(it->input.begin(),it->input.begin()+static_cast<std::ptrdiff_t>(offset+4+length));
+            if(opcode==8) {failed=true;break;}
+            if(opcode==9) {
+                auto header=binary_frame_header(payload.size());header[0]=0x8a;
+                failed=!send_all(it->socket,header.data(),header.size()) ||
+                    !send_all(it->socket,reinterpret_cast<const std::uint8_t*>(payload.data()),payload.size());
+            } else if(opcode==1) {
+                // Coalesce requests from the same panel: only its newest view matters.
+                const auto found=std::find_if(result.begin(),result.end(),[&](const auto& m){return m.client_id==it->id;});
+                if(found==result.end()) result.push_back({it->id,std::move(payload)});else found->text=std::move(payload);
+            }
+        }
+        if(failed) {close_socket(it->socket);it=clients.erase(it);}else ++it;
+    }
+    return result;
 }
 
 std::size_t WebSocketServer::client_count() const noexcept {

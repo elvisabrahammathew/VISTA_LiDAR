@@ -5,6 +5,23 @@
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 #include "unittest/test.hpp"
 
+VISTA_TEST(pointcloud_cleaning_sets_world_ray_origin_without_ground_removal) {
+    vista::application::PreprocessingConfig config;
+    config.voxel_size_m.reset();
+    vista::application::GroundRemovalConfig mount;
+    mount.mount_x_m=-10.0F; mount.mount_y_m=2.0F; mount.mount_z_m=0.75F;
+    config.mounting=mount;
+    vista::application::PointCloudPreprocessor processor(config);
+    const auto cloud=processor.clean({1,{{1,0,0,0,0,0,0}}});
+    VISTA_CHECK(cloud.sensor_origin_world_m.has_value());
+    VISTA_CHECK_NEAR((*cloud.sensor_origin_world_m)[0],-10.0F,1.0e-6F);
+    VISTA_CHECK_NEAR((*cloud.sensor_origin_world_m)[1],2.0F,1.0e-6F);
+    VISTA_CHECK_NEAR((*cloud.sensor_origin_world_m)[2],0.75F,1.0e-6F);
+    VISTA_CHECK_NEAR(cloud.points[0].x,-9.0F,1.0e-6F);
+    const auto processed=processor.process_ground(cloud);
+    VISTA_CHECK(processed.sensor_origin_world_m==cloud.sensor_origin_world_m);
+}
+
 namespace {
 
 vista::models::PointXYZIRT point(float x, float y, float z) {
@@ -203,4 +220,26 @@ VISTA_TEST(preprocessing_rejects_invalid_voxel_size) {
     vista::application::PreprocessingConfig config;
     config.voxel_size_m = 0.0F;
     VISTA_CHECK_THROWS(vista::application::preprocess_point_cloud(frame({}), config));
+}
+
+VISTA_TEST(cleaned_cloud_preserves_ground_and_ground_stage_does_not_transform_twice) {
+    vista::application::GroundRemovalConfig mount;
+    mount.mount_z_m=0.75F; mount.distance_threshold_m=0.05F;
+    vista::application::PointCloudPreprocessor processor({
+        0.0F,10.0F,std::nullopt,std::nullopt,mount,mount});
+    const auto cleaned=processor.clean(frame({point(1,0,-0.75F),point(1,0,0.25F)}));
+    const auto processed=processor.process_ground(cleaned);
+    VISTA_CHECK(cleaned.points.size()==2);
+    VISTA_CHECK_NEAR(cleaned.points[0].z,0.0F,1.0e-5F);
+    VISTA_CHECK(processed.points.size()==1);
+    VISTA_CHECK_NEAR(processed.points[0].z,1.0F,1.0e-5F);
+}
+
+VISTA_TEST(mounting_is_applied_when_ground_removal_is_disabled) {
+    vista::application::GroundRemovalConfig mount; mount.mount_z_m=2.5F;
+    vista::application::PointCloudPreprocessor processor({
+        0.0F,10.0F,std::nullopt,std::nullopt,std::nullopt,mount});
+    const auto cleaned=processor.clean(frame({point(1,0,-2.5F)}));
+    VISTA_CHECK(cleaned.points.size()==1);
+    VISTA_CHECK_NEAR(cleaned.points[0].z,0.0F,1.0e-5F);
 }

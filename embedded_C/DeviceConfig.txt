@@ -1,7 +1,7 @@
 # Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
 Lidar: unitree-l2
-RawLoggingEnabled(Lidar): 1
-PointCloudLoggingEnabled(Lidar): 1
+RawLoggingEnabled(Lidar): 0
+PointCloudLoggingEnabled(Lidar): 0
 ReconnectIntervalSeconds(Lidar): 5
 SensorIP(quanergy-m8, unitree-l2): 192.168.1.3
 SensorPort(quanergy-m8, unitree-l2): 4141
@@ -15,7 +15,7 @@ DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480
 DepthFps(realsensel515): 30
 
-# LiDAR mounting and ground calibration (hybrid, ransac, static)
+# LiDAR mounting and ground calibration (hybrid, ransac, static, none)
 GroundMode(lidar): hybrid
 UseImuForGround(lidar): 0
 MountX(lidar): -10.0
@@ -33,20 +33,42 @@ GroundMinInlierRatio(lidar): 0.10
 # Supported Radar: none
 Radar: None
 
-# Grafana Live output
+# GrafanaEnabled controls Grafana Live and both point-cloud WebSockets
 GrafanaEnabled: true
 GrafanaHost: 127.0.0.1
 GrafanaPort: 3000
 GrafanaNamespace: vista
-GrafanaPublishIntervalMilliseconds: 1000
+GrafanaPublishIntervalMilliseconds: 2000
 GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
 
 # 3D point-cloud WebSocket for the lidarpointcloud Grafana panel
-PointCloudWebSocketEnabled: true
 PointCloudWebSocketBindAddress: 127.0.0.1
 PointCloudWebSocketPort: 8765
 PointCloudWebSocketMaxPoints: 100000
 PointCloudWebSocketMaxClients: 4
 PointCloudWebSocketPublishIntervalMilliseconds: 100
 PointCloudWebSocketRetryIntervalSeconds: 2
+
+# Room map keeps the floor; freeze after active acquisition seconds (0 = continuous)
+RoomMapEnabled: 1
+RoomMapVoxelSizeMeters: 0.05
+RoomMapCacheMaxVoxels: 250000
+RoomMapCacheMaxTiles: 128
+RoomMapTileSizeMeters: 2.0
+RoomMapLodPointsPerNode: 128
+RoomMapMinObservations: 3
+RoomMapObservationIntervalMilliseconds: 100
+RoomMapFreezeAfterSeconds: 0
+RoomMapPublishIntervalMilliseconds: 1000
+RoomMapLoadExisting: 0
+RoomMapFile:
+RoomMapFreeSpaceMinObservations: 5
+RoomMapRaycastMaxRaysPerWindow: 256
+RoomMapRaycastMaxRangeMeters: 30.0
+RoomMapRaycastSurfaceMarginMeters: 0.10
+RoomMapWebSocketBindAddress: 127.0.0.1
+RoomMapWebSocketPort: 8766
+RoomMapWebSocketMaxPoints: 100000
+RoomMapWebSocketMaxClients: 4
+RoomMapWebSocketRetryIntervalSeconds: 2

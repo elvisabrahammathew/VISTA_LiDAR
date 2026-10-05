@@ -53,6 +53,8 @@ struct PreprocessingConfig {
     std::optional<AxisAlignedRoi> region_of_interest;
     std::optional<float> voxel_size_m{0.05F};
     std::optional<GroundRemovalConfig> ground_removal;
+    /// Mounting remains active even when ground removal is disabled.
+    std::optional<GroundRemovalConfig> mounting;
 };
 
 struct PreprocessingReport {
@@ -79,6 +81,12 @@ public:
     /// Converts sensor points to the common world frame, then filters them.
     models::PointCloudFrame process(models::PointCloudFrame frame);
 
+    /// Common filters and world transform only; preserves floor and furniture.
+    models::PointCloudFrame clean(models::PointCloudFrame frame);
+
+    /// Processes an already-cleaned world cloud, without applying mounting twice.
+    models::PointCloudFrame process_ground(models::PointCloudFrame frame);
+
     /// Static mode is ready immediately; RANSAC modes become ready after calibration.
     bool ground_calibrated() const noexcept;
 
@@ -101,6 +109,14 @@ using PreprocessingCompletion =
     std::function<void(std::optional<PreprocessingReport>, std::string)>;
 
 platform::WorkerHandle spawn_preprocessing_worker(
+    platform::MessageBus& bus,
+    platform::ThreadConfig thread_config,
+    platform::StopToken stop,
+    PreprocessingConfig config,
+    PreprocessingCompletion on_complete);
+
+/// Independent consumer of pointcloud/cleaned; publishes processed cloud and ground status.
+platform::WorkerHandle spawn_ground_processing_worker(
     platform::MessageBus& bus,
     platform::ThreadConfig thread_config,
     platform::StopToken stop,

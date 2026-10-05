@@ -65,6 +65,7 @@ void validate_pointcloud_websocket_config(
         throw std::invalid_argument(
             "point-cloud WebSocket bind address cannot be empty");
     }
+    if (config.input_topic.empty()) throw std::invalid_argument("WebSocket input topic is empty");
     if (config.port == 0) {
         throw std::invalid_argument(
             "point-cloud WebSocket port must be between 1 and 65535");
@@ -169,8 +170,10 @@ platform::WorkerHandle spawn_pointcloud_websocket(
     PointCloudWebSocketConfig config,
     PointCloudWebSocketCompletion on_complete) {
     validate_pointcloud_websocket_config(config);
+    if (config.room_map_lod)
+        return spawn_room_map_websocket(bus, std::move(thread_config), stop, std::move(config), std::move(on_complete));
     auto subscriber = bus.subscribe<devices::LidarPointCloudMessage>(
-        models::topics::pointcloud_processed,
+        config.input_topic,
         thread_config.name);
     auto ground_subscriber = bus.subscribe<models::LidarGroundStatusMessage>(
         models::topics::ground_status,
@@ -206,16 +209,27 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                     std::chrono::milliseconds(100));
                 bool topic_closed = false;
                 std::shared_ptr<const models::LidarGroundStatusMessage> latest_ground;
+                std::shared_ptr<const devices::LidarPointCloudMessage> last_sent_snapshot;
+                bool replay_snapshot = false;
+                std::shared_ptr<const devices::LidarPointCloudMessage> encoded_snapshot;
+                std::vector<std::uint8_t> cached_snapshot_packet;
 
                 const auto broadcast =
                     [&](const devices::LidarPointCloudMessage& cloud) {
                         if (!server || server->client_count() == 0) {
                             return;
                         }
-                        const auto packet = encode_lpc1_pointcloud(
-                            cloud,
-                            config.maximum_points,
-                            latest_ground ? &latest_ground->payload : nullptr);
+                        // Frozen maps keep the same immutable message object. Cache its
+                        // packet instead of re-encoding hundreds of thousands of points.
+                        std::vector<std::uint8_t> live_packet;
+                        if (!config.retained_snapshot) {
+                            live_packet = encode_lpc1_pointcloud(cloud, config.maximum_points,
+                                config.include_ground_status && latest_ground ? &latest_ground->payload : nullptr);
+                        } else if (encoded_snapshot.get() != &cloud) {
+                            cached_snapshot_packet = encode_lpc1_pointcloud(cloud, config.maximum_points);
+                            encoded_snapshot = latest_full_frame;
+                        }
+                        const auto& packet = config.retained_snapshot ? cached_snapshot_packet : live_packet;
                         const auto deliveries = server->broadcast_binary(
                             packet.data(),
                             packet.size());
@@ -246,6 +260,7 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                             });
                             server = std::make_unique<transport::WebSocketServer>(
                                 std::move(listening));
+                            replay_snapshot = true;
                             std::cout
                                 << "Point-cloud WebSocket listening at ws://"
                                 << config.bind_address << ':' << config.port
@@ -263,7 +278,10 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                     if (server) {
                         try {
                             const auto accepted = server->poll_accept();
+                            (void)server->poll_text(); // Drain browser control frames, including ping/close.
                             if (accepted > 0) {
+                                replay_snapshot = true;
+                                if (config.retained_snapshot) next_publish = now;
                                 std::cout
                                     << "Point-cloud WebSocket client connected; "
                                     << server->client_count()
@@ -288,7 +306,7 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                     } else if (
                         status == platform::ReceiveStatus::message && message) {
                         ++report.received_messages;
-                        if (message->payload.points.size() >=
+                        if (config.retained_snapshot || message->payload.points.size() >=
                             full_frame_threshold) {
                             // Depth cameras already deliver complete frames;
                             // keep only the latest one during this interval.
@@ -329,8 +347,13 @@ platform::WorkerHandle spawn_pointcloud_websocket(
 
                     const auto publish_now = std::chrono::steady_clock::now();
                     if (publish_now >= next_publish) {
-                        if (latest_full_frame) {
+                        if (latest_full_frame && (!config.retained_snapshot ||
+                            replay_snapshot || latest_full_frame != last_sent_snapshot)) {
                             broadcast(*latest_full_frame);
+                            if (config.retained_snapshot && server && server->client_count() > 0) {
+                                last_sent_snapshot = latest_full_frame;
+                                replay_snapshot = false;
+                            }
                         } else if (!accumulated_points.empty()) {
                             devices::LidarPointCloudMessage aggregate(
                                 latest_lidar_id,
@@ -344,7 +367,7 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                             accumulated_points.clear();
                             accumulated_points.reserve(config.maximum_points);
                         }
-                        latest_full_frame.reset();
+                        if (!config.retained_snapshot) latest_full_frame.reset();
                         accumulated_points.clear();
                         next_publish = publish_now + config.publish_interval;
                     }

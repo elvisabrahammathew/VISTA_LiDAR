@@ -146,6 +146,7 @@ AppConfig parse_device_config_text(const std::string& contents) {
     bool unitree_local_ip_seen = false;
     bool unitree_local_port_seen = false;
     bool ground_settings_seen = false;
+    bool ground_enabled = true;
     application::GroundRemovalConfig ground;
 
     while (std::getline(input, original_line)) {
@@ -254,7 +255,8 @@ AppConfig parse_device_config_text(const std::string& contents) {
                 parse_zero_one_switch(
                     value, "PointCloudLoggingEnabled(Lidar)");
         } else if (key == "groundmode") {
-            ground.mode = application::parse_ground_mode(value);
+            ground_enabled = lower_copy(value) != "none" && lower_copy(value) != "off";
+            if (ground_enabled) ground.mode = application::parse_ground_mode(value);
             ground_settings_seen = true;
         } else if (key == "useimuforground") {
             ground.use_imu =
@@ -339,8 +341,8 @@ AppConfig parse_device_config_text(const std::string& contents) {
                     "Grafana retry interval",
                     maximum_reconnect_interval_seconds));
         } else if (key == "pointcloudwebsocketenabled") {
-            config.pointcloud_websocket.enabled =
-                parse_boolean(value, "PointCloudWebSocketEnabled");
+            // Legacy TXT key is accepted, but GrafanaEnabled is the sole switch.
+            (void)parse_boolean(value, "PointCloudWebSocketEnabled");
         } else if (key == "pointcloudwebsocketbindaddress") {
             if (value.empty()) {
                 throw std::invalid_argument(
@@ -371,6 +373,51 @@ AppConfig parse_device_config_text(const std::string& contents) {
                     value,
                     "point-cloud WebSocket retry interval",
                     maximum_reconnect_interval_seconds));
+        } else if (key == "roommapenabled") {
+            config.room_map.enabled = parse_boolean(value, "RoomMapEnabled");
+        } else if (key == "roommapvoxelsizemeters") {
+            config.room_map.voxel_size_m = parse_float(value, "RoomMapVoxelSizeMeters");
+        } else if (key == "roommapcachemaxvoxels") {
+            config.room_map.cache_max_voxels = static_cast<std::size_t>(parse_unsigned(value, "RoomMapCacheMaxVoxels", 2'000'000));
+        } else if (key == "roommapcachemaxtiles") {
+            config.room_map.cache_max_tiles = static_cast<std::size_t>(parse_unsigned(value, "RoomMapCacheMaxTiles", 512));
+        } else if (key == "roommaptilesizemeters") {
+            config.room_map.tile_size_m = parse_float(value, "RoomMapTileSizeMeters");
+        } else if (key == "roommaplodpointspernode") {
+            config.room_map.lod_points_per_node = static_cast<std::size_t>(parse_unsigned(value, "RoomMapLodPointsPerNode", 4096));
+        } else if (key == "roommapminobservations") {
+            config.room_map.minimum_observations = static_cast<std::size_t>(parse_unsigned(value, "RoomMapMinObservations", 100));
+        } else if (key == "roommapobservationintervalmilliseconds") {
+            config.room_map.observation_interval = std::chrono::milliseconds(parse_unsigned(value, "RoomMapObservationIntervalMilliseconds", 60'000));
+        } else if (key == "roommapfreezeafterseconds") {
+            config.room_map.freeze_after = value == "0" ? std::chrono::milliseconds(0) :
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(parse_unsigned(value, "RoomMapFreezeAfterSeconds", 86'400)));
+        } else if (key == "roommappublishintervalmilliseconds") {
+            config.room_map.publish_interval = std::chrono::milliseconds(parse_unsigned(value, "RoomMapPublishIntervalMilliseconds", maximum_grafana_interval_ms));
+        } else if (key == "roommaploadexisting") {
+            config.room_map.load_existing = parse_boolean(value, "RoomMapLoadExisting");
+        } else if (key == "roommapfile") {
+            config.room_map.file = value;  // Input map when loading; building generates its own output name.
+        } else if (key == "roommapfreespaceminobservations") {
+            config.room_map.free_space_minimum_observations = static_cast<std::size_t>(parse_unsigned(value, "RoomMapFreeSpaceMinObservations", 100));
+        } else if (key == "roommapraycastmaxraysperwindow") {
+            config.room_map.raycast_maximum_rays_per_window = static_cast<std::size_t>(parse_unsigned(value, "RoomMapRaycastMaxRaysPerWindow", 10'000));
+        } else if (key == "roommapraycastmaxrangemeters") {
+            config.room_map.raycast_maximum_range_m = parse_float(value, "RoomMapRaycastMaxRangeMeters");
+        } else if (key == "roommapraycastsurfacemarginmeters") {
+            config.room_map.raycast_surface_margin_m = parse_float(value, "RoomMapRaycastSurfaceMarginMeters");
+        } else if (key == "roommapwebsocketenabled") {
+            (void)parse_boolean(value, "RoomMapWebSocketEnabled"); // Legacy, see GrafanaEnabled.
+        } else if (key == "roommapwebsocketbindaddress") {
+            config.room_map_websocket.bind_address = value;
+        } else if (key == "roommapwebsocketport") {
+            config.room_map_websocket.port = static_cast<std::uint16_t>(parse_unsigned(value, "RoomMapWebSocketPort", 65'535));
+        } else if (key == "roommapwebsocketmaxpoints") {
+            config.room_map_websocket.maximum_points = static_cast<std::size_t>(parse_unsigned(value, "RoomMapWebSocketMaxPoints", 2'000'000));
+        } else if (key == "roommapwebsocketmaxclients") {
+            config.room_map_websocket.maximum_clients = static_cast<std::size_t>(parse_unsigned(value, "RoomMapWebSocketMaxClients", 64));
+        } else if (key == "roommapwebsocketretryintervalseconds") {
+            config.room_map_websocket.retry_interval = std::chrono::seconds(parse_unsigned(value, "RoomMapWebSocketRetryIntervalSeconds", maximum_reconnect_interval_seconds));
         } else if (key == "systemmonitorintervalmilliseconds") {
             config.system_monitor.sample_interval = std::chrono::milliseconds(
                 parse_unsigned(
@@ -422,11 +469,24 @@ AppConfig parse_device_config_text(const std::string& contents) {
         }
     }
     if (ground_settings_seen) {
-        config.ground_removal = ground;
+        config.mounting = ground;
+        if (ground_enabled) config.ground_removal = ground;
     }
+    // Keep the internal flags, deriving them after parsing so TXT order is irrelevant.
+    config.pointcloud_websocket.enabled = config.grafana.enabled;
+    config.room_map_websocket.enabled = config.grafana.enabled;
+    // One TXT cadence owns map checkpoint/publication. Reuse it only to bound
+    // camera-request work; a newly checkpointed revision is delivered immediately.
+    config.room_map_websocket.publish_interval = config.room_map.publish_interval;
+    config.grafana.selected_lidar_id=devices::to_string(config.lidar_type);
     application::validate_grafana_bridge_config(config.grafana);
     application::validate_pointcloud_websocket_config(
         config.pointcloud_websocket);
+    application::validate_room_map_config(config.room_map);
+    application::validate_pointcloud_websocket_config(config.room_map_websocket);
+    if (config.grafana.enabled &&
+        config.room_map_websocket.port == config.pointcloud_websocket.port)
+        throw std::invalid_argument("room-map and live WebSocket ports must be different");
     return config;
 }
 
@@ -449,7 +509,29 @@ std::string format_log_timestamp(
     return output.str();
 }
 
+void configure_session_output_paths(AppConfig& config,
+    const std::filesystem::path& data_root,
+    std::chrono::system_clock::time_point session_start) {
+    const auto root = data_root.lexically_normal();
+    const auto session_stem = format_log_timestamp(session_start);
+    config.system_monitor.data_root = root;
+    if (!config.room_map.load_existing) {
+        // Fix this preferred name at startup, not at each snapshot save. The
+        // writer exclusively claims a free filename before its first save.
+        config.room_map.file = root / "maps" / ("RoomMap_" + session_stem + ".pcd");
+    }
+    config.room_map.storage_directory = root / "maps" / ("RoomMap_" + session_stem + ".tiles");
+    config.room_map.preview_max_points = config.room_map_websocket.maximum_points;
+    // Loading preserves the user's exact RoomMapFile, including an empty path
+    // which the map worker reports as LOAD ERROR instead of guessing a file.
+    config.raw_path.reset();
+    config.pcd_path.reset();
+    if (config.raw_logging_enabled) config.raw_path = root / "raw" / (session_stem + ".bin");
+    if (config.pointcloud_logging_enabled) config.pcd_path = root / "processed" / (session_stem + ".pcd");
+}
+
 AppConfig AppConfig::load() {
+    const auto session_start = std::chrono::system_clock::now();
     std::ifstream input(default_device_config_path);
     if (!input) {
         throw std::runtime_error(
@@ -461,18 +543,7 @@ AppConfig AppConfig::load() {
 
     auto config = parse_device_config_text(contents.str());
     const auto data_root = std::filesystem::path(VISTA_DATA_ROOT).lexically_normal();
-    config.system_monitor.data_root = data_root;
-    if (config.raw_logging_enabled || config.pointcloud_logging_enabled) {
-        const auto log_stem =
-            format_log_timestamp(std::chrono::system_clock::now());
-        if (config.raw_logging_enabled) {
-            config.raw_path = data_root / "raw" / (log_stem + ".bin");
-        }
-        if (config.pointcloud_logging_enabled) {
-            config.pcd_path =
-                data_root / "processed" / (log_stem + ".pcd");
-        }
-    }
+    configure_session_output_paths(config, data_root, session_start);
     return config;
 }
 
@@ -515,6 +586,7 @@ RuntimeConfig AppConfig::runtime_config() const {
             std::nullopt,
             0.05F,
             ground_removal,
+            mounting,
         },
         ThreadSetConfig{
             WorkerConfig{true, platform::ThreadConfig("lidar-read", 1)},
@@ -532,8 +604,13 @@ RuntimeConfig AppConfig::runtime_config() const {
             WorkerConfig{
                 grafana.enabled, platform::ThreadConfig("grafana-bridge", 4)},
             WorkerConfig{
-                pointcloud_websocket.enabled,
+                grafana.enabled,
                 platform::ThreadConfig("pointcloud-websocket", 4)},
+            WorkerConfig{true, platform::ThreadConfig("ground-processing", 3)},
+            // Also serves DISABLED/LOAD ERROR status and empty snapshots when no map exists.
+            WorkerConfig{true, platform::ThreadConfig("room-mapping", 4)},
+            WorkerConfig{grafana.enabled,
+                platform::ThreadConfig("room-map-websocket", 5)},
         },
         TopicQueueConfig{32, 8, 8, 16},
     };

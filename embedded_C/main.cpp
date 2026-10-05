@@ -76,7 +76,7 @@ int main() {
             std::cout << "disabled\n";
         }
         std::cout << "Point-cloud WebSocket: ";
-        if (config.pointcloud_websocket.enabled) {
+        if (config.grafana.enabled) {
             std::cout << "ws://" << config.pointcloud_websocket.bind_address
                       << ':' << config.pointcloud_websocket.port
                       << " (maximum "
@@ -87,6 +87,17 @@ int main() {
         } else {
             std::cout << "disabled\n";
         }
+
+        if (config.room_map.enabled) {
+            std::cout << "Room map: " << config.room_map.voxel_size_m << " m voxels, RAM cache "
+                      << config.room_map.cache_max_voxels << " voxels (total map is disk-backed), freeze after "
+                      << config.room_map.freeze_after.count() / 1000 << " active second(s) (0 = continuous)\n";
+            std::cout << "Room map snapshot: " << config.room_map.file.string() << '\n';
+            std::cout << "Room map mode: " << (config.room_map.load_existing ? "load read-only reference" : "build with free-space ray checks") << '\n';
+        }
+        if (config.grafana.enabled)
+            std::cout << "Room-map WebSocket: ws://" << config.room_map_websocket.bind_address
+                      << ':' << config.room_map_websocket.port << '\n';
 
         const auto started = std::chrono::steady_clock::now();
         vista::platform::StopToken stop;
@@ -109,6 +120,11 @@ int main() {
         bus.configure_topic(
             vista::models::topics::pointcloud_processed,
             runtime.queues.processed_capacity);
+        bus.configure_topic(vista::models::topics::pointcloud_cleaned, runtime.queues.processed_capacity);
+        // Map snapshots are much larger than individual sensor packets; retain only two.
+        bus.configure_topic(vista::models::topics::room_map, 2);
+        bus.configure_topic(vista::models::topics::room_map_view, 2);
+        bus.configure_topic(vista::models::topics::room_map_status, runtime.queues.telemetry_capacity);
         bus.configure_topic(
             vista::models::topics::ground_status,
             runtime.queues.telemetry_capacity);
@@ -145,9 +161,15 @@ int main() {
         auto pointcloud_websocket_result = std::make_shared<
             vista::platform::WorkerResult<
                 vista::application::PointCloudWebSocketReport>>();
+        auto ground_result = std::make_shared<
+            vista::platform::WorkerResult<vista::application::PreprocessingReport>>();
+        auto room_map_result = std::make_shared<
+            vista::platform::WorkerResult<vista::application::RoomMapReport>>();
+        auto room_map_websocket_result = std::make_shared<
+            vista::platform::WorkerResult<vista::application::PointCloudWebSocketReport>>();
 
         std::vector<vista::platform::WorkerHandle> workers;
-        workers.reserve(8);
+        workers.reserve(11);
         bool read_started = false;
         bool decode_started = false;
         bool raw_logger_started = false;
@@ -156,6 +178,9 @@ int main() {
         bool grafana_started = false;
         bool system_monitor_started = false;
         bool pointcloud_websocket_started = false;
+        bool ground_started = false;
+        bool room_map_started = false;
+        bool room_map_websocket_started = false;
 
         try {
             // The user controls worker creation and startup order in main.
@@ -173,7 +198,7 @@ int main() {
             }
 
             if (runtime.threads.pointcloud_websocket.enabled &&
-                config.pointcloud_websocket.enabled) {
+                config.grafana.enabled) {
                 vista::platform::add_worker(
                     workers,
                     vista::application::spawn_pointcloud_websocket(
@@ -184,6 +209,20 @@ int main() {
                         vista::platform::completion_for(
                             pointcloud_websocket_result)));
                 pointcloud_websocket_started = true;
+            }
+
+            if (runtime.threads.room_map_websocket.enabled && config.grafana.enabled) {
+                vista::platform::add_worker(workers, vista::application::spawn_pointcloud_websocket(
+                    bus, runtime.threads.room_map_websocket.thread, stop,
+                    config.room_map_websocket, vista::platform::completion_for(room_map_websocket_result)));
+                room_map_websocket_started = true;
+            }
+
+            if (runtime.threads.room_mapping.enabled) {
+                vista::platform::add_worker(workers, vista::application::spawn_room_map_worker(
+                    bus, runtime.threads.room_mapping.thread, stop, config.room_map,
+                    vista::platform::completion_for(room_map_result)));
+                room_map_started = true;
             }
 
             if (runtime.threads.system_monitor.enabled) {
@@ -208,6 +247,15 @@ int main() {
                         *config.pcd_path,
                         vista::platform::completion_for(pcd_logger_result)));
                 pcd_logger_started = true;
+            }
+
+            // Ground processing owns its own calibration state and consumes cleaned
+            // world points. Mapping receives those same points with the floor intact.
+            if (runtime.threads.ground_processing.enabled) {
+                vista::platform::add_worker(workers, vista::application::spawn_ground_processing_worker(
+                    bus, runtime.threads.ground_processing.thread, stop,
+                    runtime.preprocessing, vista::platform::completion_for(ground_result)));
+                ground_started = true;
             }
 
             if (runtime.threads.preprocessing.enabled) {
@@ -322,12 +370,18 @@ int main() {
             runtime.threads.pointcloud_websocket.thread.name,
             pointcloud_websocket_result,
             pointcloud_websocket_started);
+        vista::platform::collect_worker_error(failures, runtime.threads.ground_processing.thread.name,
+                                             ground_result, ground_started);
+        vista::platform::collect_worker_error(failures, runtime.threads.room_mapping.thread.name,
+                                             room_map_result, room_map_started);
+        vista::platform::collect_worker_error(failures, runtime.threads.room_map_websocket.thread.name,
+                                             room_map_websocket_result, room_map_websocket_started);
         vista::platform::throw_if_worker_failures(failures);
 
         const auto packet_count =
             read_result->report ? read_result->report->message_count : 0;
-        const auto point_count = preprocessing_result->report
-                                     ? preprocessing_result->report->point_count
+        const auto point_count = ground_result->report
+                                     ? ground_result->report->point_count
                                      : 0;
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started);
@@ -374,6 +428,10 @@ int main() {
                 << ", server-failures="
                 << pointcloud_websocket_result->report->server_failures
                 << '\n';
+        }
+        if (room_map_result->report) {
+            std::cout << "Room map: " << room_map_result->report->map_points << " points, input-drops="
+                      << room_map_result->report->dropped_input_messages << '\n';
         }
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

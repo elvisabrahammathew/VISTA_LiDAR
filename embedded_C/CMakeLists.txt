@@ -70,6 +70,8 @@ set(VISTA_CORE_SOURCES
     2_Transport/messaging/http.cpp
     2_Transport/messaging/websocket_server.cpp
     2_Transport/storage/local.cpp
+    2_Transport/storage/room_map_storage.cpp
+    2_Transport/storage/room_map_tiles.cpp
     3_Devices/lidars/lidar.cpp
     3_Devices/lidars/quanergym8/quanergym8.cpp
     3_Devices/lidars/realsensel515/realsensel515.cpp
@@ -77,6 +79,8 @@ set(VISTA_CORE_SOURCES
     3_Devices/lidars/unitree4d/unitree_protocol.cpp
     4_Applications/grafana_bridge/grafana_bridge.cpp
     4_Applications/logger/logger.cpp
+    4_Applications/mapping/room_map/room_map.cpp
+    4_Applications/mapping/room_map/room_map_websocket.cpp
     4_Applications/monitoring/system_monitor.cpp
     4_Applications/pointcloud_websocket/pointcloud_websocket.cpp
     4_Applications/processing/pointcloud/pointcloud_processing.cpp
@@ -238,6 +242,7 @@ if(VISTA_BUILD_TESTS)
     add_executable(vista_edge_tests
         unittest/test_main.cpp
         unittest/application_test/logger_test.cpp
+        unittest/application_test/room_map_test.cpp
         unittest/application_test/grafana_bridge_test.cpp
         unittest/application_test/pointcloud_processing_test.cpp
         unittest/application_test/system_monitor_test.cpp
@@ -253,6 +258,8 @@ if(VISTA_BUILD_TESTS)
         unittest/transport_test/ethernet_test.cpp
         unittest/transport_test/librealsense_usb_test.cpp
         unittest/transport_test/websocket_server_test.cpp
+        unittest/transport_test/room_map_tiles_test.cpp
+        unittest/transport_test/room_map_websocket_test.cpp
     )
     vista_enable_warnings(vista_edge_tests)
     target_link_libraries(vista_edge_tests PRIVATE vista_edge_core)

@@ -182,27 +182,15 @@ PointCloudTelemetry summarize_point_cloud(
         value.processing_ms = static_cast<double>(
             value.timestamp_ns - message.received_timestamp_ns) / 1'000'000.0;
     }
-    if (!message.payload.points.empty()) {
-        const auto& first = message.payload.points.front();
-        value.has_bounds = true;
-        value.min_x_m = value.max_x_m = first.x;
-        value.min_y_m = value.max_y_m = first.y;
-        value.min_z_m = value.max_z_m = first.z;
-        for (const auto& point : message.payload.points) {
-            value.min_x_m = std::min(value.min_x_m, point.x);
-            value.max_x_m = std::max(value.max_x_m, point.x);
-            value.min_y_m = std::min(value.min_y_m, point.y);
-            value.max_y_m = std::max(value.max_y_m, point.y);
-            value.min_z_m = std::min(value.min_z_m, point.z);
-            value.max_z_m = std::max(value.max_z_m, point.z);
-        }
-    }
+    // The dashboard needs counts/rate/age, not XYZ bounds. Avoid scanning every
+    // point here; the independent 3D WebSocket still receives the full geometry.
     return value;
 }
 
 PointCloudTelemetry offline_pointcloud(const std::string& lidar_id) {
     PointCloudTelemetry value;
-    value.lidar_id = lidar_id.empty() ? "selected-lidar" : lidar_id;
+    if(lidar_id.empty()) throw std::invalid_argument("offline LiDAR telemetry needs a stable device ID");
+    value.lidar_id = lidar_id;
     value.timestamp_ns = system_timestamp_ns();
     return value;
 }
@@ -228,10 +216,8 @@ ImuTelemetry offline_imu(const std::string& lidar_id) {
 
 std::string format_system_health(const models::SystemHealthTelemetry& value) {
     auto line = line_stream();
-    line << "system_health online=1i,uptime_seconds=" << value.uptime_seconds
-         << ",cpu_percent=" << value.cpu_percent
+    line << "system_health cpu_percent=" << value.cpu_percent
          << ",memory_mb=" << value.memory_mb
-         << ",memory_percent=" << value.memory_percent
          << ",worker_count=" << value.worker_count << 'i'
          << ",failed_workers=" << value.failed_workers << 'i'
          << ' ' << value.timestamp_ns;
@@ -249,51 +235,19 @@ std::string format_worker_health(const models::WorkerHealthTelemetry& value) {
     return line.str();
 }
 
-std::string format_storage_health(const models::StorageHealthTelemetry& value) {
-    auto line = line_stream();
-    line << "storage_health disk_free_gb=" << value.disk_free_gb
-         << ",raw_bytes_written=" << value.raw_bytes_written << 'i'
-         << ",raw_messages_written=" << value.raw_messages_written << 'i'
-         << ",pcd_points_written=" << value.pcd_points_written << 'i'
-         << ",pcd_frames_written=" << value.pcd_frames_written << 'i'
-         << ",write_errors=" << value.write_errors << 'i'
-         << ' ' << value.timestamp_ns;
-    return line.str();
-}
-
-std::string format_power_thermal(const models::PowerThermalTelemetry& value) {
-    auto line = line_stream();
-    line << "power_thermal available=" << (value.available ? "1i" : "0i")
-         << ",cpu_temperature_c=" << value.cpu_temperature_c
-         << ",gpu_temperature_c=" << value.gpu_temperature_c
-         << ",board_power_w=" << value.board_power_w
-         << ",fan_rpm=" << value.fan_rpm
-         << ' ' << value.timestamp_ns;
-    return line.str();
-}
-
 struct PipelineTelemetry {
     std::uint64_t timestamp_ns{};
-    bool online{};
-    double raw_fps{}, decoded_fps{}, processed_fps{};
-    double latency_ms{};
-    double raw_fill{}, decoded_fill{}, processed_fill{};
+    double raw_fps{};
+    double raw_fill{}, processed_fill{};
     std::uint64_t drops{};
-    double last_message_age_ms{};
 };
 
 std::string format_pipeline_health(const PipelineTelemetry& value) {
     auto line = line_stream();
-    line << "pipeline_health online=" << (value.online ? "1i" : "0i")
-         << ",raw_fps=" << value.raw_fps
-         << ",decoded_fps=" << value.decoded_fps
-         << ",processed_fps=" << value.processed_fps
-         << ",end_to_end_latency_ms=" << value.latency_ms
+    line << "pipeline_health raw_fps=" << value.raw_fps
          << ",raw_queue_fill_percent=" << value.raw_fill
-         << ",decoded_queue_fill_percent=" << value.decoded_fill
          << ",processed_queue_fill_percent=" << value.processed_fill
          << ",dropped_messages=" << value.drops << 'i'
-         << ",last_message_age_ms=" << value.last_message_age_ms
          << ' ' << value.timestamp_ns;
     return line.str();
 }
@@ -449,12 +403,26 @@ void validate_grafana_bridge_config(const GrafanaBridgeConfig& config) {
         config.request_timeout.count() <= 0 || config.offline_timeout.count() <= 0) {
         throw std::invalid_argument("Grafana timing values must be positive");
     }
+    if(config.selected_lidar_id.empty()) throw std::invalid_argument("Grafana selected LiDAR ID must not be empty");
 }
 
-std::string format_pointcloud_measurement(const PointCloudTelemetry& value) {
+namespace {
+std::string format_pointcloud(const PointCloudTelemetry& value,bool current) {
     auto line = line_stream();
-    line << "pointcloud,lidar_id=" << escape_influx_tag(value.lidar_id)
-         << " online=" << (value.online ? "1i" : "0i")
+    if(current) {
+        // Compact, tag-free channel used by the current dashboard. Legacy
+        // formatting below remains available as an API, but is not published.
+        line << "pointcloud_current online=" << (value.online ? "1i" : "0i")
+             << ",input_point_count=" << value.input_point_count << 'i'
+             << ",point_count=" << value.point_count << 'i'
+             << ",data_age_ms=" << value.processing_ms
+             << ",message_rate_hz=" << value.frames_per_second
+             << ' ' << value.timestamp_ns;
+        return line.str();
+    }
+    line << (current ? "pointcloud_current" : "pointcloud");
+    if(!current) line << ",lidar_id=" << escape_influx_tag(value.lidar_id);
+    line << " online=" << (value.online ? "1i" : "0i")
          << ",input_point_count=" << value.input_point_count << 'i'
          << ",point_count=" << value.point_count << 'i'
          << ",has_points=" << (value.has_bounds ? "1i" : "0i")
@@ -463,10 +431,14 @@ std::string format_pointcloud_measurement(const PointCloudTelemetry& value) {
          << ",dropped_messages=" << value.dropped_messages << 'i'
          << ",min_x_m=" << value.min_x_m << ",max_x_m=" << value.max_x_m
          << ",min_y_m=" << value.min_y_m << ",max_y_m=" << value.max_y_m
-         << ",min_z_m=" << value.min_z_m << ",max_z_m=" << value.max_z_m
-         << ' ' << value.timestamp_ns;
+         << ",min_z_m=" << value.min_z_m << ",max_z_m=" << value.max_z_m;
+    line << ' ' << value.timestamp_ns;
     return line.str();
 }
+} // namespace
+std::string format_pointcloud_measurement(const PointCloudTelemetry& value) {return format_pointcloud(value,false);}
+std::string format_current_pointcloud_measurement(const PointCloudTelemetry& value) {return format_pointcloud(value,true);}
+PointCloudTelemetry make_offline_pointcloud_telemetry(const std::string& lidar_id) {return offline_pointcloud(lidar_id);}
 
 std::string format_imu_measurement(const ImuTelemetry& value) {
     auto line = line_stream();
@@ -499,26 +471,10 @@ std::string format_ground_measurement(
     auto line=line_stream();
     line << "ground_status,lidar_id=" << escape_influx_tag(message.lidar_id)
          << ",mode=" << escape_influx_tag(value.configured_mode)
-         << " state_code=" << static_cast<unsigned int>(value.state) << 'i'
-         << ",calibrated=" << (value.calibrated ? "1i" : "0i")
-         << ",using_imu=" << (value.using_imu ? "1i" : "0i")
-         << ",using_static_fallback=" << (value.using_static_fallback ? "1i" : "0i")
-         << ",plane_a=" << value.plane_a << ",plane_b=" << value.plane_b
-         << ",plane_c=" << value.plane_c << ",plane_d=" << value.plane_d
-         << ",ground_tilt_deg=" << value.ground_tilt_deg
-         << ",sensor_to_ground_distance_m=" << value.sensor_to_ground_distance_m
-         << ",expected_ground_distance_m=" << value.expected_ground_distance_m
+         << " ground_tilt_deg=" << value.ground_tilt_deg
          << ",ground_height_error_m=" << value.ground_height_error_m
-         << ",calibration_frame_count=" << value.calibration_frame_count << 'i'
-         << ",calibration_sample_count=" << value.calibration_sample_count << 'i'
-         << ",ground_inlier_count=" << value.ground_inlier_count << 'i'
          << ",ground_inlier_ratio=" << value.ground_inlier_ratio
-         << ",mean_residual_m=" << value.mean_residual_m
          << ",rms_residual_m=" << value.rms_residual_m
-         << ",p95_residual_m=" << value.p95_residual_m
-         << ",input_point_count=" << value.input_point_count << 'i'
-         << ",removed_ground_point_count=" << value.removed_ground_point_count << 'i'
-         << ",output_point_count=" << value.output_point_count << 'i'
          << ",removed_ground_ratio=" << value.removed_ground_ratio
          << ' ' << system_timestamp_ns();
     return line.str();
@@ -530,6 +486,44 @@ std::string format_ground_state_measurement(
     line << "ground_state state_code="
          << static_cast<unsigned int>(message.payload.state) << 'i'
          << ' ' << system_timestamp_ns();
+    return line.str();
+}
+
+std::string format_room_map_measurement(const models::RoomMapStatus& status) {
+    auto line = line_stream();
+    line << "room_map_status state_code=" << static_cast<unsigned int>(status.state) << 'i'
+         << ",point_count=" << status.point_count << 'i'
+         << ",candidate_voxels=" << status.candidate_voxels << 'i'
+         << ",cache_max_voxels=" << status.cache_max_voxels << 'i'
+         << ",cache_voxels=" << status.cache_voxels << 'i'
+         << ",cache_tiles=" << status.cache_tiles << 'i'
+         << ",cache_evictions=" << status.cache_evictions << 'i'
+         << ",disk_tiles=" << status.disk_tiles << 'i'
+         << ",cache_misses=" << status.cache_misses << 'i'
+         << ",tile_reads=" << status.tile_reads << 'i'
+         << ",tile_writes=" << status.tile_writes << 'i'
+         << ",lod_node_writes=" << status.lod_node_writes << 'i'
+         << ",view_queries=" << status.view_queries << 'i'
+         << ",integrated_frames=" << status.integrated_frames << 'i'
+         << ",preview_queries=" << status.preview_queries << 'i'
+         << ",last_integration_ms=" << status.last_integration_ms
+         << ",max_integration_ms=" << status.max_integration_ms
+         << ",last_map_lock_wait_ms=" << status.last_map_lock_wait_ms
+         << ",last_checkpoint_ms=" << status.last_checkpoint_ms
+         << ",last_view_ms=" << status.last_view_ms
+         << ",last_view_lock_wait_ms=" << status.last_view_lock_wait_ms
+         << ",tile_read_total_ms=" << status.tile_read_total_ms
+         << ",tile_write_total_ms=" << status.tile_write_total_ms
+         << ",lod_update_total_ms=" << status.lod_update_total_ms
+         << ",dropped_input_messages=" << status.dropped_input_messages << 'i'
+         << ",active_build_seconds=" << status.active_build_seconds
+         << ",raycasts=" << status.raycasts << 'i'
+         << ",ray_budget_skipped_points=" << status.ray_budget_skipped_points << 'i'
+         << ",ray_traversal_steps=" << status.ray_traversal_steps << 'i'
+         << ",free_space_checks=" << status.free_space_checks << 'i'
+         << ",cleared_voxels=" << status.cleared_voxels << 'i'
+         << ",missing_origin_messages=" << status.missing_origin_messages << 'i'
+         << ' ' << status.timestamp_ns;
     return line.str();
 }
 
@@ -546,18 +540,19 @@ platform::WorkerHandle spawn_grafana_bridge(
     auto processed = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_processed);
     auto imu = inputs.subscribe<devices::LidarImuMessage>(bus, models::topics::lidar_imu);
     auto ground = inputs.subscribe<models::LidarGroundStatusMessage>(bus, models::topics::ground_status);
+    auto room_map = inputs.subscribe<models::RoomMapStatus>(bus, models::topics::room_map_status);
     auto system = inputs.subscribe<models::SystemHealthTelemetry>(bus, models::topics::system_health);
     auto worker = inputs.subscribe<models::WorkerHealthTelemetry>(bus, models::topics::worker_health);
-    auto storage = inputs.subscribe<models::StorageHealthTelemetry>(bus, models::topics::storage_health);
-    auto power = inputs.subscribe<models::PowerThermalTelemetry>(bus, models::topics::power_thermal);
+    // Storage/power remain available on the internal bus, but the current
+    // dashboard has no consumers for them. Avoid subscribing/draining/sending.
 
     return platform::spawn_worker(
         std::move(thread_config),
         [stop, inputs = std::move(inputs), raw = std::move(raw),
          decoded = std::move(decoded), processed = std::move(processed),
          imu = std::move(imu), ground = std::move(ground),
+         room_map = std::move(room_map),
          system = std::move(system), worker = std::move(worker),
-         storage = std::move(storage), power = std::move(power),
          config = std::move(config), on_complete = std::move(on_complete)]() mutable {
             try {
                 GrafanaBridgeReport report;
@@ -565,30 +560,29 @@ platform::WorkerHandle spawn_grafana_bridge(
                 std::unordered_map<std::uint64_t, std::size_t> decoded_counts;
                 std::unordered_map<std::string, models::WorkerHealthTelemetry> workers;
                 std::optional<models::SystemHealthTelemetry> system_value;
-                std::optional<models::StorageHealthTelemetry> storage_value;
-                 std::optional<models::PowerThermalTelemetry> power_value;
                  std::shared_ptr<const devices::LidarPointCloudMessage> pending_cloud;
                  std::shared_ptr<const devices::LidarImuMessage> pending_imu;
                  std::shared_ptr<const models::LidarGroundStatusMessage> pending_ground;
+                 std::optional<models::RoomMapStatus> pending_room_map;
                  std::size_t input_count{};
-                 std::string lidar_id;
+                 std::string lidar_id=config.selected_lidar_id;
                  std::string imu_lidar_id;
-                 std::uint64_t raw_time{}, decoded_time{}, processed_time{};
+                 std::uint64_t raw_time{}, processed_time{};
                  std::uint64_t imu_time{};
-                 double raw_fps{}, decoded_fps{}, processed_fps{}, latency_ms{};
+                 double raw_fps{}, processed_fps{};
                  double imu_rate_hz{};
-                double raw_fill{}, decoded_fill{}, processed_fill{};
+                double raw_fill{}, processed_fill{};
                 const auto started = Clock::now();
                  auto last_cloud = started;
                  auto last_imu = started;
                  auto next_publish = started;
                  bool raw_closed{}, decoded_closed{}, processed_closed{}, imu_closed{}, ground_closed{};
-                bool system_closed{}, worker_closed{}, storage_closed{}, power_closed{};
+                bool system_closed{}, worker_closed{};
+                bool room_map_closed{};
 
                 while (!stop.is_stop_requested()) {
                     const auto ready = inputs.wait_for(std::chrono::milliseconds(100));
                     if (raw.is_ready(ready)) raw_fill = queue_fill_percent(raw.pending_messages(), raw.capacity());
-                    if (decoded.is_ready(ready)) decoded_fill = queue_fill_percent(decoded.pending_messages(), decoded.capacity());
                     if (processed.is_ready(ready)) processed_fill = queue_fill_percent(processed.pending_messages(), processed.capacity());
 
                     drain<devices::LidarRawMessage>(raw, raw_closed, ready, [&](const auto& message) {
@@ -597,16 +591,12 @@ platform::WorkerHandle spawn_grafana_bridge(
                     });
                     drain<devices::LidarPointCloudMessage>(decoded, decoded_closed, ready, [&](const auto& message) {
                         ++report.received_decoded_messages;
-                        decoded_fps = update_rate(message->received_timestamp_ns, decoded_time, decoded_fps);
                         decoded_counts[message->sequence] = message->payload.points.size();
                         if (decoded_counts.size() > 256) decoded_counts.clear();
                     });
                      drain<devices::LidarPointCloudMessage>(processed, processed_closed, ready, [&](const auto& message) {
                         ++report.received_processed_messages;
                         processed_fps = update_rate(message->received_timestamp_ns, processed_time, processed_fps);
-                        const auto now_ns = system_timestamp_ns();
-                        latency_ms = now_ns >= message->received_timestamp_ns
-                            ? static_cast<double>(now_ns - message->received_timestamp_ns) / 1'000'000.0 : 0.0;
                         last_cloud = Clock::now();
                         lidar_id = message->lidar_id;
                         input_count = message->payload.points.size();
@@ -635,24 +625,24 @@ platform::WorkerHandle spawn_grafana_bridge(
                         });
                     drain<models::SystemHealthTelemetry>(system, system_closed, ready,
                         [&](const auto& message) { system_value = *message; });
+                    drain<models::RoomMapStatus>(room_map, room_map_closed, ready,
+                        [&](const auto& message) { pending_room_map = *message; });
                     drain<models::WorkerHealthTelemetry>(worker, worker_closed, ready,
                         [&](const auto& message) { workers[message->worker_name] = *message; });
-                    drain<models::StorageHealthTelemetry>(storage, storage_closed, ready,
-                        [&](const auto& message) { storage_value = *message; });
-                    drain<models::PowerThermalTelemetry>(power, power_closed, ready,
-                        [&](const auto& message) { power_value = *message; });
 
                     const auto now = Clock::now();
                     if (now >= next_publish) {
-                        const auto online = now - last_cloud < config.offline_timeout;
+                        const auto online = report.received_processed_messages!=0 && now - last_cloud < config.offline_timeout;
                         const auto drops = raw.dropped_messages() + decoded.dropped_messages() + processed.dropped_messages();
                         std::vector<std::string> lines;
                         if (pending_cloud) {
-                            lines.push_back(format_pointcloud_measurement(
-                                summarize_point_cloud(*pending_cloud, input_count, drops, processed_fps)));
+                            const auto value=summarize_point_cloud(*pending_cloud,input_count,drops,processed_fps);
+                            lines.push_back(format_current_pointcloud_measurement(value));
                             pending_cloud.reset();
                          } else if (!online) {
-                             lines.push_back(format_pointcloud_measurement(offline_pointcloud(lidar_id)));
+                             auto value=offline_pointcloud(lidar_id);
+                             value.dropped_messages=drops; // Cumulative bridge drops do not reset on disconnect.
+                             lines.push_back(format_current_pointcloud_measurement(value));
                          }
                          const auto imu_online =
                              now - last_imu < config.offline_timeout;
@@ -670,25 +660,24 @@ platform::WorkerHandle spawn_grafana_bridge(
                             pending_ground.reset();
                         }
                         lines.push_back(format_pipeline_health(PipelineTelemetry{
-                            system_timestamp_ns(), online,
-                            online ? raw_fps : 0.0, online ? decoded_fps : 0.0,
-                            online ? processed_fps : 0.0, online ? latency_ms : 0.0,
-                            raw_fill, decoded_fill, processed_fill, drops,
-                            std::chrono::duration<double, std::milli>(now - last_cloud).count()}));
+                            system_timestamp_ns(), online ? raw_fps : 0.0,
+                            raw_fill, processed_fill, drops}));
+                        if (pending_room_map) {
+                            lines.push_back(format_room_map_measurement(*pending_room_map));
+                            pending_room_map.reset();
+                        }
                         if (system_value) lines.push_back(format_system_health(*system_value));
                         for (const auto& entry : workers) lines.push_back(format_worker_health(entry.second));
-                        if (storage_value) lines.push_back(format_storage_health(*storage_value));
-                        if (power_value) lines.push_back(format_power_thermal(*power_value));
                         publisher.publish(std::move(lines), inputs.topic_count());
                         next_publish = now + config.publish_interval;
                     }
                      if (raw_closed && decoded_closed && processed_closed && imu_closed && ground_closed && system_closed &&
-                        worker_closed && storage_closed && power_closed) break;
+                        worker_closed && room_map_closed) break;
                 }
                  report.dropped_input_messages = raw.dropped_messages() + decoded.dropped_messages() +
                      processed.dropped_messages() + imu.dropped_messages() + ground.dropped_messages() +
                      system.dropped_messages() + worker.dropped_messages() +
-                    storage.dropped_messages() + power.dropped_messages();
+                    room_map.dropped_messages();
                 on_complete(report, {});
             } catch (...) {
                 stop.request_stop();

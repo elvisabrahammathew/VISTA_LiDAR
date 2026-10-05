@@ -12,6 +12,7 @@
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
 #include "models/lidars/ground_status.hpp"
+#include "models/room_map.hpp"
 
 namespace vista::application {
 
@@ -23,6 +24,11 @@ struct PointCloudWebSocketConfig {
     std::size_t maximum_clients{4};
     std::chrono::milliseconds publish_interval{100};
     std::chrono::milliseconds retry_interval{2'000};
+    std::string input_topic{"pointcloud/processed"};
+    /// Full room-map snapshots must never be accumulated like sensor packets.
+    bool retained_snapshot{false};
+    bool room_map_lod{false};
+    bool include_ground_status{true};
 };
 
 void validate_pointcloud_websocket_config(
@@ -48,13 +54,21 @@ using PointCloudWebSocketCompletion = std::function<void(
     std::optional<PointCloudWebSocketReport>,
     std::string)>;
 
-/// Starts an independent worker that subscribes to pointcloud/processed and
-/// broadcasts LPC1 frames to every connected Grafana browser panel.
+/// Subscribes to the configured cloud topic and broadcasts LPC1 frames.
+/// Snapshot mode retains the latest map and replays it to newly connected panels.
 platform::WorkerHandle spawn_pointcloud_websocket(
     platform::MessageBus& bus,
     platform::ThreadConfig thread_config,
     platform::StopToken stop,
     PointCloudWebSocketConfig config,
     PointCloudWebSocketCompletion on_complete);
+
+/// Bidirectional camera requests and bounded out-of-core room-map LOD views.
+platform::WorkerHandle spawn_room_map_websocket(platform::MessageBus&,
+    platform::ThreadConfig, platform::StopToken, PointCloudWebSocketConfig,
+    PointCloudWebSocketCompletion);
+
+/// Parses the bounded VIEW budget height cameraXYZ six-frustum-planes request.
+models::RoomMapViewRequest parse_room_map_view_request(const std::string&, std::size_t server_budget);
 
 }  // namespace vista::application

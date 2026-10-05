@@ -1,6 +1,7 @@
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cctype>
 #include <exception>
@@ -154,6 +155,13 @@ void validate(const PreprocessingConfig& config) {
     }
     if (config.voxel_size_m && (!std::isfinite(*config.voxel_size_m) || *config.voxel_size_m<=0.0F))
         throw std::invalid_argument("voxel size must be positive and finite");
+    if (config.mounting) {
+        const auto& mount=*config.mounting;
+        const float values[]{mount.mount_x_m,mount.mount_y_m,mount.mount_z_m,
+            mount.mount_roll_deg,mount.mount_pitch_deg,mount.mount_yaw_deg};
+        for (const auto value:values) if (!std::isfinite(value))
+            throw std::invalid_argument("mounting values must be finite");
+    }
     if (!config.ground_removal) return;
     const auto& ground=*config.ground_removal;
     const float finite_values[]{ground.mount_x_m,ground.mount_y_m,ground.mount_z_m,ground.mount_roll_deg,ground.mount_pitch_deg,ground.mount_yaw_deg,ground.floor_z_m,ground.distance_threshold_m,ground.normal_tolerance_deg,ground.minimum_inlier_ratio};
@@ -249,7 +257,8 @@ public:
     }
 
     void update_imu(const models::ImuFrame& sample) {
-        if (!config.ground_removal || !config.ground_removal->use_imu) return;
+        const auto& mount=config.mounting ? config.mounting : config.ground_removal;
+        if (!mount || !mount->use_imu) return;
         const Vec3 acceleration{sample.linear_acceleration_x_m_s2,sample.linear_acceleration_y_m_s2,sample.linear_acceleration_z_m_s2};
         const Vec3 angular{sample.angular_velocity_x_rad_s,sample.angular_velocity_y_rad_s,sample.angular_velocity_z_rad_s};
         const auto acceleration_magnitude=norm(acceleration), angular_speed=norm(angular);
@@ -266,13 +275,23 @@ public:
 
     models::PointCloudFrame process(models::PointCloudFrame frame) {
         const auto input_point_count=frame.points.size();
+        auto output=process_ground(clean(std::move(frame)));
+        if (config.ground_removal) latest_ground_status.input_point_count=input_point_count;
+        return output;
+    }
+
+    models::PointCloudFrame clean(models::PointCloudFrame frame) {
         const auto min2=config.min_distance_m*config.min_distance_m,max2=config.max_distance_m*config.max_distance_m;
         frame.points.erase(std::remove_if(frame.points.begin(),frame.points.end(),[=](const auto& point){
             if (!std::isfinite(point.x)||!std::isfinite(point.y)||!std::isfinite(point.z)) return true;
             const auto distance2=point.x*point.x+point.y*point.y+point.z*point.z;
             return distance2<min2 || distance2>max2;
         }),frame.points.end());
-        if (config.ground_removal) transform_to_world(frame,*config.ground_removal);
+        const auto& mount=config.mounting ? config.mounting : config.ground_removal;
+        if (mount) transform_to_world(frame,*mount);
+        frame.sensor_origin_world_m = mount
+            ? std::array<float, 3>{mount->mount_x_m, mount->mount_y_m, mount->mount_z_m}
+            : std::array<float, 3>{0.0F, 0.0F, 0.0F};
         if (config.region_of_interest) {
             const auto roi=*config.region_of_interest;
             frame.points.erase(std::remove_if(frame.points.begin(),frame.points.end(),[=](const auto& point){return !contains(roi,point);}),frame.points.end());
@@ -284,6 +303,11 @@ public:
                 return !occupied.insert(key).second;
             }),frame.points.end());
         }
+        return frame;
+    }
+
+    models::PointCloudFrame process_ground(models::PointCloudFrame frame) {
+        const auto input_point_count=frame.points.size();
         if (config.ground_removal) {
             calibrate_if_needed(frame.points,*config.ground_removal);
             const auto removed=remove_ground(frame,*config.ground_removal);
@@ -396,6 +420,8 @@ PointCloudPreprocessor::PointCloudPreprocessor(PointCloudPreprocessor&&) noexcep
 PointCloudPreprocessor& PointCloudPreprocessor::operator=(PointCloudPreprocessor&&) noexcept=default;
 void PointCloudPreprocessor::update_imu(const models::ImuFrame& sample) { impl_->update_imu(sample); }
 models::PointCloudFrame PointCloudPreprocessor::process(models::PointCloudFrame frame) { return impl_->process(std::move(frame)); }
+models::PointCloudFrame PointCloudPreprocessor::clean(models::PointCloudFrame frame) { return impl_->clean(std::move(frame)); }
+models::PointCloudFrame PointCloudPreprocessor::process_ground(models::PointCloudFrame frame) { return impl_->process_ground(std::move(frame)); }
 bool PointCloudPreprocessor::ground_calibrated() const noexcept { return impl_->ground_calibrated(); }
 bool PointCloudPreprocessor::using_imu_orientation() const noexcept { return impl_->using_imu_orientation(); }
 models::GroundStatus PointCloudPreprocessor::ground_status() const { return impl_->ground_status(); }
@@ -404,13 +430,14 @@ models::PointCloudFrame preprocess_point_cloud(models::PointCloudFrame frame,con
     PointCloudPreprocessor processor(config); return processor.process(std::move(frame));
 }
 
-platform::WorkerHandle spawn_preprocessing_worker(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete) {
+namespace {
+platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete,bool ground_stage) {
     platform::WorkerTopicInputs inputs(thread_config.name);
-    auto pointcloud_input=inputs.subscribe<devices::LidarPointCloudMessage>(bus,models::topics::pointcloud_decoded);
+    auto pointcloud_input=inputs.subscribe<devices::LidarPointCloudMessage>(bus,ground_stage ? models::topics::pointcloud_cleaned : models::topics::pointcloud_decoded);
     auto imu_input=inputs.subscribe<devices::LidarImuMessage>(bus,models::topics::lidar_imu);
-    auto publisher=bus.publisher<devices::LidarPointCloudMessage>(models::topics::pointcloud_processed);
+    auto publisher=bus.publisher<devices::LidarPointCloudMessage>(ground_stage ? models::topics::pointcloud_processed : models::topics::pointcloud_cleaned);
     auto ground_publisher=bus.publisher<models::LidarGroundStatusMessage>(models::topics::ground_status);
-    return platform::spawn_worker(std::move(thread_config),[stop,inputs=std::move(inputs),pointcloud_input=std::move(pointcloud_input),imu_input=std::move(imu_input),publisher=std::move(publisher),ground_publisher=std::move(ground_publisher),config=std::move(config),on_complete=std::move(on_complete)]() mutable {
+    return platform::spawn_worker(std::move(thread_config),[stop,ground_stage,inputs=std::move(inputs),pointcloud_input=std::move(pointcloud_input),imu_input=std::move(imu_input),publisher=std::move(publisher),ground_publisher=std::move(ground_publisher),config=std::move(config),on_complete=std::move(on_complete)]() mutable {
         try {
             PreprocessingReport report; PointCloudPreprocessor processor(std::move(config)); bool pointcloud_closed=false;
             std::optional<models::GroundState> last_ground_state;
@@ -426,7 +453,8 @@ platform::WorkerHandle spawn_preprocessing_worker(platform::MessageBus& bus,plat
                         const auto status=pointcloud_input.try_receive(message);
                         if (status==platform::ReceiveStatus::closed) { pointcloud_closed=true; break; }
                         if (status!=platform::ReceiveStatus::message) break;
-                        auto processed=processor.process(message->payload); ++report.message_count; report.point_count+=processed.points.size();
+                        auto processed=ground_stage ? processor.process_ground(message->payload) : processor.clean(message->payload);
+                        ++report.message_count; report.point_count+=processed.points.size();
                         auto ground_status=processor.ground_status();
                         if (!ground_status.configured_mode.empty() && (!last_ground_state || *last_ground_state!=ground_status.state)) {
                             std::cout << "Ground status: " << models::to_string(ground_status.state)
@@ -449,6 +477,15 @@ platform::WorkerHandle spawn_preprocessing_worker(platform::MessageBus& bus,plat
             report.dropped_message_count=pointcloud_input.dropped_messages(); on_complete(report,{});
         } catch (...) { stop.request_stop(); on_complete(std::nullopt,current_exception_message()); }
     });
+}
+}  // namespace
+
+platform::WorkerHandle spawn_preprocessing_worker(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete) {
+    return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),false);
+}
+
+platform::WorkerHandle spawn_ground_processing_worker(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete) {
+    return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),true);
 }
 
 }  // namespace vista::application

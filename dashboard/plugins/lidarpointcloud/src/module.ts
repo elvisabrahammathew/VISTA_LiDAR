@@ -32,7 +32,7 @@ export const plugin = new PanelPlugin<LidarPointCloudOptions>(LidarPointCloudPan
       .addNumberInput({
         path: 'maxPoints',
         name: 'Maximum displayed points',
-        description: 'Frames larger than this limit are uniformly sampled in the browser.',
+        description: 'Room maps request camera-dependent LOD within this budget. Live frames are sampled. Stored maps are not capped.',
         defaultValue: 100000,
         settings: { min: 1000, max: 2000000, step: 1000 },
       })

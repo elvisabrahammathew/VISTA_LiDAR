@@ -13,6 +13,7 @@
 #include "4_Applications/monitoring/system_monitor.hpp"
 #include "4_Applications/pointcloud_websocket/pointcloud_websocket.hpp"
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
+#include "4_Applications/mapping/room_map/room_map.hpp"
 
 namespace vista {
 
@@ -33,6 +34,9 @@ struct ThreadSetConfig {
     WorkerConfig system_monitor;
     WorkerConfig grafana_bridge;
     WorkerConfig pointcloud_websocket;
+    WorkerConfig ground_processing;
+    WorkerConfig room_mapping;
+    WorkerConfig room_map_websocket;
 };
 
 struct TopicQueueConfig {
@@ -73,10 +77,27 @@ struct AppConfig {
     /// Delay before retrying while the selected LiDAR is unavailable.
     std::chrono::milliseconds lidar_reconnect_interval{5'000};
     application::GrafanaBridgeConfig grafana;
+    /// Both WebSocket enabled flags are derived from grafana.enabled, not separate TXT switches.
     application::PointCloudWebSocketConfig pointcloud_websocket;
+    application::RoomMapConfig room_map;
+    application::PointCloudWebSocketConfig room_map_websocket = [] {
+        application::PointCloudWebSocketConfig value;
+        value.enabled = false; // AppConfig parsing derives this from GrafanaEnabled.
+        value.port = 8766;
+        value.maximum_points = 100'000;
+        // Share the map's default too; parsing derives any TXT override below.
+        value.publish_interval = application::RoomMapConfig{}.publish_interval;
+        value.input_topic = "mapping/room_map";
+        value.retained_snapshot = true;
+        value.room_map_lod = true;
+        value.include_ground_status = false;
+        return value;
+    }();
     application::SystemMonitorConfig system_monitor;
     /// Enabled when GroundMode is present in DeviceConfig.txt.
     std::optional<application::GroundRemovalConfig> ground_removal;
+    /// Common mounting transform is independent of the ground-processing branch.
+    std::optional<application::GroundRemovalConfig> mounting;
     std::optional<std::filesystem::path> raw_path;
     std::optional<std::filesystem::path> pcd_path;
 
@@ -89,5 +110,10 @@ struct AppConfig {
 AppConfig parse_device_config_text(const std::string& contents);
 std::string format_log_timestamp(
     std::chrono::system_clock::time_point timestamp);
+/// Uses ONE session timestamp for RAW, processed PCD, and the new room-map name.
+/// RoomMapFile is an input path only in read-only loading mode.
+void configure_session_output_paths(AppConfig& config,
+    const std::filesystem::path& data_root,
+    std::chrono::system_clock::time_point session_start);
 
 }  // namespace vista

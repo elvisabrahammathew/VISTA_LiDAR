@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { decodePointCloudPacket } from '../protocol';
+import { decodeRoomMapMetadata, makeRoomMapViewRequest, RoomMapMetadata } from '../room_map_view';
 import { GroundStatus, LidarPointCloudOptions, PointCloudFrame } from '../types';
 
 type Props = PanelProps<LidarPointCloudOptions>;
@@ -30,6 +31,7 @@ interface SceneState {
   groundPlane: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   groundNormal: THREE.ArrowHelper;
   fitted: boolean;
+  roomMapBounds?: THREE.Box3;
   animationId: number;
 }
 
@@ -41,6 +43,7 @@ interface StatusState {
   protocol: string;
   frameId: string;
   ground?: GroundStatus;
+  roomMap?: RoomMapMetadata;
 }
 
 const initialStatus: StatusState = {
@@ -57,6 +60,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
   const sceneRef = useRef<SceneState | null>(null);
   const optionsRef = useRef(options);
   const statusUpdateTimeRef = useRef(0);
+  const roomMapRef = useRef<RoomMapMetadata | undefined>(undefined);
   const [status, setStatus] = useState<StatusState>(initialStatus);
 
   optionsRef.current = options;
@@ -214,6 +218,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
 
     let socket: WebSocket | undefined;
     let reconnectTimer: number | undefined;
+    let lastViewRequest = '';
     let stopped = false;
 
     const connect = () => {
@@ -227,6 +232,8 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       }));
 
       try {
+        roomMapRef.current = undefined;
+        lastViewRequest = '';
         socket = new WebSocket(options.websocketUrl);
         socket.binaryType = 'arraybuffer';
       } catch (error) {
@@ -243,6 +250,25 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       };
 
       socket.onmessage = (event) => {
+        if (typeof event.data === 'string') {
+          try {
+            const meta = decodeRoomMapMetadata(event.data);
+            if (meta) {
+              roomMapRef.current = meta;
+              const scene = sceneRef.current;
+              if (scene && meta.totalPoints > 0) {
+                const bounds = new THREE.Box3(new THREE.Vector3(...meta.bounds.slice(0, 3)), new THREE.Vector3(...meta.bounds.slice(3, 6)));
+                const firstMap = !scene.roomMapBounds;
+                scene.roomMapBounds = bounds;
+                if (firstMap) { fitCameraToBounds(scene, bounds); scene.fitted = true; }
+              }
+              setStatus((current) => ({ ...current, roomMap: meta }));
+            }
+          } catch (error) {
+            setStatus((current) => ({ ...current, state: 'error', message: String(error) }));
+          }
+          return;
+        }
         if (!(event.data instanceof ArrayBuffer)) {
           setStatus((current) => ({ ...current, state: 'error', message: 'Expected a binary LPC1/LDR1 frame' }));
           return;
@@ -284,8 +310,19 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
     };
 
     connect();
+    const viewTimer = window.setInterval(() => {
+      const scene = sceneRef.current;
+      if (!scene || !roomMapRef.current || socket?.readyState !== WebSocket.OPEN) { return; }
+      const viewport = scene.renderer.getSize(new THREE.Vector2());
+      const request = makeRoomMapViewRequest(scene.camera, viewport.y,
+        Math.min(optionsRef.current.maxPoints || 100000, roomMapRef.current.pointBudget));
+      if (request !== lastViewRequest) { socket.send(request); lastViewRequest = request; }
+    }, 400);
     return () => {
       stopped = true;
+      window.clearInterval(viewTimer);
+      roomMapRef.current = undefined;
+      if (sceneRef.current) { sceneRef.current.roomMapBounds = undefined; }
       if (reconnectTimer !== undefined) {
         window.clearTimeout(reconnectTimer);
       }
@@ -305,12 +342,13 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
     const shownPoints = sceneRef.current?.pointCount ?? 0;
     setStatus({
       state: 'connected',
-      message: `Receiving from ${source}`,
+      message: frame.pointCount > 0 ? `Receiving from ${source}` : `Connected to ${source}; no point-cloud data`,
       shownPoints,
       inputPoints: frame.pointCount,
       protocol: frame.protocol,
       frameId: frame.frameId?.toString() ?? '-',
       ground: frame.ground,
+      roomMap: roomMapRef.current,
     });
   };
 
@@ -319,7 +357,8 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
     if (!state || state.pointCount === 0) {
       return;
     }
-    fitCameraToCloud(state);
+    if (state.roomMapBounds) { fitCameraToBounds(state, state.roomMapBounds); }
+    else { fitCameraToCloud(state); }
   };
 
   const statusColor =
@@ -347,6 +386,12 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
           Points {status.shownPoints.toLocaleString()} / {status.inputPoints.toLocaleString()} · {status.protocol} · frame{' '}
           {status.frameId}
         </div>
+        {status.roomMap && (
+          <div>
+            Room map: {status.roomMap.totalPoints.toLocaleString()} stored points · camera-dependent LOD ·{' '}
+            {['EMPTY', 'BUILDING', 'FROZEN', 'LOADED', 'DISABLED', 'LOAD ERROR', 'STORAGE ERROR'][status.roomMap.state]}
+          </div>
+        )}
         {status.ground && (
           <div style={{ color: groundStatusColor(status.ground), marginTop: 2 }}>
             Ground {status.ground.state.replace('_', ' ').toUpperCase()} · {status.ground.mode} · tilt{' '}
@@ -388,6 +433,13 @@ const displayFrame = (
   }
   updateGroundOverlay(state, frame.ground);
   if (frame.pointCount <= 0) {
+    // An empty replacement snapshot must clear the previous scene, not leave ghosts.
+    state.pointCount = 0;
+    state.inputPointCount = 0;
+    state.geometry.setDrawRange(0, 0);
+    state.geometry.boundingBox = null;
+    state.geometry.boundingSphere = null;
+    if (!state.roomMapBounds) { state.fitted = false; }
     return;
   }
 
@@ -515,6 +567,8 @@ const ensureCapacity = (state: SceneState, requiredPoints: number): void => {
     return;
   }
   const capacity = Math.max(requiredPoints, Math.ceil(Math.max(state.capacity, 1024) * 1.5));
+  // Release previous GPU attributes before replacing their typed arrays.
+  state.geometry.dispose();
   state.positions = new Float32Array(capacity * 3);
   state.colors = new Float32Array(capacity * 3);
   const positionAttribute = new THREE.BufferAttribute(state.positions, 3);
@@ -531,6 +585,10 @@ const fitCameraToCloud = (state: SceneState): void => {
   if (!bounds || bounds.isEmpty()) {
     return;
   }
+  fitCameraToBounds(state, bounds);
+};
+
+const fitCameraToBounds = (state: SceneState, bounds: THREE.Box3): void => {
   const center = bounds.getCenter(new THREE.Vector3());
   const size = bounds.getSize(new THREE.Vector3());
   // Never zoom closer than the configured ground grid. Small point clouds

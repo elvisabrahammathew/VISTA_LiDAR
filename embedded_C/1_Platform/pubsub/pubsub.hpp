@@ -258,6 +258,17 @@ public:
         release();
     }
 
+    /// Avoid materializing expensive compatibility previews without a consumer.
+    /// Check again on every publication tick because subscribers may join later.
+    std::size_t subscriber_count() const {
+        if (!state_) return 0;
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        std::size_t count{};
+        for (const auto& weak : state_->subscribers)
+            if (const auto subscriber = weak.lock(); subscriber && subscriber->active) ++count;
+        return count;
+    }
+
     std::size_t publish(T message) const {
         return publish_shared(std::make_shared<const T>(std::move(message)));
     }

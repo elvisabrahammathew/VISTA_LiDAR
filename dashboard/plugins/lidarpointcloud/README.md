@@ -43,3 +43,21 @@ pnpm run build
 ```
 
 The generated installable plugin is in `dist`.
+
+# Room-map snapshots (1.0.3)
+
+An empty replacement snapshot clears the previous 3D geometry. A connected
+WebSocket with zero points is shown as connected/no-data, not disconnected.
+Use the V4 Free Space dashboard's Room Map State panel to distinguish DISABLED,
+LOAD ERROR, EMPTY, BUILDING, FROZEN, and LOADED / READ ONLY.
+The C++ GrafanaEnabled setting controls both WebSocket outputs.
+
+# Room-map LOD (1.1.0)
+
+Port 8766 can now send room-map metadata followed by bounded LPC1 view frames.
+The panel sends camera/frustum requests automatically while zooming/panning.
+Maximum displayed points is a per-view rendering budget, not a total-map limit.
+The C++ mapper stores full geometry in disk tiles and exports every confirmed
+point to PCD. This is a Potree-inspired hierarchy, not a native Potree file reader.
+Install this updated plugin alongside the updated C++ application; a 1.0.x
+plugin cannot request camera-dependent detail. Port 8765 live streams are unchanged.

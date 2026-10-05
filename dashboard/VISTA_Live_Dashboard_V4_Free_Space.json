@@ -1,0 +1,4101 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "vista-lidarpointcloud-panel",
+      "name": "lidarpointcloud",
+      "version": "1.1.0"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Live monitoring dashboard for the VISTA C++ sensor-processing application. Data is received through Grafana Live channels published by grafana_bridge.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Live Point Cloud, Room Map and Ground Validation",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 51,
+      "type": "vista-lidarpointcloud-panel",
+      "title": "Live Point Cloud - After Ground Removal",
+      "description": "Real-time pointcloud/processed from the C++ ground-processing worker. Floor points are removed; the ground model overlay remains available.",
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "sourceMode": "websocket",
+        "websocketUrl": "ws://127.0.0.1:8765",
+        "reconnectDelayMs": 2000,
+        "maxPoints": 100000,
+        "pointSize": 2,
+        "colorMode": "height",
+        "solidColor": "#55d6ff",
+        "backgroundColor": "#0b0f14",
+        "showGrid": true,
+        "showAxes": true,
+        "autoRotate": false
+      },
+      "targets": []
+    },
+    {
+      "id": 60,
+      "type": "vista-lidarpointcloud-panel",
+      "title": "Room Map - Out-of-Core LOD",
+      "description": "Complete geometry is stored in disk tiles and exported to PCD, with no total voxel-count cap. Plugin 1.1.0 requests camera-dependent octree LOD; maxPoints is a rendering budget, not the total map size. Zoom/pan to retrieve more detail. Building supports measured free-space cleanup; frozen/loaded references remain unchanged.",
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "sourceMode": "websocket",
+        "websocketUrl": "ws://127.0.0.1:8766",
+        "reconnectDelayMs": 2000,
+        "maxPoints": 100000,
+        "pointSize": 2,
+        "colorMode": "height",
+        "solidColor": "#55d6ff",
+        "backgroundColor": "#0b0f14",
+        "showGrid": true,
+        "showAxes": true,
+        "autoRotate": false
+      },
+      "targets": []
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Ground State",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "CALIBRATING",
+                  "color": "yellow",
+                  "index": 0
+                },
+                "1": {
+                  "text": "VALID",
+                  "color": "green",
+                  "index": 1
+                },
+                "2": {
+                  "text": "STATIC FALLBACK",
+                  "color": "orange",
+                  "index": 2
+                },
+                "3": {
+                  "text": "INVALID",
+                  "color": "red",
+                  "index": 3
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "Ground State"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/ground_state",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "state_code"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "table",
+      "title": "Ground Validation",
+      "gridPos": {
+        "x": 4,
+        "y": 19,
+        "w": 20,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ground Tilt"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ground Tilt"
+              },
+              {
+                "id": "unit",
+                "value": "degree"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Height Error"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Height Error"
+              },
+              {
+                "id": "unit",
+                "value": "lengthm"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ground Inliers"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ground Inliers"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RMS Residual"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RMS Residual"
+              },
+              {
+                "id": "unit",
+                "value": "lengthm"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Removed as Ground"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Removed as Ground"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LiDAR"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "LiDAR"
+              },
+              {
+                "id": "unit",
+                "value": "string"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ground Mode"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ground Mode"
+              },
+              {
+                "id": "unit",
+                "value": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/ground_status",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "ground_tilt_deg",
+                "ground_height_error_m",
+                "ground_inlier_ratio",
+                "rms_residual_m",
+                "removed_ground_ratio",
+                "lidar_id",
+                "mode"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "lidar_id": 0,
+              "mode": 1,
+              "ground_tilt_deg": 2,
+              "ground_height_error_m": 3,
+              "ground_inlier_ratio": 4,
+              "rms_residual_m": 5,
+              "removed_ground_ratio": 6,
+              "Time": 7,
+              "time": 7
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "ground_tilt_deg": "Ground Tilt",
+              "ground_height_error_m": "Height Error",
+              "ground_inlier_ratio": "Ground Inliers",
+              "rms_residual_m": "RMS Residual",
+              "removed_ground_ratio": "Removed as Ground",
+              "lidar_id": "LiDAR",
+              "mode": "Ground Mode"
+            }
+          }
+        }
+      ],
+      "description": "Ground validation history, one row per sample, newest first. LiDAR and ground mode identify the source. Ground State is shown separately. History is limited to the current Grafana Live buffer, not persistent storage."
+    },
+    {
+      "id": 61,
+      "type": "stat",
+      "title": "Room Map State",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "EMPTY",
+                  "color": "gray",
+                  "index": 0
+                },
+                "1": {
+                  "text": "BUILDING",
+                  "color": "yellow",
+                  "index": 1
+                },
+                "2": {
+                  "text": "FROZEN",
+                  "color": "green",
+                  "index": 2
+                },
+                "3": {
+                  "text": "LOADED / READ ONLY",
+                  "color": "blue",
+                  "index": 3
+                },
+                "4": {
+                  "text": "DISABLED",
+                  "color": "gray",
+                  "index": 4
+                },
+                "5": {
+                  "text": "LOAD ERROR",
+                  "color": "red",
+                  "index": 5
+                },
+                "6": {
+                  "text": "STORAGE ERROR",
+                  "color": "red",
+                  "index": 6
+                }
+              }
+            }
+          ],
+          "displayName": "Room Map State"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "state_code"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "EMPTY: no confirmed points yet. BUILDING: measured hits/free-space rays update geometry. FROZEN: no updates. LOADED: read-only reference. DISABLED: mapping off. LOAD ERROR: invalid/missing file. STORAGE ERROR: disk/cache failure; live capture continues."
+    },
+    {
+      "id": 74,
+      "type": "table",
+      "title": "Room Map Build and Free Space",
+      "description": "Confirmed/candidate geometry, active build time, input drops and free-space ray counters over time, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Candidate Voxels"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Candidate Voxels"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Active Build Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Active Build Time"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Input Drops"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Input Drops"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cleared Map Voxels"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cleared Map Voxels"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Rays Cast"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Rays Cast"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Free Space Checks"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Free Space Checks"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ray Work Skipped"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ray Work Skipped"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ray Traversal Steps"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ray Traversal Steps"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Missing Ray Origin"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Missing Ray Origin"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Confirmed Map Points"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Confirmed Map Points"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "point_count",
+                "candidate_voxels",
+                "active_build_seconds",
+                "dropped_input_messages",
+                "cleared_voxels",
+                "raycasts",
+                "free_space_checks",
+                "ray_budget_skipped_points",
+                "ray_traversal_steps",
+                "missing_origin_messages"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "point_count": 0,
+              "candidate_voxels": 1,
+              "active_build_seconds": 2,
+              "dropped_input_messages": 3,
+              "cleared_voxels": 4,
+              "raycasts": 5,
+              "free_space_checks": 6,
+              "ray_budget_skipped_points": 7,
+              "ray_traversal_steps": 8,
+              "missing_origin_messages": 9,
+              "Time": 10,
+              "time": 10
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "point_count": "Confirmed Map Points",
+              "candidate_voxels": "Candidate Voxels",
+              "active_build_seconds": "Active Build Time",
+              "dropped_input_messages": "Map Input Drops",
+              "cleared_voxels": "Cleared Map Voxels",
+              "raycasts": "Rays Cast",
+              "free_space_checks": "Free Space Checks",
+              "ray_budget_skipped_points": "Ray Work Skipped",
+              "ray_traversal_steps": "Ray Traversal Steps",
+              "missing_origin_messages": "Missing Ray Origin"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 83,
+      "type": "table",
+      "title": "Room Map Cache and Operation Timing",
+      "description": "RAM/disk cache and operation timing history, newest first. RAM Voxel Budget limits the resident cache, not the total map. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RAM Voxels"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RAM Voxels"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RAM Voxel Budget"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RAM Voxel Budget"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RAM Tiles"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RAM Tiles"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cache Evictions"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cache Evictions"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Disk Tiles"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Disk Tiles"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Integration"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Integration"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Maximum Map Integration"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Maximum Map Integration"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Lock Wait"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Lock Wait"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Checkpoint"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Checkpoint"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOD View Query"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "LOD View Query"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "View Lock Wait"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "View Lock Wait"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "cache_voxels",
+                "cache_max_voxels",
+                "cache_tiles",
+                "cache_evictions",
+                "disk_tiles",
+                "last_integration_ms",
+                "max_integration_ms",
+                "last_map_lock_wait_ms",
+                "last_checkpoint_ms",
+                "last_view_ms",
+                "last_view_lock_wait_ms"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "cache_voxels": 0,
+              "cache_max_voxels": 1,
+              "cache_tiles": 2,
+              "cache_evictions": 3,
+              "disk_tiles": 4,
+              "last_integration_ms": 5,
+              "max_integration_ms": 6,
+              "last_map_lock_wait_ms": 7,
+              "last_checkpoint_ms": 8,
+              "last_view_ms": 9,
+              "last_view_lock_wait_ms": 10,
+              "Time": 11,
+              "time": 11
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "cache_voxels": "RAM Voxels",
+              "cache_max_voxels": "RAM Voxel Budget",
+              "cache_tiles": "RAM Tiles",
+              "cache_evictions": "Cache Evictions",
+              "disk_tiles": "Disk Tiles",
+              "last_integration_ms": "Map Integration",
+              "max_integration_ms": "Maximum Map Integration",
+              "last_map_lock_wait_ms": "Map Lock Wait",
+              "last_checkpoint_ms": "Map Checkpoint",
+              "last_view_ms": "LOD View Query",
+              "last_view_lock_wait_ms": "View Lock Wait"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 84,
+      "type": "table",
+      "title": "Room Map I/O and Counters",
+      "description": "Integration/query/cache and disk/LOD I/O counter history, including cumulative I/O durations, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Integrated Frames"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Integrated Frames"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Preview Queries"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Preview Queries"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "View Queries"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "View Queries"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cache Misses"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cache Misses"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tile Reads"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tile Reads"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tile Writes"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tile Writes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOD Node Writes"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "LOD Node Writes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Tile Read Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total Tile Read Time"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Tile Write Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total Tile Write Time"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total LOD Update Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total LOD Update Time"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "integrated_frames",
+                "preview_queries",
+                "view_queries",
+                "cache_misses",
+                "tile_reads",
+                "tile_writes",
+                "lod_node_writes",
+                "tile_read_total_ms",
+                "tile_write_total_ms",
+                "lod_update_total_ms"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "integrated_frames": 0,
+              "preview_queries": 1,
+              "view_queries": 2,
+              "cache_misses": 3,
+              "tile_reads": 4,
+              "tile_writes": 5,
+              "lod_node_writes": 6,
+              "tile_read_total_ms": 7,
+              "tile_write_total_ms": 8,
+              "lod_update_total_ms": 9,
+              "Time": 10,
+              "time": 10
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "integrated_frames": "Integrated Frames",
+              "preview_queries": "Preview Queries",
+              "view_queries": "View Queries",
+              "cache_misses": "Cache Misses",
+              "tile_reads": "Tile Reads",
+              "tile_writes": "Tile Writes",
+              "lod_node_writes": "LOD Node Writes",
+              "tile_read_total_ms": "Total Tile Read Time",
+              "tile_write_total_ms": "Total Tile Write Time",
+              "lod_update_total_ms": "Total LOD Update Time"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 67,
+      "type": "text",
+      "title": "Room Map Modes and Free-Space Clearing",
+      "transparent": true,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**GrafanaEnabled controls Grafana Live and both WebSocket workers.** Live uses `ws://127.0.0.1:8765`; camera-dependent map LOD uses `ws://127.0.0.1:8766`.\n\n**BUILD:** `RoomMapEnabled: 1`, `RoomMapLoadExisting: 0`. World-coordinate measured hits confirm voxels. Rays clear old geometry only after repeated free observations; occluded geometry behind a measured hit is preserved. Defaults: 5 cm voxels, 3 hit windows, 5 free windows, 100 ms windows, up to 256 rays/window, ray range 30 m, surface margin at least one voxel diagonal. Rays are sampled: clearing may take longer than five windows. No-return/missing frames never clear confirmed map points.\n\n**FROZEN:** `RoomMapFreezeAfterSeconds: 30` stops both fusion and clearing after active acquisition. Use `0` to keep updating during the building session. A person who remains visible may enter the map; this is not detection/tracking.\n\n**LOAD:** `RoomMapLoadExisting: 1` loads `RoomMapFile` as a read-only reference, never subscribes to live geometry and never overwrites that file. A missing/invalid file produces LOAD ERROR, not automatic rebuilding. DISABLED/LOAD ERROR can still have a connected WebSocket carrying zero-point snapshots.\n\nEvery building session automatically saves a snapshot on freeze/clean shutdown; there is no save toggle. No-data startup preserves an older snapshot. Build mode ignores RoomMapFile and uses local session-start time for `Repo/data/maps/RoomMap_YYYYMMDD_HHMMSS.pcd`; collisions add _1, _2, etc. Freeze and shutdown update the same session file. LOAD mode requires RoomMapFile to name the exact existing PCD; an empty value is LOAD ERROR. Change configuration and restart to rebuild; there is no runtime control TXT file. Keep the same LiDAR position and mounting. Update the installed plugin to 1.1.0 for camera-dependent room-map LOD. RoomMapMaxVoxels is removed: RoomMapCacheMaxVoxels (250000) and RoomMapCacheMaxTiles (128) bound the RAM tile cache, not total map geometry. RoomMapTileSizeMeters (2.0) sets spatial tile size; RoomMapLodPointsPerNode (128) controls octree sampling. All confirmed geometry remains on disk and is streamed to the session PCD. RoomMapWebSocketMaxPoints and panel maxPoints bound one visible LOD view, not storage. Zoom/pan requests different detail. Disk/cache metrics and STORAGE ERROR expose storage problems; physical disk/RAM/GPU limits still apply.\n\nThe default room-map render budget is now 100000 points per view, without limiting stored map geometry. Camera disk queries do not flush live RAM or hold the mapper update mutex. File replacement and disk queries still share a separate disk lock, so slow storage can still delay an eviction/checkpoint. Room Map Performance Diagnostics separates integration, checkpoint, view query and lock waiting. Complete PCD export remains in mapping on freeze/clean shutdown; no extra logger worker is added.\n\nRoomMapPublishIntervalMilliseconds is the single changed-map tile/LOD checkpoint and publication cadence. A revision is announced only after its checkpoint succeeds, and port 8766 sends it without a second timer. Unchanged heartbeats do not resend geometry; changing the camera or reconnecting still requests a view. This timer does not export the entire PCD: PCD export remains on freeze/clean shutdown. Repeated same-map camera requests are bounded by this same interval."
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "LiDAR and IMU",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "LiDAR Online",
+      "description": "Selected LiDAR online state. Tag-free pointcloud_current prevents startup placeholder or previous-device ghost series.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 58
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "OFFLINE"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "ONLINE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "LiDAR Online"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud_current",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "online"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "IMU Online",
+      "description": "Latest IMU state published by the LiDAR decode worker.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 58
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "OFFLINE"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "ONLINE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "IMU Online"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "online"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "IMU Sample Rate",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 58
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "suffix: samples/s",
+          "displayName": "IMU Sample Rate"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "sample_rate_hz"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Point Cloud History",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Points",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "input_point_count"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Input Points"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "point_count"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Processed Points"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud_current",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "input_point_count",
+                "point_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Orientation Quaternion",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 6,
+        "x": 12,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Quaternion",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short",
+          "decimals": 3
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_x"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion X"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_y"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion Y"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_z"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion Z"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_w"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion W"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "orientation_x",
+                "orientation_y",
+                "orientation_z",
+                "orientation_w"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Angular Velocity",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 6,
+        "x": 18,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "rad/s",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "suffix: rad/s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "angular_velocity_x_rad_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Angular Velocity X"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "angular_velocity_y_rad_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Angular Velocity Y"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "angular_velocity_z_rad_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Angular Velocity Z"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "angular_velocity_x_rad_s",
+                "angular_velocity_y_rad_s",
+                "angular_velocity_z_rad_s"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Message Rate and Data Age",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 12,
+        "x": 0,
+        "y": 80
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "message_rate_hz"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: msg/s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "displayName",
+                "value": "Processed Message Rate"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "data_age_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "Point Cloud Data Age"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud_current",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "message_rate_hz",
+                "data_age_ms"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "timeseries",
+      "title": "Linear Acceleration",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 12,
+        "x": 12,
+        "y": 80
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "m/s²",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "suffix: m/s²"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "linear_acceleration_x_m_s2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Linear Acceleration X"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "linear_acceleration_y_m_s2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Linear Acceleration Y"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "linear_acceleration_z_m_s2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Linear Acceleration Z"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "linear_acceleration_x_m_s2",
+                "linear_acceleration_y_m_s2",
+                "linear_acceleration_z_m_s2"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "System Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 96
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Running Workers",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 97
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Running Workers"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "worker_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "table",
+      "title": "Worker Health",
+      "description": "One latest row per worker, ordered by worker name. STT is the display row number starting at 1, followed by Worker, Failed, Priority, Running and uptime in Seconds. STT is not a permanent worker ID. Internal timestamps select newest values and are not displayed.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 20,
+        "x": 4,
+        "y": 97
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 90
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "STT"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "STT"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Worker"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Worker"
+              },
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Failed"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Priority"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Priority"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Running"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Running"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Seconds"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/worker_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "worker",
+                "failed",
+                "priority",
+                "running",
+                "uptime_seconds"
+              ]
+            }
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "worker": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "failed": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              },
+              "priority": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              },
+              "running": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              },
+              "uptime_seconds": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "time": true
+            },
+            "indexByName": {
+              "worker": 0,
+              "failed (lastNotNull)": 1,
+              "priority (lastNotNull)": 2,
+              "running (lastNotNull)": 3,
+              "uptime_seconds (lastNotNull)": 4
+            },
+            "renameByName": {
+              "worker": "Worker",
+              "failed (lastNotNull)": "Failed",
+              "priority (lastNotNull)": "Priority",
+              "running (lastNotNull)": "Running",
+              "uptime_seconds (lastNotNull)": "Seconds"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Worker",
+                "desc": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "index",
+            "alias": "Row Index",
+            "index": {
+              "asPercentile": false
+            },
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "alias": "STT",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Row Index"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "fixed": "1"
+              }
+            },
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Row Index": true
+            },
+            "indexByName": {
+              "STT": 0,
+              "Worker": 1,
+              "Failed": 2,
+              "Priority": 3,
+              "Running": 4,
+              "Seconds": 5
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Failed Workers",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 103
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Failed Workers"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "failed_workers"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Host Resource History",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 109
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cpu_percent"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "displayName",
+                "value": "Host CPU"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "memory_mb"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "Host Memory"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "cpu_percent",
+                "memory_mb"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Pipeline History",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 12,
+        "y": 109
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_fps"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Raw Message Rate"
+              },
+              {
+                "id": "unit",
+                "value": "suffix: msg/s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_queue_fill_percent"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Raw Queue Fill"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "processed_queue_fill_percent"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Processed Queue Fill"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dropped_messages"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bridge Input Drops"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pipeline_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "raw_fps",
+                "raw_queue_fill_percent",
+                "processed_queue_fill_percent",
+                "dropped_messages"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Raw input message rate, queue fills and bridge input drops. Processed Message Rate and Point Cloud Data Age appear only in the LiDAR and IMU section; duplicate processed rate and similar age/latency fields are omitted here."
+    },
+    {
+      "id": 29,
+      "type": "table",
+      "title": "Grafana Bridge Health",
+      "description": "Grafana delivery and retry history: totals, HTTP status, successful push age and subscribed topics, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 127
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Published Measurements"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Published Measurements"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed Publish Attempts"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Failed Publish Attempts"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last HTTP Status"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last HTTP Status"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Successful Push Age"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last Successful Push Age"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Retrying"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Retrying"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Subscribed Topics"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Subscribed Topics"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/grafana_bridge_health",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "published_measurements",
+                "failed_publish_attempts",
+                "last_http_status",
+                "last_success_age_ms",
+                "retrying",
+                "subscribed_topics"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Time": 0,
+              "published_measurements": 1,
+              "failed_publish_attempts": 2,
+              "last_http_status": 3,
+              "last_success_age_ms": 4,
+              "retrying": 5,
+              "subscribed_topics": 6
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "published_measurements": "Published Measurements",
+              "failed_publish_attempts": "Failed Publish Attempts",
+              "last_http_status": "Last HTTP Status",
+              "last_success_age_ms": "Last Successful Push Age",
+              "retrying": "Retrying",
+              "subscribed_topics": "Subscribed Topics"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Future Sensors and Applications",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 135
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Radar Targets",
+      "description": "Reserved for the future radar worker.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 136
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Radar Targets"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/radar_targets",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "target_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Detected Objects",
+      "description": "Reserved for the future detection worker.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 136
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Detected Objects"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/detected_objects",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "object_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Active Tracks",
+      "description": "Reserved for the future tracking worker.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 136
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Active Tracks"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/tracked_objects",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "track_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Maximum Object Speed",
+      "description": "Reserved for the future tracking worker.",
+      "datasource": {
+        "type": "grafana",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 136
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          },
+          "unit": "velocityms",
+          "displayName": "Maximum Object Speed"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/tracked_objects",
+          "datasource": {
+            "type": "grafana",
+            "uid": "grafana"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "max_speed_mps"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "text",
+      "title": "VISTA Live Data Contract",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 140
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Operational summaries use Grafana Live under the configured namespace (vista). The 3D views connect to the live point cloud at ws://127.0.0.1:8765 and the room map at ws://127.0.0.1:8766. Change those URLs if the browser and VISTA run on different machines.\n\nEach dashboard metric has one primary display. Room-map cache occupancy, map input drops and mapping I/O timings are separate from host resources and Grafana bridge input drops. Raw Message Rate counts raw packets; Processed Message Rate counts processed messages, not necessarily hardware scans. Ground Validation, Room Map Build and Free Space, Room Map Cache and Operation Timing, Room Map I/O and Counters, and Grafana Bridge Health show buffered Live history with newest rows first. Worker Health alone shows one latest row per worker. Live buffers are not persistent history storage. The bridge sends only fields consumed by this dashboard; XYZ geometry uses the separate WebSockets.\n\nThe 3D plugin has its own point/frame and ground-summary overlay. This overlay is built into the plugin and cannot currently be hidden through dashboard JSON. It does not create an additional Grafana Live query."
+      },
+      "transparent": true
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "vista",
+    "sensors",
+    "lidar",
+    "grafana-live",
+    "cpp",
+    "room-map",
+    "free-space"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "timezone": "browser",
+  "title": "VISTA Sensor Processing - Live and Room Map",
+  "uid": "vistalive",
+  "version": 3,
+  "weekStart": ""
+}
+
