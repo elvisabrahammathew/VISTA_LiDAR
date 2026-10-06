@@ -32,14 +32,16 @@ template<class T> T get(std::istream& in) {
     T v{}; in.read(reinterpret_cast<char*>(&v),sizeof(v));
     if(!in) throw std::runtime_error("room-map tile is truncated/corrupt"); return v;
 }
-void put_point(std::ostream& out,const models::PointXYZIRT& p) {
+void put_point(std::ostream& out,const models::RoomMapPoint& p) {
     put(out,p.x);put(out,p.y);put(out,p.z);put(out,p.intensity);
-    put(out,p.ring);put(out,p.return_id);put(out,p.timestamp_ns);
+    // Preserve the existing tile/LOD record width. Old sensor-only metadata
+    // occupies reserved slots; persistent geometry no longer carries it.
+    put(out,std::uint8_t{0});put(out,std::uint8_t{0});put(out,std::uint64_t{0});
 }
-models::PointXYZIRT get_point(std::istream& in) {
-    models::PointXYZIRT p; p.x=get<float>(in);p.y=get<float>(in);p.z=get<float>(in);
-    p.intensity=get<std::uint8_t>(in);p.ring=get<std::uint8_t>(in);
-    p.return_id=get<std::uint8_t>(in);p.timestamp_ns=get<std::uint64_t>(in);
+models::RoomMapPoint get_point(std::istream& in) {
+    models::RoomMapPoint p; p.x=get<float>(in);p.y=get<float>(in);p.z=get<float>(in);
+    p.intensity=get<std::uint8_t>(in);
+    (void)get<std::uint8_t>(in);(void)get<std::uint8_t>(in);(void)get<std::uint64_t>(in);
     if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)) throw std::runtime_error("invalid tile coordinate");
     return p;
 }
@@ -57,7 +59,7 @@ std::pair<MapVoxelKey,MapVoxelCell> get_cell(std::istream& in) {
 std::uint64_t mix(std::uint64_t x) {
     x=(x^(x>>30))*0xbf58476d1ce4e5b9ULL; x=(x^(x>>27))*0x94d049bb133111ebULL; return x^(x>>31);
 }
-void sample(std::vector<models::PointXYZIRT>& v,const models::PointXYZIRT& p,
+void sample(std::vector<models::RoomMapPoint>& v,const models::RoomMapPoint& p,
             std::uint64_t count,std::size_t cap) {
     if(v.size()<cap) v.push_back(p);
     else { const auto index=mix(count)%count; if(index<cap) v[static_cast<std::size_t>(index)]=p; }
@@ -67,7 +69,7 @@ struct Node {
     MapVoxelKey origin;
     unsigned level{};
     std::uint64_t count{};
-    std::vector<models::PointXYZIRT> points;
+    std::vector<models::RoomMapPoint> points;
     bool full{},blocked{};
 };
 /// Records cumulative wall time including file decoding/callback work.
@@ -86,7 +88,7 @@ public:
     struct Tile {
         MapVoxelKey key;
         std::unordered_map<MapVoxelKey,MapVoxelCell,MapVoxelHash> cells;
-        std::vector<models::PointXYZIRT> reference;
+        std::vector<models::RoomMapPoint> reference;
         std::uint64_t touch{};
         bool dirty{},on_disk{};
     };
@@ -265,7 +267,7 @@ public:
         }
         auto* pointer=tile.get();cache.emplace(t,std::move(tile));return *pointer;
     }
-    void note_bounds(const models::PointXYZIRT& p) {
+    void note_bounds(const models::RoomMapPoint& p) {
         const double v[3]{p.x,p.y,p.z};
         for(std::size_t i=0;i<3;++i) {box[i]=std::min(box[i],v[i]);box[i+3]=std::max(box[i+3],v[i]);}
     }
@@ -290,7 +292,7 @@ public:
         return request.viewport_height*radius/std::max(0.01,std::sqrt(d2)-radius);
     }
     /// Read the disk index only: no RAM flush, accumulator mutex, or cache eviction.
-    models::PointCloudFrame select_disk_view(const models::RoomMapViewRequest&) const;
+    models::RoomMapFrame select_disk_view(const models::RoomMapViewRequest&) const;
     mutable std::recursive_mutex disk_mutex;
     // std::map also supports the VS2019 filesystem implementation, whose
     // std::hash<path> specialization is unavailable on some toolset versions.
@@ -366,7 +368,7 @@ void RoomMapTileStore::flush() {
     impl_->flush_parents(); // All disk LOD queries see a coherent, current hierarchy.
 }
 void RoomMapTileStore::set_reference() {impl_->reference_mode=true;}
-void RoomMapTileStore::append_reference(const models::PointXYZIRT& p) {
+void RoomMapTileStore::append_reference(const models::RoomMapPoint& p) {
     const MapVoxelKey k{static_cast<std::int64_t>(std::floor(static_cast<double>(p.x)/impl_->voxel_size)),
         static_cast<std::int64_t>(std::floor(static_cast<double>(p.y)/impl_->voxel_size)),
         static_cast<std::int64_t>(std::floor(static_cast<double>(p.z)/impl_->voxel_size))};
@@ -383,17 +385,17 @@ void RoomMapTileStore::for_each_confirmed(const RoomMapPointVisitor& visit) {
             impl_->read_cells(entry.path(),[&](const auto&,const auto& c){if(c.observations>=impl_->confirmation) visit(c.point);});
     }
 }
-models::PointCloudFrame RoomMapTileStore::select_view(const models::RoomMapViewRequest& request) {
+models::RoomMapFrame RoomMapTileStore::select_view(const models::RoomMapViewRequest& request) {
     flush();
     return impl_->select_disk_view(request);
 }
-models::PointCloudFrame RoomMapTileStore::Impl::select_disk_view(const models::RoomMapViewRequest& request) const {
+models::RoomMapFrame RoomMapTileStore::Impl::select_disk_view(const models::RoomMapViewRequest& request) const {
     if(!request.point_budget || request.point_budget>2'000'000) throw std::invalid_argument("invalid room-map view point budget");
     const auto before_lock=std::chrono::steady_clock::now();
     std::lock_guard<std::recursive_mutex> disk_lock(disk_mutex);
     const auto started=std::chrono::steady_clock::now();
     last_view_wait_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(started-before_lock).count();
-    models::PointCloudFrame result;std::vector<Node> selected;std::size_t points{};
+    models::RoomMapFrame result;std::vector<Node> selected;std::size_t points{};
     for(unsigned octant=0;octant<8;++octant) {
         auto n=read_node({root/std::to_string(octant),{(octant&1U)?0:-root_tiles,(octant&2U)?0:-root_tiles,(octant&4U)?0:-root_tiles},tree_depth});
         if(n.count && visible(n,request)) {points+=n.points.size();selected.push_back(std::move(n));}
@@ -423,7 +425,7 @@ models::PointCloudFrame RoomMapTileStore::Impl::select_disk_view(const models::R
         for(auto& c:descendants) selected.push_back(std::move(c));
     }
     result.points.reserve(std::min(points,request.point_budget));std::uint64_t seen{};
-    const auto emit=[&](const models::PointXYZIRT& p){
+    const auto emit=[&](const models::RoomMapPoint& p){
         if(request.has_camera) for(const auto& plane:request.planes)
             if(plane[0]*p.x+plane[1]*p.y+plane[2]*p.z+plane[3]<-1e-5) return;
         sample(result.points,p,++seen,request.point_budget);
@@ -442,7 +444,7 @@ std::shared_ptr<const models::RoomMapViewSource> RoomMapTileStore::view_source(s
     public:
         DiskView(std::shared_ptr<Impl> storage,std::array<double,6> box,std::uint64_t stamp)
             :storage_(std::move(storage)),box_(box),stamp_(stamp) {}
-        models::PointCloudFrame select_view(const models::RoomMapViewRequest& request) const override {
+        models::RoomMapFrame select_view(const models::RoomMapViewRequest& request) const override {
             auto cloud=storage_->select_disk_view(request);cloud.timestamp_ns=stamp_;return cloud;
         }
         std::array<double,6> bounds() const override {return box_;}

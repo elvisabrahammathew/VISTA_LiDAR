@@ -1,6 +1,6 @@
 # Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
 Lidar: unitree-l2
-RawLoggingEnabled(Lidar): 0
+RawLoggingEnabled(Lidar): 1
 PointCloudLoggingEnabled(Lidar): 0
 ReconnectIntervalSeconds(Lidar): 5
 SensorIP(quanergy-m8, unitree-l2): 192.168.1.3
@@ -8,7 +8,7 @@ SensorPort(quanergy-m8, unitree-l2): 4141
 ConnectionMode(unitree-l2): auto
 LocalIP(unitree-l2): 192.168.1.2
 LocalPort(unitree-l2): 6201
-SerialPort(unitree-l2): COM4
+SerialPort(unitree-l2): COM6
 BaudRate(unitree-l2): 4000000
 UsbSerial(realsensel515): 123456789012
 DepthWidth(realsensel515): 640
@@ -18,9 +18,9 @@ DepthFps(realsensel515): 30
 # LiDAR mounting and ground calibration (hybrid, ransac, static, none)
 GroundMode(lidar): hybrid
 UseImuForGround(lidar): 1
-MountX(lidar): -10.0
-MountY(lidar): -10.0
-MountZ(lidar): 0.6
+MountX(lidar): 0
+MountY(lidar): 0
+MountZ(lidar): 0.7
 MountRollDeg(lidar): 0.0
 MountPitchDeg(lidar): 0.0
 MountYawDeg(lidar): 0.0
@@ -31,14 +31,14 @@ GroundCalibrationFrames(lidar): 50
 GroundMinInlierRatio(lidar): 0.10
 
 # Moving mapping: keep stationary at startup; Mount is the INITIAL LiDAR world pose
-LioEnabled: 0
+LioEnabled: 1
 LioLidarToImuTranslationX: 0.007698
 LioLidarToImuTranslationY: 0.014655
 LioLidarToImuTranslationZ: -0.00667
 LioLidarToImuRollDeg: 0.0
 LioLidarToImuPitchDeg: 0.0
 LioLidarToImuYawDeg: 0.0
-LioScanVoxelSizeMeters: 0.15
+LioScanVoxelSizeMeters: 0.05
 LioMapVoxelSizeMeters: 0.20
 LioLocalMapRadiusMeters: 30.0
 LioLocalMapMaxPoints: 50000

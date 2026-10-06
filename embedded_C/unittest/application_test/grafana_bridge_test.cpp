@@ -1,8 +1,55 @@
+#include <algorithm>
 #include <string>
 #include <set>
+#include <limits>
+#include <vector>
 
 #include "4_Applications/grafana_bridge/grafana_bridge.hpp"
 #include "unittest/test.hpp"
+
+VISTA_TEST(grafana_worker_rows_keep_all_twelve_names_and_unique_millisecond_times) {
+    std::vector<vista::models::WorkerHealthTelemetry> workers;
+    for (int index = 11; index >= 0; --index) {
+        workers.push_back({123, "worker-" + std::to_string(index),
+            static_cast<std::uint8_t>(index % 5 + 1), true, false, 60.0 + index});
+    }
+    const auto lines = vista::application::format_worker_health_measurements(workers, 2'000'123'456ULL);
+    VISTA_CHECK(lines.size() == 12);
+    std::set<std::uint64_t> milliseconds;
+    for (const auto& line : lines) {
+        VISTA_CHECK(line.find("worker_health_rows worker=\"worker-") == 0);
+        VISTA_CHECK(line.find(",running=1i,failed=0i,priority=") != std::string::npos);
+        const auto timestamp = std::stoull(line.substr(line.rfind(' ') + 1));
+        VISTA_CHECK(timestamp <= 2'000'123'456ULL);
+        milliseconds.insert(timestamp / 1'000'000);
+    }
+    VISTA_CHECK(milliseconds.size() == workers.size());
+    std::reverse(workers.begin(), workers.end());
+    VISTA_CHECK(lines == vista::application::format_worker_health_measurements(workers, 2'000'123'456ULL));
+}
+
+VISTA_TEST(grafana_worker_rows_escape_names_and_preserve_failure_and_stop_values) {
+    vista::models::WorkerHealthTelemetry worker{123, "worker \\\"roof,=", 4, false, true, 12.5};
+    const auto lines = vista::application::format_worker_health_measurements({worker}, 2'000'123'456ULL);
+    VISTA_CHECK(lines.size() == 1);
+    VISTA_CHECK(lines.front().find("worker=\"worker \\\\\\\"roof,=\"") != std::string::npos);
+    VISTA_CHECK(lines.front().find(",running=0i,failed=1i,priority=4i,uptime_seconds=12.5 ") != std::string::npos);
+}
+
+VISTA_TEST(grafana_worker_rows_reject_invalid_rows_without_silently_losing_identity) {
+    using vista::application::format_worker_health_measurements;
+    vista::models::WorkerHealthTelemetry worker{123, "worker", 3, true, false, 1};
+    VISTA_CHECK(format_worker_health_measurements({}, 0).empty());
+    VISTA_CHECK_THROWS(format_worker_health_measurements({worker, worker}, 2'000'000'000));
+    VISTA_CHECK_THROWS(format_worker_health_measurements({worker}, 0));
+    worker.worker_name.clear();
+    VISTA_CHECK_THROWS(format_worker_health_measurements({worker}, 2'000'000'000));
+    worker.worker_name = "worker\nwrong";
+    VISTA_CHECK_THROWS(format_worker_health_measurements({worker}, 2'000'000'000));
+    worker.worker_name = "worker";
+    worker.uptime_seconds = std::numeric_limits<double>::quiet_NaN();
+    VISTA_CHECK_THROWS(format_worker_health_measurements({worker}, 2'000'000'000));
+}
 
 VISTA_TEST(grafana_bridge_formats_pointcloud_as_influx_line_protocol) {
     const vista::application::PointCloudTelemetry telemetry{
@@ -66,7 +113,7 @@ VISTA_TEST(grafana_bridge_formats_ground_status_as_influx_line_protocol) {
     ground.ground_inlier_ratio=0.72F;
     ground.rms_residual_m=0.018F;
     ground.removed_ground_ratio=0.61F;
-    vista::models::LidarGroundStatusMessage message(
+    vista::models::GroundStatusMessage message(
         "unitree-l2",1,std::nullopt,2,std::move(ground));
 
     const auto line=vista::application::format_ground_measurement(message);
@@ -160,7 +207,7 @@ VISTA_TEST(grafana_compact_measurements_only_include_current_dashboard_fields) {
     const std::set<std::string> cloud_fields{"online","input_point_count","point_count","data_age_ms","message_rate_hz"};
     VISTA_CHECK(field_names(vista::application::format_current_pointcloud_measurement(cloud))==cloud_fields);
     vista::models::GroundStatus ground;ground.configured_mode="hybrid";
-    vista::models::LidarGroundStatusMessage message("unitree-l2",1,std::nullopt,2,std::move(ground));
+    vista::models::GroundStatusMessage message("unitree-l2",1,std::nullopt,2,std::move(ground));
     const std::set<std::string> ground_fields{"ground_tilt_deg","ground_height_error_m","ground_inlier_ratio","rms_residual_m","removed_ground_ratio"};
     VISTA_CHECK(field_names(vista::application::format_ground_measurement(message))==ground_fields);
     VISTA_CHECK(field_names(vista::application::format_ground_state_measurement(message))==std::set<std::string>{"state_code"});

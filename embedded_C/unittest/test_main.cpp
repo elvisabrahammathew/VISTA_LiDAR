@@ -3,9 +3,15 @@
 
 #include "unittest/test.hpp"
 
-int main() {
+int main(int argc, char** argv) {
+    // Optional substring enables focused regressions without skipping the
+    // normal full-suite run when no argument is supplied.
+    const std::string filter=argc>1?argv[1]:"";
     std::size_t passed = 0;
+    std::size_t selected = 0;
     for (const auto& test : vista::test::registry()) {
+        if(!filter.empty() && test.name.find(filter)==std::string::npos)continue;
+        ++selected;
         try {
             test.function();
             ++passed;
@@ -17,7 +23,8 @@ int main() {
         }
     }
 
-    std::cout << passed << '/' << vista::test::registry().size()
+    std::cout << passed << '/' << selected
               << " tests passed\n";
-    return passed == vista::test::registry().size() ? 0 : 1;
+    if(selected==0){std::cerr<<"No tests matched: "<<filter<<'\n';return 2;}
+    return passed == selected ? 0 : 1;
 }

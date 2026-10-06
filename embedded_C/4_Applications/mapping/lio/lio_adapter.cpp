@@ -1,6 +1,9 @@
 #include "4_Applications/mapping/lio/lio_adapter.hpp"
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
 
 namespace vista::application {
@@ -29,7 +32,7 @@ bool LioSynchronizer::add(TimedImu sample) {
     if(acc2>200.0*200.0 || gyro2>35.0*35.0) return false;
     if (!samples_.empty() && sample.time_s <= samples_.back().time_s) return false;
     samples_.push_back(sample);
-    while (samples_.size() > 4096) samples_.pop_front();
+    while (samples_.size() > 4096) { samples_.pop_front(); ++evicted_samples_; }
     return true;
 }
 std::optional<std::vector<TimedImu>> LioSynchronizer::take(double begin_s, double end_s) {
@@ -44,10 +47,35 @@ std::optional<std::vector<TimedImu>> LioSynchronizer::take(double begin_s, doubl
     for (auto it = first + 1; it <= last; ++it)
         if (it->time_s - (it - 1)->time_s > maximum_gap_) return std::nullopt;
     std::vector<TimedImu> batch(first, last + 1);
-    // Unitree scan boundaries can overlap. Preserve a bounded lookback plus
-    // its left bracket rather than discarding everything through scan end.
-    while (samples_.size() > 2 && samples_[1].time_s < end_s-0.5) samples_.pop_front();
     return batch;
 }
-void LioSynchronizer::clear() { samples_.clear(); }
+void LioSynchronizer::retain_from(double integrated_time_s) {
+    if (!std::isfinite(integrated_time_s)) return;
+    while (samples_.size() > 2 && samples_[1].time_s < integrated_time_s-0.5) samples_.pop_front();
+}
+std::string LioSynchronizer::describe_coverage(double begin_s, double end_s) const {
+    const char* reason="covered";
+    double largest_gap=0;
+    if(!std::isfinite(begin_s) || !std::isfinite(end_s) || end_s<begin_s) reason="invalid interval";
+    else if(samples_.size()<2) reason="too few IMU samples";
+    else if(samples_.front().time_s>begin_s) reason="missing left IMU bracket";
+    else if(samples_.back().time_s<end_s) reason="missing right IMU bracket";
+    else {
+        auto first=samples_.begin();
+        while(first+1!=samples_.end() && (first+1)->time_s<=begin_s) ++first;
+        auto last=first;
+        while(last!=samples_.end() && last->time_s<end_s) ++last;
+        for(auto it=first+1;it<=last;++it) {
+            largest_gap=std::max(largest_gap,it->time_s-(it-1)->time_s);
+        }
+        if(largest_gap>maximum_gap_) reason="IMU gap exceeds limit";
+    }
+    std::ostringstream out;out.imbue(std::locale::classic());
+    out<<reason<<std::fixed<<std::setprecision(3)<<"; requested_s=["<<begin_s<<","<<end_s<<"]";
+    if(!samples_.empty()) out<<"; buffered_s=["<<samples_.front().time_s<<","<<samples_.back().time_s<<"]";
+    out<<"; imu_samples="<<samples_.size()<<"; max_gap_ms="<<largest_gap*1000
+       <<"; imu_buffer_evictions="<<evicted_samples_;
+    return out.str();
+}
+void LioSynchronizer::clear() { samples_.clear(); evicted_samples_=0; }
 } // namespace vista::application

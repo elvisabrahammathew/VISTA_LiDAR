@@ -13,7 +13,7 @@ target_include_directories(vista_fast_lio SYSTEM PRIVATE
     "${VISTA_FAST_LIO_ROOT}/include")
 target_link_libraries(vista_fast_lio PRIVATE Threads::Threads)
 if(MSVC)
-    target_compile_options(vista_fast_lio PRIVATE /bigobj /EHsc /FS)
+    target_compile_options(vista_fast_lio PRIVATE /bigobj /EHsc /FS /Ob2)
 else()
     target_compile_options(vista_fast_lio PRIVATE -O2)
 endif()

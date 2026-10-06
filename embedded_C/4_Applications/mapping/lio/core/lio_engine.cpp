@@ -8,7 +8,11 @@
 #include <Eigen/QR>
 #include <algorithm>
 #include <cmath>
+#include <deque>
+#include <iomanip>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include <unordered_set>
 #include <use-ikfom.hpp>
 #include <ikd_Tree.h>
@@ -56,6 +60,46 @@ TimedImu interpolate(const std::vector<TimedImu>& samples,double t) {
     return out;
 }
 struct Knot { double t; Vec p,v,a,w; Mat r; };
+bool surface_plane(Tree& tree,const Vec& query,Vec& normal,Vec& center) {
+    Points near;std::vector<float> distances;
+    tree.Nearest_Search(point(query),8,near,distances);
+    if(near.size()!=8 || distances.back()>1.0F)return false;
+    center.setZero();for(const auto& p:near)center+=xyz(p);center/=8;
+    Mat scatter=Mat::Zero();for(const auto& p:near){const Vec d=xyz(p)-center;scatter+=d*d.transpose();}
+    Eigen::SelfAdjointEigenSolver<Mat> eig(scatter);
+    if(eig.info()!=Eigen::Success || eig.eigenvalues()[1]<1e-5 || eig.eigenvalues()[0]>0.10*eig.eigenvalues()[1])return false;
+    normal=eig.eigenvectors().col(0);
+    for(const auto& p:near)if(std::abs(normal.dot(xyz(p)-center))>0.10)return false;
+    return true;
+}
+struct ImuWindow {
+    std::deque<TimedImu> samples;
+    Vec acceleration{Vec::Zero()},gyro{Vec::Zero()};
+    double acceleration_rms{},gyro_rms{},duration{};
+    void add(const LioScan& scan,std::size_t required) {
+        for(const auto& sample:scan.imu) {
+            if(sample.time_s>scan.end_s || (!samples.empty() && sample.time_s<=samples.back().time_s))continue;
+            samples.push_back(sample);
+            // Preserve both the requested sample count AND a temporal window.
+            // This also avoids getting stuck with 200 requested samples at a
+            // low IMU rate or repeatedly resetting on one ordinary outlier.
+            while(samples.size()>required && samples.front().time_s<sample.time_s-0.75)samples.pop_front();
+            while(samples.size()>100'000)samples.pop_front();
+        }
+        acceleration.setZero();gyro.setZero();acceleration_rms=gyro_rms=duration=0;
+        if(samples.empty())return;
+        for(const auto& s:samples){acceleration+=vector(s.acceleration);gyro+=vector(s.angular_velocity);}
+        acceleration/=static_cast<double>(samples.size());gyro/=static_cast<double>(samples.size());
+        for(const auto& s:samples){acceleration_rms+=(vector(s.acceleration)-acceleration).squaredNorm();gyro_rms+=(vector(s.angular_velocity)-gyro).squaredNorm();}
+        acceleration_rms=std::sqrt(acceleration_rms/static_cast<double>(samples.size()));
+        gyro_rms=std::sqrt(gyro_rms/static_cast<double>(samples.size()));
+        duration=samples.back().time_s-samples.front().time_s;
+    }
+    bool stable() const {
+        return duration>=0.5-1e-8 && acceleration.norm()>=7 && acceleration.norm()<=12.5 &&
+            gyro.norm()<0.15 && acceleration_rms<0.35 && gyro_rms<0.025;
+    }
+};
 }
 
 class LioEngine::Impl {
@@ -72,12 +116,29 @@ public:
         s.rot=imu_r;
         s.pos=vector(config.initial_position_m)-imu_r*s.offset_T_L_I;
         filter.change_x(s);
+        initial_anchor=s;
         noise=process_noise_cov();
+    }
+    models::LocalizationStatus restart_initialization() {
+        auto anchor=last_accepted.value_or(initial_anchor);
+        anchor.vel.setZero();anchor.bg.setZero();anchor.ba.setZero();
+        Filter::cov initial_covariance=Filter::cov::Identity()*0.01;
+        filter.change_x(anchor);filter.change_P(initial_covariance);
+        noise=process_noise_cov();initialized=false;fatal=false;fatal_reason.clear();
+        filter_time=0;acceleration_scale=1;imu_window=ImuWindow{};
+        pose_history.clear();reset_stationary_reference();first_rejection.reset();
+        matches=0;residual=0;scan_points.clear();bootstrap_frames=0;
+        // Before any accepted pose, no world points could have reached RoomMap.
+        // Rebuild an untrusted startup seed, but NEVER clear an accepted map.
+        if(!last_accepted){tree.reset();local_points.clear();map_cells.clear();}
+        return diagnostic(models::LocalizationState::initializing,
+            "automatic IMU reinitialization; keep stationary; retained world map requires LiDAR match");
     }
     LioOutput process(const LioScan& scan) {
         LioOutput out;
-        if(fatal){out.status=diagnostic(models::LocalizationState::lost,fatal_reason+"; restart required");return out;}
-        if(scan.imu.size()<2 || scan.end_s<scan.begin_s || !std::isfinite(scan.end_s))
+        current_time=scan.end_s;
+        if(fatal){out.status=diagnostic(models::LocalizationState::lost,fatal_reason+"; automatic initialization after 5s LOST");return out;}
+        if(scan.imu.size()<2 || scan.end_s<scan.begin_s || !std::isfinite(scan.begin_s) || !std::isfinite(scan.end_s))
             return reject("IMU does not bracket scan");
         for(std::size_t i=1;i<scan.imu.size();++i)
             if(scan.imu[i].time_s<=scan.imu[i-1].time_s || scan.imu[i].time_s-scan.imu[i-1].time_s>config.maximum_imu_gap_s)
@@ -88,23 +149,19 @@ public:
                 return reject("non-finite IMU sample");
         if(scan.imu.front().time_s>scan.begin_s+1e-8 || scan.imu.back().time_s<scan.end_s-1e-8)
             return reject("incomplete temporal coverage");
+        imu_window.add(scan,initialized?20:config.initialization_samples);
         if(!initialized) {
-            for(const auto& sample:scan.imu) {
-                if(sample.time_s<=last_init_time || sample.time_s>scan.end_s) continue;
-                last_init_time=sample.time_s;
-                const Vec acc=vector(sample.acceleration),gyro=vector(sample.angular_velocity);
-                if(acc.norm()<7.0 || acc.norm()>12.5 || gyro.norm()>0.15 ||
-                   (init_count>5 && (acc-mean_acc).norm()>0.5)) {
-                    init_count=0;mean_acc.setZero();mean_gyro.setZero();continue;
-                }
-                if(init_count==0) initialization_begin=sample.time_s;
-                ++init_count;mean_acc+=(acc-mean_acc)/static_cast<double>(init_count);mean_gyro+=(gyro-mean_gyro)/static_cast<double>(init_count);
-            }
-            if(init_count>=config.initialization_samples && last_init_time-initialization_begin>=0.5-1e-8) {
+            if(imu_window.samples.size()>=config.initialization_samples && imu_window.stable()) {
                 auto s=filter.get_x();
-                s.bg=mean_gyro;
+                s.bg=imu_window.gyro;
+                initial_gyro=imu_window.gyro;
+                // FAST-LIO IMU_Processing.hpp normalizes acceleration by the
+                // stationary mean norm. Without it a 10.21 m/s^2 rest reading
+                // leaves artificial acceleration against 9.81 m/s^2 gravity.
+                acceleration_scale=9.81/imu_window.acceleration.norm();
+                noise.block<3,3>(3,3)*=acceleration_scale*acceleration_scale;
                 // Gravity is in world coordinates; preserve the configured initial pose.
-                const Vec gravity=-(s.rot.toRotationMatrix()*mean_acc.normalized())*9.81;
+                const Vec gravity=-(s.rot.toRotationMatrix()*imu_window.acceleration.normalized())*9.81;
                 s.grav=S2(gravity);
                 filter.change_x(s);
                 Filter::cov p=Filter::cov::Identity()*0.01;
@@ -112,12 +169,29 @@ public:
                 filter.change_P(p);
                 initialized=true;filter_time=scan.end_s;
             }
-            out.status=diagnostic(models::LocalizationState::initializing,"keep sensor stationary during IMU initialization");return out;
+            std::ostringstream reason;reason.imbue(std::locale::classic());reason<<std::fixed<<std::setprecision(3);
+            reason<<(initialized?"IMU initialized; accumulating local map":"IMU initialization; keep stationary")
+                <<"; samples="<<imu_window.samples.size()<<"/"<<config.initialization_samples
+                <<"; duration_s="<<imu_window.duration<<"/0.5; accel_norm="<<imu_window.acceleration.norm()
+                <<"; accel_rms="<<imu_window.acceleration_rms<<"/0.35; gyro_norm="<<imu_window.gyro.norm()<<"/0.15"
+                <<"; gyro_rms="<<imu_window.gyro_rms<<"/0.025";
+            out.status=diagnostic(models::LocalizationState::initializing,reason.str());return out;
         }
-        if(scan.end_s<=filter_time || scan.imu.front().time_s>filter_time+1e-8 ||
-           scan.end_s-filter_time>2.0) {
-            fatal=true;return reject("scan clock reset or uncovered interval",true);
+        if(scan.end_s<=filter_time || scan.imu.front().time_s>filter_time+1e-8 || scan.end_s-filter_time>2.0) {
+            std::ostringstream reason;reason.imbue(std::locale::classic());reason<<std::fixed<<std::setprecision(6);
+            reason<<(scan.end_s<=filter_time?"scan end is not monotonic":
+                scan.imu.front().time_s>filter_time+1e-8?"IMU batch misses integrated horizon":"propagation backlog exceeds 2s")
+                <<"; integrated_s="<<filter_time<<"; scan_s=["<<scan.begin_s<<","<<scan.end_s
+                <<"]; imu_s=["<<scan.imu.front().time_s<<","<<scan.imu.back().time_s<<"]";
+            return reject(reason.str(),true);
         }
+        const bool sensor_stable=check_stationary_scan(scan);
+        // Judge rest from measured IMU/surfaces, not the possibly drifting
+        // filter prediction. Otherwise the constraint disables itself exactly
+        // when it is needed. LiDAR acceptance gates still apply below.
+        const bool stationary=sensor_stable && stationary_reference &&
+            scan.end_s-stationary_since>=0.5 && last_accepted;
+        if(stationary)constrain_zero_velocity();
         // Integrate exactly to scan end with interpolated measurements; no extrapolation.
         std::vector<double> steps{filter_time};
         for(const auto& sample:scan.imu) if(sample.time_s>filter_time && sample.time_s<scan.end_s) steps.push_back(sample.time_s);
@@ -127,11 +201,12 @@ public:
             const double start=steps[i-1];double dt=steps[i]-start;
             if(dt<=0 || dt>config.maximum_imu_gap_s) return reject("prediction interval exceeds IMU limit");
             const auto measured=interpolate(scan.imu,start+0.5*dt);
-            input_ikfom in;in.acc=vector(measured.acceleration);in.gyro=vector(measured.angular_velocity);
+            input_ikfom in;in.acc=vector(measured.acceleration)*acceleration_scale;in.gyro=vector(measured.angular_velocity);
             const auto s=filter.get_x();
             const Vec w=in.gyro-s.bg,a=s.rot.toRotationMatrix()*(in.acc-s.ba)+s.grav.vec;
             knots.push_back({start,s.pos,s.vel,a,w,s.rot.toRotationMatrix()});
             filter.predict(dt,noise,in);
+            filter_time=steps[i];
         }
         filter_time=scan.end_s;
         // Match the synchronizer's overlap budget, retaining one left bracket.
@@ -165,8 +240,18 @@ public:
         }
         if(scan_points.size()<100) return reject("insufficient scan geometry");
         if(!tree) {
+            if(!sensor_stable){out.status=diagnostic(models::LocalizationState::initializing,"waiting for stable IMU and LiDAR to seed local map");return out;}
             refresh_map(predicted,true);
+            bootstrap_frames=1;bootstrap_begin=scan.end_s;
             out.status=diagnostic(models::LocalizationState::initializing,"local map seeded; waiting for LiDAR pose correction");return out;
+        }
+        if(!last_accepted && sensor_stable && bootstrap_frames<10) {
+            // Startup only, at a verified stable sensor pose. Recovery with an
+            // accepted map must match it first; never insert a guessed pose.
+            refresh_map(predicted,false);++bootstrap_frames;
+            if(bootstrap_frames<2 || scan.end_s-bootstrap_begin<0.1-1e-8) {
+                out.status=diagnostic(models::LocalizationState::initializing,"accumulating stationary startup scans");return out;
+            }
         }
         active=this;matches=0;residual=0;normal_information.setZero();pose_information.setZero();
         double solve_time=0;
@@ -181,17 +266,30 @@ public:
             pose_observability.info()==Eigen::Success && pose_observability.eigenvalues().minCoeff()>1e-4;
         const double translation=(corrected.pos-predicted.pos).norm();
         const double angle=Eigen::AngleAxisd(predicted.rot.toRotationMatrix().transpose()*corrected.rot.toRotationMatrix()).angle()*180.0/3.141592653589793;
-        if(!geometry_ok || ratio<config.minimum_match_ratio || residual>config.maximum_residual_m ||
-           !corrected.pos.allFinite() || !covariance.allFinite() ||
-           covariance.block<3,3>(0,0).trace()>10 || translation>config.maximum_translation_step_m || angle>config.maximum_rotation_step_deg) {
+        std::string failure;
+        if(matches<30)failure="insufficient LiDAR correspondences";
+        else if(!geometry_ok)failure="degenerate LiDAR geometry";
+        else if(ratio<config.minimum_match_ratio)failure="LiDAR match ratio below limit";
+        else if(residual>config.maximum_residual_m)failure="LiDAR residual above limit";
+        else if(!corrected.pos.allFinite() || !covariance.allFinite())failure="non-finite corrected state";
+        else if(covariance.block<3,3>(0,0).trace()>10)failure="position covariance above limit";
+        else if(translation>config.maximum_translation_step_m)failure="translation correction above limit";
+        else if(angle>config.maximum_rotation_step_deg)failure="rotation correction above limit";
+        if(!failure.empty()) {
             filter.change_x(predicted);filter.change_P(prediction_cov);
-            return reject("weak/degenerate LiDAR match or pose quality limit");
+            std::ostringstream detail;detail.imbue(std::locale::classic());detail<<std::fixed<<std::setprecision(4)
+                <<failure<<"; matches="<<matches<<"/"<<scan_points.size()<<"; ratio="<<ratio
+                <<"; residual_m="<<residual<<"; variance="<<covariance.block<3,3>(0,0).trace()
+                <<"; correction_m="<<translation<<"; correction_deg="<<angle
+                <<"; normal_eigen_min="<<(observability.info()==Eigen::Success?observability.eigenvalues().minCoeff():-1)
+                <<"; pose_eigen_min="<<(pose_observability.info()==Eigen::Success?pose_observability.eigenvalues().minCoeff():-1);
+            return reject(detail.str());
         }
         if(last_accepted && ((corrected.pos-last_accepted->pos).norm()>config.maximum_translation_step_m ||
            Eigen::AngleAxisd(last_accepted->rot.toRotationMatrix().transpose()*corrected.rot.toRotationMatrix()).angle()*180.0/3.141592653589793>config.maximum_rotation_step_deg)) {
             filter.change_x(predicted);filter.change_P(prediction_cov);return reject("pose jump rejected");
         }
-        consecutive_rejections=0;last_accepted=corrected;
+        first_rejection.reset();last_accepted=corrected;
         // Bring retained propagation knots into the accepted corrected frame.
         // This is the same rigid correction applied to per-point ray origins.
         const Mat correction=corrected.rot.toRotationMatrix()*predicted.rot.toRotationMatrix().transpose();
@@ -212,10 +310,95 @@ public:
             }
         }
         out.world_cloud=std::move(deskewed);
-        out.status=diagnostic(models::LocalizationState::tracking,"LiDAR-corrected pose");out.status.pose_valid=true;
+        out.status=diagnostic(models::LocalizationState::tracking,stationary?"LiDAR-corrected pose; stationary velocity constraint":"LiDAR-corrected pose");out.status.pose_valid=true;
         return out;
     }
 private:
+public:
+    std::optional<double> propagation_time_s() const {return initialized?std::optional<double>(filter_time):std::nullopt;}
+private:
+    void reset_stationary_reference() {
+        stationary_reference.reset();stationary_points.clear();stationary_cells.clear();
+    }
+    bool check_stationary_scan(const LioScan& scan) {
+        if(!imu_window.stable() || (imu_window.gyro-initial_gyro).norm()>0.03 ||
+           (stationary_reference && (imu_window.acceleration-stationary_acceleration).norm()*acceleration_scale>0.20)) {
+            rest_support=0;rest_residual=-1;rest_translation=-1;
+            reset_stationary_reference();return false;
+        }
+        Points points;
+        const auto stride=std::max<std::size_t>(1,(scan.cloud.points.size()+999)/1000);
+        for(std::size_t i=0;i<scan.cloud.points.size();i+=stride) {
+            const auto& p=scan.cloud.points[i];const Vec v(p.x,p.y,p.z);
+            if(v.allFinite() && v.norm()>=0.1 && v.norm()<=200)points.push_back(point(v));
+        }
+        if(points.size()<100){reset_stationary_reference();return false;}
+        if(stationary_reference) {
+            // Non-repeating scans sample the same surfaces at different points.
+            // Evaluate identity-pose point-to-plane agreement, not point spacing.
+            Eigen::Matrix<double,6,6> information=Eigen::Matrix<double,6,6>::Zero();
+            Eigen::Matrix<double,6,1> rhs=Eigen::Matrix<double,6,1>::Zero();
+            std::vector<double> errors;
+            for(const auto& p:points){Vec normal,center;const Vec v=xyz(p);
+                if(!surface_plane(*stationary_reference,v,normal,center))continue;
+                const double error=normal.dot(v-center);if(std::abs(error)>0.10)continue;
+                Eigen::Matrix<double,6,1> row;row<<normal,skew(v)*normal;
+                information+=row*row.transpose();rhs-=row*error;errors.push_back(std::abs(error));
+            }
+            bool agreement=false;
+            rest_support=static_cast<double>(errors.size())/points.size();rest_residual=-1;rest_translation=-1;
+            if(errors.size()>=100 && static_cast<double>(errors.size())/points.size()>=0.30) {
+                auto middle=errors.begin()+static_cast<std::ptrdiff_t>(errors.size()/2);
+                std::nth_element(errors.begin(),middle,errors.end());
+                rest_residual=*middle;
+                Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double,6,6>> eig(information);
+                if(eig.info()==Eigen::Success && eig.eigenvalues().minCoeff()>1e-3) {
+                    const Eigen::Matrix<double,6,1> correction=information.ldlt().solve(rhs);
+                    rest_translation=correction.head<3>().norm();
+                    agreement=*middle<=0.025 && correction.allFinite() &&
+                        correction.head<3>().norm()<0.025 && correction.tail<3>().norm()<0.005;
+                }
+            }
+            if(scan.end_s-stationary_since>=0.5) {
+                // Freeze the reference: following new points indefinitely would
+                // mistake constant-velocity motion for a stationary sensor.
+                if(agreement)return true;
+                reset_stationary_reference();return false;
+            }
+            // A short startup accumulation only. A single sparse scan cannot
+            // establish six-DOF surface stability in a real Unitree room.
+        } else {
+            stationary_reference=std::make_unique<Tree>();
+            stationary_since=scan.end_s;
+            stationary_acceleration=imu_window.acceleration;
+        }
+        Points additions;
+        for(const auto& p:scan.cloud.points) {
+            const Vec v(p.x,p.y,p.z);if(!v.allFinite() || v.norm()<0.1 || v.norm()>200)continue;
+            if(stationary_points.size()+additions.size()>=20'000)break;
+            if(stationary_cells.insert(cell(v,0.10)).second)additions.push_back(point(v));
+        }
+        const bool first=stationary_points.empty();
+        stationary_points.insert(stationary_points.end(),additions.begin(),additions.end());
+        if(first)stationary_reference->Build(stationary_points);
+        else if(!additions.empty())stationary_reference->Add_Points(additions,false);
+        return true; // Startup only; the persistent-time gate still forbids ZUPT.
+    }
+    void constrain_zero_velocity() {
+        // A finite-noise velocity observation, not a fixed-pose fallback. Both
+        // IMU stability and persistent sensor-frame LiDAR agreement are needed.
+        auto s=filter.get_x();const auto before=s;const auto p=filter.get_P();
+        const Mat r=Mat::Identity()*1e-4;
+        Eigen::Matrix<double,23,3> gain=p.block<23,3>(0,12)*(p.block<3,3>(12,12)+r).inverse();
+        gain.block<6,3>(6,0).setZero(); // Extrinsics remain fixed.
+        Eigen::Matrix<double,23,1> delta=-gain*s.vel;
+        s.boxplus(delta);
+        Filter::cov a=Filter::cov::Identity();a.block<23,3>(0,12)-=gain;
+        Filter::cov covariance=a*p*a.transpose()+gain*r*gain.transpose();
+        filter.change_x(s);filter.change_P(covariance);
+        const Mat correction=s.rot.toRotationMatrix()*before.rot.toRotationMatrix().transpose();
+        for(auto& k:pose_history){k.p=correction*(k.p-before.pos)+s.pos;k.v=correction*k.v;k.a=correction*k.a;k.r=correction*k.r;}
+    }
     static void measurement(state_ikfom& state,esekfom::dyn_share_datastruct<double>& data) {
         if(!active){data.valid=false;return;}active->match(state,data);
     }
@@ -224,24 +407,17 @@ private:
         normal_information.setZero();pose_information.setZero();residual=0;
         for(const auto& p:scan_points) {
             const Vec sensor=xyz(p),body=s.offset_R_L_I*sensor+s.offset_T_L_I,world=s.rot*body+s.pos;
-            Points near;std::vector<float> distances;tree->Nearest_Search(point(world),5,near,distances);
-            if(near.size()<5 || distances.back()>2.25F) continue;
-            Vec center=Vec::Zero();for(const auto& n:near) center+=xyz(n);center/=5;
-            Mat scatter=Mat::Zero();for(const auto& n:near){const Vec d=xyz(n)-center;scatter+=d*d.transpose();}
-            Eigen::SelfAdjointEigenSolver<Mat> eig(scatter);
-            if(eig.info()!=Eigen::Success || eig.eigenvalues()[1]<1e-5 || eig.eigenvalues()[0]>0.02*eig.eigenvalues()[1]) continue;
-            const Vec normal=eig.eigenvectors().col(0);
-            bool plane_ok=true;for(const auto& n:near) if(std::abs(normal.dot(xyz(n)-center))>0.10) plane_ok=false;
+            Vec normal,center;if(!surface_plane(*tree,world,normal,center))continue;
             const double error=normal.dot(world-center);
-            if(!plane_ok || std::abs(error)>std::min(0.3,0.1*std::sqrt(std::max(0.1,sensor.norm())))) continue;
+            if(std::abs(error)>std::min(0.3,0.1*std::sqrt(std::max(0.1,sensor.norm())))) continue;
             const Vec c=s.rot.conjugate()*normal,a=skew(body)*c;
             Eigen::Matrix<double,1,12> row;row.setZero();row.block<1,3>(0,0)=normal.transpose();row.block<1,3>(0,3)=a.transpose();
             rows.push_back(row);errors.push_back(-error);residual+=std::abs(error);normal_information+=normal*normal.transpose();
             pose_information+=row.leftCols<6>().transpose()*row.leftCols<6>();
         }
         matches=rows.size();
+        if(matches)residual/=static_cast<double>(matches);
         if(matches<30){data.valid=false;return;}
-        residual/=static_cast<double>(matches);
         data.h_x.resize(static_cast<Eigen::Index>(matches),12);data.h.resize(static_cast<Eigen::Index>(matches));
         for(std::size_t i=0;i<matches;++i){data.h_x.row(static_cast<Eigen::Index>(i))=rows[i];data.h[static_cast<Eigen::Index>(i)]=errors[i];}
     }
@@ -277,28 +453,44 @@ private:
     }
     models::LocalizationStatus diagnostic(models::LocalizationState state,std::string reason) const {
         models::LocalizationStatus d;d.state=state;d.reason=std::move(reason);d.local_map_points=local_points.size();d.rejected_scans=rejected;
-        const auto s=filter.get_x();const Vec origin=s.pos+s.rot.toRotationMatrix()*s.offset_T_L_I;const Eigen::Quaterniond q(s.rot.toRotationMatrix()*s.offset_R_L_I.toRotationMatrix());
+        // Monitoring shows the last trusted pose, not a drifting IMU-only pose.
+        // pose_valid remains false outside TRACKING; prediction is internal.
+        const auto s=last_accepted.value_or(initial_anchor);const Vec origin=s.pos+s.rot.toRotationMatrix()*s.offset_T_L_I;const Eigen::Quaterniond q(s.rot.toRotationMatrix()*s.offset_R_L_I.toRotationMatrix());
         d.position_m={origin.x(),origin.y(),origin.z()};d.orientation_xyzw={q.x(),q.y(),q.z(),q.w()};
-        d.match_ratio=scan_points.empty()?0:static_cast<double>(matches)/static_cast<double>(scan_points.size());d.residual_m=residual;d.position_variance=filter.get_P().block<3,3>(0,0).trace();return d;
+        d.match_ratio=scan_points.empty()?0:static_cast<double>(matches)/static_cast<double>(scan_points.size());d.residual_m=residual;d.position_variance=filter.get_P().block<3,3>(0,0).trace();
+        std::ostringstream rest;rest.imbue(std::locale::classic());rest<<std::fixed<<std::setprecision(3)
+            <<"; rest_surface_support="<<rest_support<<"; rest_residual_m="<<rest_residual<<"; rest_correction_m="<<rest_translation;
+        if(state==models::LocalizationState::tracking || state==models::LocalizationState::degraded)d.reason+=rest.str();
+        return d;
     }
     LioOutput reject(std::string reason,bool lost=false) {
-        ++rejected;++consecutive_rejections;
-        if(initialized && consecutive_rejections>=30) fatal=true;
+        ++rejected;
+        if(initialized && std::isfinite(current_time)) {
+            if(!first_rejection)first_rejection=current_time;
+            if(current_time-*first_rejection>=2.0)fatal=true;
+        }
         if(lost || fatal){fatal=true;fatal_reason=reason;}
         return {diagnostic(lost||fatal?models::LocalizationState::lost:models::LocalizationState::degraded,std::move(reason)),std::nullopt};
     }
     LioConfig config;Filter filter;Filter::processnoisecovariance noise;
     std::unique_ptr<Tree> tree;Points local_points,scan_points;std::unordered_set<Cell,Hash> map_cells;Vec last_map_center{Vec::Zero()};
-    bool initialized{},fatal{};double filter_time{},last_init_time{-std::numeric_limits<double>::infinity()};
+    bool initialized{},fatal{};double filter_time{},acceleration_scale{1.0},current_time{};
     std::vector<Knot> pose_history;
     std::string fatal_reason;
-    std::size_t init_count{},matches{};double initialization_begin{};Vec mean_acc{Vec::Zero()},mean_gyro{Vec::Zero()};Mat normal_information{Mat::Zero()};
+    std::size_t matches{},bootstrap_frames{};double bootstrap_begin{},stationary_since{};
+    ImuWindow imu_window;state_ikfom initial_anchor;
+    Vec initial_gyro{Vec::Zero()},stationary_acceleration{Vec::Zero()};
+    std::unique_ptr<Tree> stationary_reference;Points stationary_points;
+    std::unordered_set<Cell,Hash> stationary_cells;std::optional<double> first_rejection;
+    Mat normal_information{Mat::Zero()};
     Eigen::Matrix<double,6,6> pose_information{Eigen::Matrix<double,6,6>::Zero()};
-    double residual{};std::uint64_t rejected{},consecutive_rejections{};std::optional<state_ikfom> last_accepted;
+    double residual{},rest_support{},rest_residual{-1},rest_translation{-1};std::uint64_t rejected{};std::optional<state_ikfom> last_accepted;
     static thread_local Impl* active;
 };
 thread_local LioEngine::Impl* LioEngine::Impl::active=nullptr;
 LioEngine::LioEngine(LioConfig config):impl_(std::make_unique<Impl>(std::move(config))) {}
 LioEngine::~LioEngine()=default;
 LioOutput LioEngine::process(const LioScan& scan){return impl_->process(scan);}
+std::optional<double> LioEngine::propagation_time_s() const{return impl_->propagation_time_s();}
+models::LocalizationStatus LioEngine::restart_initialization(){return impl_->restart_initialization();}
 } // namespace vista::application

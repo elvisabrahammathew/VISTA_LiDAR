@@ -1,9 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
-
-#include "models/lidars/lidar_message.hpp"
+#include <utility>
 
 namespace vista::models {
 
@@ -61,6 +61,26 @@ struct GroundStatus {
     float removed_ground_ratio{};
 };
 
-using LidarGroundStatusMessage = LidarMessage<GroundStatus>;
+/// Ground diagnostics are a mapping topic, not a LiDAR transport envelope.
+/// source_id identifies the point-cloud producer being calibrated.
+struct GroundStatusMessage {
+    std::string source_id;
+    std::uint64_t sequence{};
+    std::optional<std::uint64_t> sensor_timestamp_ns;
+    std::uint64_t received_timestamp_ns{};
+    GroundStatus payload;
+    std::uint64_t received_monotonic_ns{};
+    std::optional<std::uint64_t> measurement_timestamp_ns;
+
+    GroundStatusMessage(std::string id, std::uint64_t message_sequence,
+                        std::optional<std::uint64_t> sensor_timestamp,
+                        std::uint64_t received_timestamp, GroundStatus value,
+                        std::uint64_t received_monotonic = 0,
+                        std::optional<std::uint64_t> measurement_timestamp = std::nullopt)
+        : source_id(std::move(id)), sequence(message_sequence),
+          sensor_timestamp_ns(sensor_timestamp), received_timestamp_ns(received_timestamp),
+          payload(std::move(value)), received_monotonic_ns(received_monotonic),
+          measurement_timestamp_ns(measurement_timestamp) {}
+};
 
 }  // namespace vista::models

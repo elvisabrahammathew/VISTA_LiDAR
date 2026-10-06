@@ -5,10 +5,10 @@
 #include <functional>
 #include <limits>
 
-#include "models/lidars/pointcloud.hpp"
+#include "models/mapping/room_map.hpp"
 
 namespace vista::transport {
-using RoomMapPointVisitor = std::function<void(const models::PointXYZIRT&)>;
+using RoomMapPointVisitor = std::function<void(const models::RoomMapPoint&)>;
 using RoomMapPointEnumerator = std::function<void(const RoomMapPointVisitor&)>;
 /// Streams all points through a fixed-size working set. No entire-map vector.
 void write_room_map_snapshot(const vista::fs::path&, std::uint64_t,
@@ -28,7 +28,7 @@ public:
     RoomMapSessionFile(const RoomMapSessionFile&) = delete;
     RoomMapSessionFile& operator=(const RoomMapSessionFile&) = delete;
     /// Saves atomically using the same claimed filename throughout the session.
-    void save(const models::PointCloudFrame& frame);
+    void save(const models::RoomMapFrame& frame);
     void save(std::uint64_t count, const RoomMapPointEnumerator& enumerate);
     const vista::fs::path& path() const { return path_; }
 private:
@@ -40,11 +40,11 @@ private:
 
 /// Replaces one snapshot atomically, preserving the previous file if writing fails.
 void save_room_map_snapshot(const vista::fs::path& path,
-                            const models::PointCloudFrame& frame);
+                            const models::RoomMapFrame& frame);
 
 /// Loads the ASCII XYZ+intensity PCD format produced by save_room_map_snapshot.
 /// Bounds the number of points read so malformed files cannot grow memory indefinitely.
-models::PointCloudFrame load_room_map_snapshot(const vista::fs::path& path,
+models::RoomMapFrame load_room_map_snapshot(const vista::fs::path& path,
                                                std::size_t maximum_points);
 
 }  // namespace vista::transport

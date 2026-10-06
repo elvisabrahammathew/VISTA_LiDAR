@@ -69,7 +69,7 @@ void RoomMapSessionFile::claim() {
     }
     throw std::runtime_error("too many room-map filename collisions in this session second");
 }
-void RoomMapSessionFile::save(const models::PointCloudFrame& frame) {
+void RoomMapSessionFile::save(const models::RoomMapFrame& frame) {
     save(frame.points.size(), [&](const RoomMapPointVisitor& visit) {
         for (const auto& point : frame.points) visit(point);
     });
@@ -81,7 +81,7 @@ void RoomMapSessionFile::save(std::uint64_t count, const RoomMapPointEnumerator&
 }
 
 void save_room_map_snapshot(const vista::fs::path& path,
-                            const models::PointCloudFrame& frame) {
+                            const models::RoomMapFrame& frame) {
     write_room_map_snapshot(path, frame.points.size(), [&](const RoomMapPointVisitor& visit) {
         for (const auto& point : frame.points) visit(point);
     });
@@ -101,7 +101,7 @@ void write_room_map_snapshot(const vista::fs::path& path, std::uint64_t count,
                << "\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS " << count
                << "\nDATA ascii\n" << std::setprecision(std::numeric_limits<float>::max_digits10);
         std::uint64_t written{};
-        enumerate([&](const models::PointXYZIRT& point) {
+        enumerate([&](const models::RoomMapPoint& point) {
             if (++written > count) throw std::runtime_error("room-map export count mismatch");
             output << point.x << ' ' << point.y << ' ' << point.z << ' '
                    << static_cast<unsigned int>(point.intensity) << '\n';
@@ -126,10 +126,10 @@ void atomic_replace_map_file(const vista::fs::path& temporary, const vista::fs::
 #endif
 }
 
-models::PointCloudFrame load_room_map_snapshot(const vista::fs::path& path,
+models::RoomMapFrame load_room_map_snapshot(const vista::fs::path& path,
                                                std::size_t maximum_points) {
-    models::PointCloudFrame frame;
-    stream_room_map_snapshot(path, [&](const models::PointXYZIRT& point) { frame.points.push_back(point); }, maximum_points);
+    models::RoomMapFrame frame;
+    stream_room_map_snapshot(path, [&](const models::RoomMapPoint& point) { frame.points.push_back(point); }, maximum_points);
     return frame;
 }
 std::uint64_t stream_room_map_snapshot(const vista::fs::path& path,
@@ -163,7 +163,7 @@ std::uint64_t stream_room_map_snapshot(const vista::fs::path& path,
         throw std::runtime_error("unsupported room-map PCD; use a VISTA room-map snapshot");
     while (read_points < declared_points && std::getline(input, line)) {
         std::istringstream row(line);
-        models::PointXYZIRT point;
+        models::RoomMapPoint point;
         unsigned int intensity{};
         if (!(row >> point.x >> point.y >> point.z >> intensity) || intensity > 255 ||
             !std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z))

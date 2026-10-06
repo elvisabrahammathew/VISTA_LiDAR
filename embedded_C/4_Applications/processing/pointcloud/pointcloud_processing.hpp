@@ -9,7 +9,7 @@
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
-#include "models/lidars/ground_status.hpp"
+#include "models/mapping/ground_status.hpp"
 
 namespace vista::application {
 

@@ -4,9 +4,35 @@
 #include <cstdint>
 #include <array>
 #include <memory>
-#include "models/lidars/pointcloud.hpp"
+#include <utility>
+#include <vector>
 
 namespace vista::models {
+
+/// Persistent world geometry. No LiDAR rings, return IDs, acquisition times
+/// or transient ray origins: those belong to measured scans, not the map.
+struct RoomMapPoint {
+    float x{}, y{}, z{};
+    std::uint8_t intensity{};
+    bool operator==(const RoomMapPoint& other) const {
+        return x==other.x && y==other.y && z==other.z && intensity==other.intensity;
+    }
+};
+struct RoomMapFrame {
+    std::uint64_t timestamp_ns{}; // Host calendar time for display/storage metadata.
+    std::vector<RoomMapPoint> points;
+    RoomMapFrame() = default;
+    RoomMapFrame(std::uint64_t timestamp, std::vector<RoomMapPoint> values)
+        : timestamp_ns(timestamp), points(std::move(values)) {}
+};
+/// Bounded map preview topic, distinct from every LiDAR point-cloud topic.
+struct RoomMapMessage {
+    std::uint64_t revision{};
+    std::uint64_t timestamp_ns{}; // Host calendar publication time.
+    RoomMapFrame payload;
+    RoomMapMessage(std::uint64_t map_revision, std::uint64_t timestamp, RoomMapFrame value)
+        : revision(map_revision), timestamp_ns(timestamp), payload(std::move(value)) {}
+};
 
 // Stable numeric codes are consumed by the Grafana dashboard.
 enum class RoomMapState : std::uint8_t {
@@ -54,7 +80,7 @@ struct RoomMapViewRequest {
 class RoomMapViewSource {
 public:
     virtual ~RoomMapViewSource() = default;
-    virtual PointCloudFrame select_view(const RoomMapViewRequest&) const = 0;
+    virtual RoomMapFrame select_view(const RoomMapViewRequest&) const = 0;
     virtual std::array<double,6> bounds() const = 0;
 };
 struct RoomMapViewMessage {

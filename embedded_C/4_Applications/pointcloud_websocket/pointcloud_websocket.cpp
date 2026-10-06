@@ -90,15 +90,16 @@ void validate_pointcloud_websocket_config(
     }
 }
 
-std::vector<std::uint8_t> encode_lpc1_pointcloud(
-    const devices::LidarPointCloudMessage& message,
+namespace {
+template<typename Points>
+std::vector<std::uint8_t> encode_lpc1_geometry(
+    const Points& points, std::uint64_t sequence, std::uint64_t timestamp,
     std::size_t maximum_points,
     const models::GroundStatus* ground_status) {
     if (maximum_points == 0) {
         throw std::invalid_argument("LPC1 maximum points cannot be zero");
     }
 
-    const auto& points = message.payload.points;
     const auto sample_step = points.size() > maximum_points
                                  ? (points.size() + maximum_points - 1U) /
                                        maximum_points
@@ -116,11 +117,7 @@ std::vector<std::uint8_t> encode_lpc1_pointcloud(
     output.push_back(1U);  // Protocol version.
     output.push_back(static_cast<std::uint8_t>(1U | (ground_status ? 2U : 0U)));
     append_u16_le(output, static_cast<std::uint16_t>(header_size));
-    append_u64_le(output, message.sequence);
-    const auto timestamp = message.payload.timestamp_ns != 0
-                               ? message.payload.timestamp_ns
-                               : message.sensor_timestamp_ns.value_or(
-                                     message.received_timestamp_ns);
+    append_u64_le(output, sequence);
     append_u64_le(output, timestamp);
     append_u32_le(output, static_cast<std::uint32_t>(encoded_count));
     append_u32_le(output, static_cast<std::uint32_t>(lpc1_point_stride));
@@ -162,6 +159,20 @@ std::vector<std::uint8_t> encode_lpc1_pointcloud(
     }
     return output;
 }
+} // namespace
+
+std::vector<std::uint8_t> encode_lpc1_pointcloud(
+    const devices::LidarPointCloudMessage& message, std::size_t maximum_points,
+    const models::GroundStatus* ground_status) {
+    const auto timestamp=message.payload.timestamp_ns!=0 ? message.payload.timestamp_ns :
+        message.sensor_timestamp_ns.value_or(message.received_timestamp_ns);
+    return encode_lpc1_geometry(message.payload.points,message.sequence,timestamp,maximum_points,ground_status);
+}
+std::vector<std::uint8_t> encode_lpc1_pointcloud(
+    const models::RoomMapMessage& message, std::size_t maximum_points) {
+    const auto timestamp=message.payload.timestamp_ns!=0 ? message.payload.timestamp_ns : message.timestamp_ns;
+    return encode_lpc1_geometry(message.payload.points,message.revision,timestamp,maximum_points,nullptr);
+}
 
 platform::WorkerHandle spawn_pointcloud_websocket(
     platform::MessageBus& bus,
@@ -170,12 +181,12 @@ platform::WorkerHandle spawn_pointcloud_websocket(
     PointCloudWebSocketConfig config,
     PointCloudWebSocketCompletion on_complete) {
     validate_pointcloud_websocket_config(config);
-    if (config.room_map_lod)
+    if (config.room_map_lod || config.input_topic==models::topics::room_map)
         return spawn_room_map_websocket(bus, std::move(thread_config), stop, std::move(config), std::move(on_complete));
     auto subscriber = bus.subscribe<devices::LidarPointCloudMessage>(
         config.input_topic,
         thread_config.name);
-    auto ground_subscriber = bus.subscribe<models::LidarGroundStatusMessage>(
+    auto ground_subscriber = bus.subscribe<models::GroundStatusMessage>(
         models::topics::ground_status,
         thread_config.name);
 
@@ -208,7 +219,7 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                     config.publish_interval,
                     std::chrono::milliseconds(100));
                 bool topic_closed = false;
-                std::shared_ptr<const models::LidarGroundStatusMessage> latest_ground;
+                std::shared_ptr<const models::GroundStatusMessage> latest_ground;
                 std::shared_ptr<const devices::LidarPointCloudMessage> last_sent_snapshot;
                 bool replay_snapshot = false;
                 std::shared_ptr<const devices::LidarPointCloudMessage> encoded_snapshot;
@@ -244,7 +255,7 @@ platform::WorkerHandle spawn_pointcloud_websocket(
                     };
 
                 while (!stop.is_stop_requested() && !topic_closed) {
-                    std::shared_ptr<const models::LidarGroundStatusMessage> ground_message;
+                    std::shared_ptr<const models::GroundStatusMessage> ground_message;
                     while (ground_subscriber.try_receive(ground_message)==platform::ReceiveStatus::message) {
                         latest_ground=ground_message;
                     }

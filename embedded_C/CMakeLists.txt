@@ -257,6 +257,7 @@ if(VISTA_BUILD_TESTS)
     enable_testing()
     add_executable(vista_edge_tests
         unittest/test_main.cpp
+        unittest/model_messages_test.cpp
         unittest/application_test/logger_test.cpp
         unittest/application_test/room_map_test.cpp
         unittest/application_test/lio_test.cpp

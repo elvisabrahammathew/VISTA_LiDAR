@@ -132,7 +132,8 @@ VISTA_TEST(room_map_websocket_replays_to_late_client_and_serves_camera_view) {
     map.integrate({1,{{1.25F,0.25F,0.25F,1,0,0,0},{-1.25F,0.25F,0.25F,2,0,0,0}}},0ms);map.freeze();map.flush();
     vista::platform::MessageBus bus;vista::platform::StopToken stop;
     auto publisher=bus.publisher<vista::models::RoomMapViewMessage>(vista::models::topics::room_map_view);
-    vista::application::PointCloudWebSocketConfig config;config.room_map_lod=true;
+    // Selecting the map topic must never subscribe with a LiDAR message type.
+    vista::application::PointCloudWebSocketConfig config;config.input_topic=vista::models::topics::room_map;
     config.port=available_port();config.maximum_points=10;config.publish_interval=20ms;
     std::string failure;
     auto worker=vista::application::spawn_pointcloud_websocket(bus,{"test-room-lod",4},stop,config,
@@ -156,8 +157,8 @@ VISTA_TEST(room_map_websocket_replays_to_late_client_and_serves_camera_view) {
 VISTA_TEST(room_map_websocket_sends_new_checkpoint_without_second_interval_delay) {
     struct Source final : vista::models::RoomMapViewSource {
         mutable std::atomic<unsigned> queries{};
-        vista::models::PointCloudFrame select_view(const vista::models::RoomMapViewRequest&) const override {
-            ++queries;return {1,{{1,2,3,1,0,0,0}}};
+        vista::models::RoomMapFrame select_view(const vista::models::RoomMapViewRequest&) const override {
+            ++queries;return {1,{{1,2,3,1}}};
         }
         std::array<double,6> bounds() const override {return {0,0,0,4,4,4};}
     };

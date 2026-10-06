@@ -11,7 +11,7 @@
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
 #include "models/lidars/pointcloud.hpp"
-#include "models/room_map.hpp"
+#include "models/mapping/room_map.hpp"
 
 namespace vista::transport { class RoomMapSessionFile; }
 namespace vista::application {
@@ -54,7 +54,7 @@ public:
     /// Elapsed time is monotonic active acquisition time, independent of sensor timestamps.
     bool integrate(const models::PointCloudFrame& cloud, std::chrono::milliseconds elapsed);
     /// Returns a bounded overview of confirmed geometry; save() exports the complete map.
-    models::PointCloudFrame snapshot() const;
+    models::RoomMapFrame snapshot() const;
     /// Flushes changed tiles and exports every confirmed point, without a full-map vector.
     void save(transport::RoomMapSessionFile& output);
     void load(const vista::fs::path& input);
@@ -70,7 +70,7 @@ public:
     /// Clears memory and restarts confirmation; does not delete the saved PCD.
     void reset();
     /// Restores a read-only reference map. It cannot be resumed into a building map.
-    void restore(const models::PointCloudFrame& cloud);
+    void restore(const models::RoomMapFrame& cloud);
 
 private:
     class Impl;

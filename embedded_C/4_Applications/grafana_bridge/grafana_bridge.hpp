@@ -1,5 +1,5 @@
 #pragma once
-#include "models/localization.hpp"
+#include "models/mapping/localization.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -7,12 +7,14 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
-#include "models/lidars/ground_status.hpp"
-#include "models/room_map.hpp"
+#include "models/mapping/ground_status.hpp"
+#include "models/mapping/room_map.hpp"
+#include "models/telemetry.hpp"
 
 namespace vista::application {
 
@@ -80,16 +82,23 @@ std::string format_imu_measurement(const ImuTelemetry& telemetry);
 /// Publishes the five ground-quality values shown by Ground Validation.
 /// Plane/IMU flags remain available internally and in the 3D WebSocket header.
 std::string format_ground_measurement(
-    const models::LidarGroundStatusMessage& message);
+    const models::GroundStatusMessage& message);
 
 /// Publishes the current state on a tag-free measurement so Grafana Stat
 /// always receives exactly one stable series.
 std::string format_ground_state_measurement(
-    const models::LidarGroundStatusMessage& message);
+    const models::GroundStatusMessage& message);
 
 /// Tag-free mapping diagnostics for stable Grafana Stat fields.
 std::string format_room_map_measurement(const models::RoomMapStatus& status);
 std::string format_localization_measurement(const models::LocalizationStatus& status);
+
+/// Stable table rows: worker is an ordinary string column, never a series tag.
+/// Distinct millisecond timestamps prevent Grafana Live from joining workers
+/// into the same row. Internal MessageBus worker telemetry is unchanged.
+std::vector<std::string> format_worker_health_measurements(
+    std::vector<models::WorkerHealthTelemetry> workers,
+    std::uint64_t publication_timestamp_ns);
 
 struct GrafanaBridgeReport {
     std::uint64_t received_raw_messages{};

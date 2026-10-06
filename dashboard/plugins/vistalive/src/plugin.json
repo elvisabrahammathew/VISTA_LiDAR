@@ -1,0 +1,11 @@
+{
+  "type": "datasource", "id": "vista-live-datasource", "name": "VISTA Live",
+  "metrics": true, "streaming": true,
+  "info": {
+    "description": "Grafana Live metrics with producer heartbeat expiry. Does not change the 3D WebSocket panels.",
+    "author": {"name": "VISTA"}, "keywords": ["vista", "live", "heartbeat"],
+    "logos": {"small": "img/logo.svg", "large": "img/logo.svg"},
+    "links": [], "screenshots": [], "version": "1.0.1", "updated": "2026-10-06"
+  },
+  "dependencies": {"grafanaDependency": ">=13.2.2", "plugins": []}
+}

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
@@ -19,7 +20,7 @@
 #include "2_Transport/messaging/http.hpp"
 #include "models/telemetry.hpp"
 #include "models/topics.hpp"
-#include "models/localization.hpp"
+#include "models/mapping/localization.hpp"
 
 namespace vista::application {
 namespace {
@@ -197,10 +198,10 @@ PointCloudTelemetry offline_pointcloud(const std::string& lidar_id) {
 }
 
 ImuTelemetry summarize_imu(
-    const devices::LidarImuMessage& message,
+    const models::ImuMessage& message,
     double sample_rate_hz) {
     ImuTelemetry value;
-    value.lidar_id = message.lidar_id;
+    value.lidar_id = message.source_id; // Preserve the existing Grafana wire label.
     value.timestamp_ns = system_timestamp_ns();
     value.sample_rate_hz = sample_rate_hz;
     value.online = true;
@@ -221,17 +222,6 @@ std::string format_system_health(const models::SystemHealthTelemetry& value) {
          << ",memory_mb=" << value.memory_mb
          << ",worker_count=" << value.worker_count << 'i'
          << ",failed_workers=" << value.failed_workers << 'i'
-         << ' ' << value.timestamp_ns;
-    return line.str();
-}
-
-std::string format_worker_health(const models::WorkerHealthTelemetry& value) {
-    auto line = line_stream();
-    line << "worker_health,worker=" << escape_influx_tag(value.worker_name)
-         << " running=" << (value.running ? "1i" : "0i")
-         << ",failed=" << (value.failed ? "1i" : "0i")
-         << ",priority=" << static_cast<unsigned int>(value.priority) << 'i'
-         << ",uptime_seconds=" << value.uptime_seconds
          << ' ' << value.timestamp_ns;
     return line.str();
 }
@@ -370,6 +360,48 @@ void drain(Input& input, bool& closed, platform::TopicWaitSet::Mask ready, Handl
 
 }  // namespace
 
+std::vector<std::string> format_worker_health_measurements(
+    std::vector<models::WorkerHealthTelemetry> workers,
+    std::uint64_t publication_timestamp_ns) {
+    std::vector<std::string> lines;
+    if (workers.empty()) return lines;
+    constexpr std::uint64_t millisecond_ns = 1'000'000;
+    const auto end_ms = publication_timestamp_ns / millisecond_ns;
+    if (workers.size() > end_ms) {
+        throw std::invalid_argument("worker snapshot timestamp cannot accommodate its rows");
+    }
+    std::sort(workers.begin(), workers.end(), [](const auto& a, const auto& b) {
+        return a.worker_name < b.worker_name;
+    });
+    lines.reserve(workers.size());
+    for (std::size_t index = 0; index < workers.size(); ++index) {
+        const auto& value = workers[index];
+        if (value.worker_name.empty() ||
+            value.worker_name.find_first_of("\r\n") != std::string::npos ||
+            value.worker_name.find('\0') != std::string::npos ||
+            !std::isfinite(value.uptime_seconds) || value.uptime_seconds < 0 ||
+            (index && value.worker_name == workers[index - 1].worker_name)) {
+            throw std::invalid_argument("invalid or duplicate worker snapshot row");
+        }
+        std::string escaped;
+        for (const auto character : value.worker_name) {
+            if (character == '\\' || character == '"') escaped.push_back('\\');
+            escaped.push_back(character);
+        }
+        // All rows are at/before publication, with no same-ms collisions.
+        // A new measurement avoids stale tag-dependent schemas in Grafana Live.
+        const auto timestamp = (end_ms - (workers.size() - 1 - index)) * millisecond_ns;
+        auto line = line_stream();
+        line << "worker_health_rows worker=\"" << escaped << "\""
+             << ",running=" << (value.running ? "1i" : "0i")
+             << ",failed=" << (value.failed ? "1i" : "0i")
+             << ",priority=" << static_cast<unsigned>(value.priority) << 'i'
+             << ",uptime_seconds=" << value.uptime_seconds << ' ' << timestamp;
+        lines.push_back(line.str());
+    }
+    return lines;
+}
+
 std::string make_grafana_bearer_authorization(const std::string& token) {
     if (token.empty()) {
         throw std::invalid_argument("Grafana bearer token cannot be empty");
@@ -481,10 +513,10 @@ std::string format_localization_measurement(const models::LocalizationStatus& va
 }
 
 std::string format_ground_measurement(
-    const models::LidarGroundStatusMessage& message) {
+    const models::GroundStatusMessage& message) {
     const auto& value=message.payload;
     auto line=line_stream();
-    line << "ground_status,lidar_id=" << escape_influx_tag(message.lidar_id)
+    line << "ground_status,lidar_id=" << escape_influx_tag(message.source_id)
          << ",mode=" << escape_influx_tag(value.configured_mode)
          << " ground_tilt_deg=" << value.ground_tilt_deg
          << ",ground_height_error_m=" << value.ground_height_error_m
@@ -496,7 +528,7 @@ std::string format_ground_measurement(
 }
 
 std::string format_ground_state_measurement(
-    const models::LidarGroundStatusMessage& message) {
+    const models::GroundStatusMessage& message) {
     auto line=line_stream();
     line << "ground_state state_code="
          << static_cast<unsigned int>(message.payload.state) << 'i'
@@ -555,8 +587,8 @@ platform::WorkerHandle spawn_grafana_bridge(
     // Live health/counts are independent of world-pose validity. Keep the
     // existing compact Grafana field/channel names for dashboard compatibility.
     auto processed = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_cleaned_sensor);
-    auto imu = inputs.subscribe<devices::LidarImuMessage>(bus, models::topics::lidar_imu);
-    auto ground = inputs.subscribe<models::LidarGroundStatusMessage>(bus, models::topics::ground_status);
+    auto imu = inputs.subscribe<models::ImuMessage>(bus, models::topics::lidar_imu);
+    auto ground = inputs.subscribe<models::GroundStatusMessage>(bus, models::topics::ground_status);
     auto room_map = inputs.subscribe<models::RoomMapStatus>(bus, models::topics::room_map_status);
     auto localization = inputs.subscribe<models::LocalizationStatus>(bus, models::topics::localization_status);
     auto system = inputs.subscribe<models::SystemHealthTelemetry>(bus, models::topics::system_health);
@@ -579,8 +611,8 @@ platform::WorkerHandle spawn_grafana_bridge(
                 std::unordered_map<std::string, models::WorkerHealthTelemetry> workers;
                 std::optional<models::SystemHealthTelemetry> system_value;
                  std::shared_ptr<const devices::LidarPointCloudMessage> pending_cloud;
-                 std::shared_ptr<const devices::LidarImuMessage> pending_imu;
-                 std::shared_ptr<const models::LidarGroundStatusMessage> pending_ground;
+                 std::shared_ptr<const models::ImuMessage> pending_imu;
+                 std::shared_ptr<const models::GroundStatusMessage> pending_ground;
                  std::optional<models::RoomMapStatus> pending_room_map;
                  std::optional<models::LocalizationStatus> pending_localization;
                  bool localization_closed{};
@@ -627,7 +659,7 @@ platform::WorkerHandle spawn_grafana_bridge(
                         }
                          pending_cloud = message;
                      });
-                     drain<devices::LidarImuMessage>(imu, imu_closed, ready,
+                     drain<models::ImuMessage>(imu, imu_closed, ready,
                          [&](const auto& message) {
                              ++report.received_imu_messages;
                              imu_rate_hz = update_rate(
@@ -635,10 +667,10 @@ platform::WorkerHandle spawn_grafana_bridge(
                                  imu_time,
                                  imu_rate_hz);
                              last_imu = Clock::now();
-                             imu_lidar_id = message->lidar_id;
+                             imu_lidar_id = message->source_id;
                              pending_imu = message;
                          });
-                    drain<models::LidarGroundStatusMessage>(ground, ground_closed, ready,
+                    drain<models::GroundStatusMessage>(ground, ground_closed, ready,
                         [&](const auto& message) {
                             ++report.received_ground_messages;
                             pending_ground=message;
@@ -690,7 +722,12 @@ platform::WorkerHandle spawn_grafana_bridge(
                         }
                         if (system_value) lines.push_back(format_system_health(*system_value));
                         if(pending_localization){lines.push_back(format_localization_measurement(*pending_localization));pending_localization.reset();}
-                        for (const auto& entry : workers) lines.push_back(format_worker_health(entry.second));
+                        std::vector<models::WorkerHealthTelemetry> worker_rows;
+                        worker_rows.reserve(workers.size());
+                        for (const auto& entry : workers) worker_rows.push_back(entry.second);
+                        auto worker_lines = format_worker_health_measurements(
+                            std::move(worker_rows), system_timestamp_ns());
+                        for (auto& line : worker_lines) lines.push_back(std::move(line));
                         publisher.publish(std::move(lines), inputs.topic_count());
                         next_publish = now + config.publish_interval;
                     }

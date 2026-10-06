@@ -110,7 +110,7 @@ platform::WorkerHandle spawn_room_map_websocket(platform::MessageBus& bus,
                         // RoomMapPublishIntervalMilliseconds. Do not add a second
                         // delay before showing it. Only same-map camera requests
                         // are throttled (using that same configuration value).
-                        models::PointCloudFrame cloud;
+                        models::RoomMapFrame cloud;
                         std::array<double,6> bounds{-1,-1,-1,1,1,1};
                         auto state=latest->state;
                         try {
@@ -126,7 +126,7 @@ platform::WorkerHandle spawn_room_map_websocket(platform::MessageBus& bus,
                             <<",\"state\":"<<static_cast<unsigned>(state)<<",\"bounds\":[";
                         for(unsigned i=0;i<6;++i) {if(i) meta<<',';meta<<bounds[i];}meta<<"]}";
                         cloud.timestamp_ns=latest->timestamp_ns;
-                        devices::LidarPointCloudMessage frame("room-map",latest->revision,std::nullopt,
+                        models::RoomMapMessage frame(latest->revision,
                             latest->timestamp_ns,std::move(cloud));
                         auto packet=encode_lpc1_pointcloud(frame,view.request.point_budget);
                         if(server->send_text(entry.first,meta.str()) && server->send_binary(entry.first,packet.data(),packet.size())) {

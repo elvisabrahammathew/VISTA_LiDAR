@@ -25,7 +25,8 @@ using VoxelHash=transport::MapVoxelHash;
 using Cell=transport::MapVoxelCell;
 
 /// Guard integer conversion; malformed coordinates must not create unsafe ray walks.
-std::optional<VoxelKey> voxel_key(const models::PointXYZIRT& point, float size) {
+template<typename Point>
+std::optional<VoxelKey> voxel_key(const Point& point, float size) {
     const double x = std::floor(static_cast<double>(point.x) / size);
     const double y = std::floor(static_cast<double>(point.y) / size);
     const double z = std::floor(static_cast<double>(point.z) / size);
@@ -82,7 +83,7 @@ public:
             config.voxel_size_m,config.tile_size_m,config.cache_max_voxels,
             config.cache_max_tiles,config.minimum_observations,config.lod_points_per_node);
     }
-    models::PointCloudFrame select_view(const models::RoomMapViewRequest& request) const {
+    models::RoomMapFrame select_view(const models::RoomMapViewRequest& request) const {
         std::lock_guard<std::mutex> lock(mutex);
         ++preview_queries;
         auto cloud=cells->select_view(request);cloud.timestamp_ns=timestamp_ns;return cloud;
@@ -137,11 +138,11 @@ public:
         const double margin = std::max<double>(config.raycast_surface_margin_m, config.voxel_size_m * std::sqrt(3.0));
         const double length = std::min<double>(config.raycast_maximum_range_m, distance - margin);
         if (!std::isfinite(distance) || length <= 0.0 || distance <= 0.0) return;
-        const auto start_key = voxel_key({origin[0], origin[1], origin[2], 0, 0, 0, 0}, config.voxel_size_m);
-        const auto end_key = voxel_key({
+        const auto start_key = voxel_key(models::RoomMapPoint{origin[0], origin[1], origin[2], 0}, config.voxel_size_m);
+        const auto end_key = voxel_key(models::RoomMapPoint{
             static_cast<float>(start[0] + direction[0]*length/distance),
             static_cast<float>(start[1] + direction[1]*length/distance),
-            static_cast<float>(start[2] + direction[2]*length/distance), 0, 0, 0, 0}, config.voxel_size_m);
+            static_cast<float>(start[2] + direction[2]*length/distance), 0}, config.voxel_size_m);
         if (!start_key || !end_key) return;
         std::array<std::int64_t, 3> position{start_key->x, start_key->y, start_key->z};
         const std::array<std::int64_t, 3> end{end_key->x, end_key->y, end_key->z};
@@ -209,7 +210,12 @@ public:
         for (const auto& hit : hits) {
             const auto& point=*hit.point;
             auto* found = cells->find(hit.key);
-            if (!found) found=&cells->insert(hit.key,Cell{point,0,-1,0});
+            if (!found) {
+                // Explicit acquisition -> persistent geometry boundary. Ray
+                // origins remain on the live input for free-space traversal.
+                models::RoomMapPoint geometry{point.x,point.y,point.z,point.intensity};
+                found=&cells->insert(hit.key,Cell{geometry,0,-1,0});
+            }
             auto& cell = *found;
             if(cell.free_observations!=0) {
                 cell.free_observations=0;cells->mark_changed(hit.key);
@@ -249,7 +255,7 @@ public:
             }
         }
         state = cells->size()==0 ? models::RoomMapState::empty : models::RoomMapState::building;
-        timestamp_ns = cloud.timestamp_ns;
+        timestamp_ns = system_timestamp_ns(); // Map publication metadata uses the host clock.
         if (confirmed > 0 && config.freeze_after.count() > 0 && elapsed >= freeze_deadline) {
             // Do not commit the current incomplete free window at freeze.
             pending_free.clear();
@@ -288,7 +294,7 @@ bool RoomMapAccumulator::integrate(const models::PointCloudFrame& cloud, std::ch
     ++impl_->integrated_frames;
     return changed;
 }
-models::PointCloudFrame RoomMapAccumulator::snapshot() const {
+models::RoomMapFrame RoomMapAccumulator::snapshot() const {
     models::RoomMapViewRequest request;
     request.point_budget=impl_->config.preview_max_points;
     return impl_->select_view(request); // A bounded preview, NOT the complete PCD.
@@ -350,7 +356,7 @@ void RoomMapAccumulator::reset() {
     impl_->preview_queries=impl_->integrated_frames=0;
     impl_->last_integration_ms=impl_->max_integration_ms=impl_->last_map_lock_wait_ms=impl_->last_checkpoint_ms=0;
 }
-void RoomMapAccumulator::restore(const models::PointCloudFrame& cloud) {
+void RoomMapAccumulator::restore(const models::RoomMapFrame& cloud) {
     if (cloud.points.empty()) throw std::invalid_argument("saved room map is empty");
     for (const auto& point : cloud.points)
         if (!voxel_key(point, impl_->config.voxel_size_m))
@@ -369,7 +375,7 @@ void RoomMapAccumulator::load(const vista::fs::path& file) {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     impl_->cells->set_reference();
     // Stream a large PCD into disk tiles instead of loading the whole file in RAM.
-    transport::stream_room_map_snapshot(file,[&](const models::PointXYZIRT& point) {
+    transport::stream_room_map_snapshot(file,[&](const models::RoomMapPoint& point) {
         if(!voxel_key(point,impl_->config.voxel_size_m)) throw std::invalid_argument("invalid saved map coordinate");
         impl_->cells->append_reference(point);++impl_->confirmed;
     });
@@ -401,7 +407,7 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
     std::optional<platform::TopicSubscriber<devices::LidarPointCloudMessage>> subscriber;
     if (config.enabled && !config.load_existing)
         subscriber.emplace(bus.subscribe<devices::LidarPointCloudMessage>(models::topics::pointcloud_cleaned, thread_config.name));
-    auto publisher = bus.publisher<devices::LidarPointCloudMessage>(models::topics::room_map);
+    auto publisher = bus.publisher<models::RoomMapMessage>(models::topics::room_map);
     auto status_publisher = bus.publisher<models::RoomMapStatus>(models::topics::room_map_status);
     auto view_publisher = bus.publisher<models::RoomMapViewMessage>(models::topics::room_map_view);
     return platform::spawn_worker(std::move(thread_config), [stop, config = std::move(config),
@@ -432,7 +438,7 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
             std::uint64_t revision{};
             std::chrono::steady_clock::duration active_time{};
             std::optional<std::chrono::steady_clock::time_point> last_observation;
-            std::shared_ptr<const devices::LidarPointCloudMessage> snapshot;
+            std::shared_ptr<const models::RoomMapMessage> snapshot;
             std::shared_ptr<const models::RoomMapViewSource> view_source;
             std::optional<std::uint64_t> saved_revision;
             auto next_publish = std::chrono::steady_clock::now();
@@ -452,8 +458,8 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
                 const auto now_ns = system_timestamp_ns();
                 auto cloud = map.snapshot();
                 cloud.timestamp_ns = now_ns;
-                snapshot = std::make_shared<const devices::LidarPointCloudMessage>(
-                    "room-map", revision, std::nullopt, now_ns, std::move(cloud));
+                snapshot = std::make_shared<const models::RoomMapMessage>(
+                    revision, now_ns, std::move(cloud));
             };
             const auto save = [&]() {
                 // Building sessions always save on freeze/clean shutdown. A loaded

@@ -11,8 +11,8 @@
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
-#include "models/lidars/ground_status.hpp"
-#include "models/room_map.hpp"
+#include "models/mapping/ground_status.hpp"
+#include "models/mapping/room_map.hpp"
 
 namespace vista::application {
 
@@ -40,6 +40,10 @@ std::vector<std::uint8_t> encode_lpc1_pointcloud(
     const devices::LidarPointCloudMessage& message,
     std::size_t maximum_points,
     const models::GroundStatus* ground_status = nullptr);
+
+/// Same LPC1 wire format, but a distinct room-map topic/model (no LiDAR envelope).
+std::vector<std::uint8_t> encode_lpc1_pointcloud(
+    const models::RoomMapMessage& message, std::size_t maximum_points);
 
 struct PointCloudWebSocketReport {
     std::uint64_t received_messages{};

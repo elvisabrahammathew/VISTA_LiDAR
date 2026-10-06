@@ -5,6 +5,29 @@ The Rust source remains unchanged and can be kept as a behavioral reference.
 
 ## Architecture
 
+Worker Health uses the tag-free Grafana Live channel
+`stream/vista/worker_health_rows`. Each worker name is a string column, with
+one distinct millisecond row timestamp per publication batch. The dashboard
+groups these rows by name and displays the latest values only, with STT starting
+at 1. This avoids unnamed workers being collapsed into one null-name group.
+After this schema update, rebuild/restart `vista_edge` and re-import the existing
+`dashboard/VISTA_Live_Dashboard_V4_Free_Space.json` (UID `vistalive`). No panel
+plugin reinstall, Grafana token change, or DeviceConfig change is needed.
+That statement refers only to the Worker Health schema correction. The new
+dashboard disconnect behavior additionally requires the companion
+`dashboard/plugins/vistalive` data source: follow its `INSTALL.md`, then select
+VISTA Live when importing the V4 JSON. Metric/status panels return No data
+after 6 seconds without the existing bridge heartbeat, even with auto-refresh
+off. Both custom 3D panels are unchanged. No new edge worker, publish field or
+socket is required. Keep host calendar clocks synchronized and the Grafana
+publish interval at 1–2 seconds. This tests producer-to-Grafana liveness, not
+LiDAR liveness while the producer continues running.
+
+The dashboard regression test uses the plugin's existing Grafana development
+dependencies: run `node dashboard/unittest/worker_health_test.cjs` from the repo
+root after installing those dependencies. It checks exact column order and the
+latest values for 1, 9, 11, 12 and 13 workers, including multiple input frames.
+
 - `1_Platform`: shared MessageBus, bounded broadcast rings, 64-bit topic
   WaitSets, worker threads, and native priority mapping.
 - `2_Transport`: TCP, UDP, serial, librealsense USB, HTTP, and local storage.

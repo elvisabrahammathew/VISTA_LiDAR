@@ -41,6 +41,8 @@ foreach(name ikd_Tree.h ikd_Tree.cpp)
     string(REPLACE "#define Multi_Thread_Rebuild_Point_Num 1500" "#define Multi_Thread_Rebuild_Point_Num 2147483647" code "${code}")
     string(REPLACE "#define Q_LEN 1000000" "#define Q_LEN 1" code "${code}")
     string(REPLACE "pthread_create(&rebuild_thread, NULL, multi_thread_ptr, (void *)this);" "/* Rebuilds run synchronously in the owning LIO worker. */" code "${code}")
+    # The disabled background thread must not announce a startup on every tree.
+    string(REPLACE [=[printf("Multi thread started \n");]=] "/* Omit the disabled background-thread startup log. */" code "${code}")
     foreach(pair "pthread_mutex_init|mutex_init"
                  "pthread_mutex_destroy|mutex_destroy" "pthread_mutex_trylock|mutex_trylock"
                  "pthread_mutex_lock|mutex_lock" "pthread_mutex_unlock|mutex_unlock"

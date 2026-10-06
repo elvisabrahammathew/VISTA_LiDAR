@@ -1,11 +1,17 @@
 {
-  "__inputs": [],
+  "__inputs": [{"name": "DS_VISTA_LIVE", "label": "VISTA Live", "description": "Select the VISTA Live companion data source (heartbeat expiry)", "type": "datasource", "pluginId": "vista-live-datasource", "pluginName": "VISTA Live"}],
   "__requires": [
+    {
+      "type": "datasource",
+      "id": "vista-live-datasource",
+      "name": "VISTA Live",
+      "version": "1.0.0"
+    },
     {
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
-      "version": "10.0.0"
+      "version": "13.2.2"
     },
     {
       "type": "panel",
@@ -131,8 +137,8 @@
     },
     {
       "datasource": {
-        "uid": "grafana",
-        "type": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "transformations": [
         {
@@ -157,8 +163,8 @@
           },
           "refId": "A",
           "datasource": {
-            "uid": "grafana",
-            "type": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "channel": "stream/vista/localization",
           "queryType": "measurements"
@@ -181,14 +187,6 @@
             {
               "type": "value",
               "options": {
-                "4": {
-                  "color": "red",
-                  "text": "LOST"
-                },
-                "3": {
-                  "color": "orange",
-                  "text": "DEGRADED"
-                },
                 "0": {
                   "color": "orange",
                   "text": "WAITING IMU"
@@ -200,10 +198,19 @@
                 "2": {
                   "color": "green",
                   "text": "TRACKING"
+                },
+                "3": {
+                  "color": "orange",
+                  "text": "DEGRADED"
+                },
+                "4": {
+                  "color": "red",
+                  "text": "LOST"
                 }
               }
             }
-          ]
+          ],
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -238,8 +245,8 @@
         "w": 20
       },
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "fieldConfig": {
         "defaults": {
@@ -247,7 +254,8 @@
             "minWidth": 70
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -387,8 +395,8 @@
           "buffer": 60000,
           "channel": "stream/vista/localization",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -500,8 +508,8 @@
         "h": 4
       },
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "fieldConfig": {
         "defaults": {
@@ -548,7 +556,8 @@
               }
             ]
           },
-          "displayName": "Ground State"
+          "displayName": "Ground State",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -572,8 +581,8 @@
           "buffer": 60000,
           "channel": "stream/vista/ground_state",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -606,8 +615,8 @@
         "h": 8
       },
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "fieldConfig": {
         "defaults": {
@@ -615,7 +624,8 @@
             "minWidth": 70
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -791,8 +801,8 @@
           "buffer": 60000,
           "channel": "stream/vista/ground_status",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -892,8 +902,8 @@
         "h": 4
       },
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "fieldConfig": {
         "defaults": {
@@ -941,7 +951,8 @@
               }
             }
           ],
-          "displayName": "Room Map State"
+          "displayName": "Room Map State",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -965,8 +976,8 @@
           "buffer": 60000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -1001,8 +1012,8 @@
         "y": 35
       },
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1010,7 +1021,8 @@
             "minWidth": 70
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -1246,8 +1258,8 @@
           "buffer": 60000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -1357,8 +1369,8 @@
         "y": 43
       },
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1366,7 +1378,8 @@
             "minWidth": 70
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -1598,8 +1611,8 @@
           "buffer": 60000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -1712,8 +1725,8 @@
         "y": 51
       },
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1721,7 +1734,8 @@
             "minWidth": 70
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -1909,8 +1923,8 @@
           "buffer": 60000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2043,8 +2057,8 @@
       "title": "LiDAR Online",
       "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 4,
@@ -2087,7 +2101,8 @@
               }
             ]
           },
-          "displayName": "LiDAR Online"
+          "displayName": "LiDAR Online",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -2112,8 +2127,8 @@
           "buffer": 60000,
           "channel": "stream/vista/pointcloud_current",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2141,8 +2156,8 @@
       "title": "IMU Online",
       "description": "Latest IMU state published by the LiDAR decode worker.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 4,
@@ -2185,7 +2200,8 @@
               }
             ]
           },
-          "displayName": "IMU Online"
+          "displayName": "IMU Online",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -2210,8 +2226,8 @@
           "buffer": 60000,
           "channel": "stream/vista/imu",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2238,8 +2254,8 @@
       "type": "stat",
       "title": "IMU Sample Rate",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 4,
@@ -2263,7 +2279,8 @@
             ]
           },
           "unit": "suffix: samples/s",
-          "displayName": "IMU Sample Rate"
+          "displayName": "IMU Sample Rate",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -2288,8 +2305,8 @@
           "buffer": 60000,
           "channel": "stream/vista/imu",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2316,8 +2333,8 @@
       "type": "timeseries",
       "title": "Point Cloud History",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 18,
@@ -2361,7 +2378,8 @@
               "mode": "off"
             }
           },
-          "unit": "short"
+          "unit": "short",
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -2411,8 +2429,8 @@
           "buffer": 60000,
           "channel": "stream/vista/pointcloud_current",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2443,8 +2461,8 @@
       "type": "timeseries",
       "title": "Orientation Quaternion",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 18,
@@ -2489,7 +2507,8 @@
             }
           },
           "unit": "short",
-          "decimals": 3
+          "decimals": 3,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -2563,8 +2582,8 @@
           "buffer": 60000,
           "channel": "stream/vista/imu",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2596,8 +2615,8 @@
       "type": "timeseries",
       "title": "Angular Velocity",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 18,
@@ -2641,7 +2660,8 @@
               "mode": "off"
             }
           },
-          "unit": "suffix: rad/s"
+          "unit": "suffix: rad/s",
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -2703,8 +2723,8 @@
           "buffer": 60000,
           "channel": "stream/vista/imu",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2735,8 +2755,8 @@
       "type": "timeseries",
       "title": "Message Rate and Data Age",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 16,
@@ -2778,7 +2798,8 @@
             "thresholdsStyle": {
               "mode": "off"
             }
-          }
+          },
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -2844,8 +2865,8 @@
           "buffer": 60000,
           "channel": "stream/vista/pointcloud_current",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -2876,8 +2897,8 @@
       "type": "timeseries",
       "title": "Linear Acceleration",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 16,
@@ -2921,7 +2942,8 @@
               "mode": "off"
             }
           },
-          "unit": "suffix: m/s²"
+          "unit": "suffix: m/s²",
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -2983,8 +3005,8 @@
           "buffer": 60000,
           "channel": "stream/vista/imu",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -3028,8 +3050,8 @@
       "type": "stat",
       "title": "Running Workers",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 6,
@@ -3053,7 +3075,8 @@
             ]
           },
           "unit": "short",
-          "displayName": "Running Workers"
+          "displayName": "Running Workers",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -3078,8 +3101,8 @@
           "buffer": 60000,
           "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -3105,10 +3128,10 @@
       "id": 28,
       "type": "table",
       "title": "Worker Health",
-      "description": "One latest row per worker, ordered by worker name. STT is the display row number starting at 1, followed by Worker, Failed, Priority, Running and uptime in Seconds. STT is not a permanent worker ID. Internal timestamps select newest values and are not displayed.",
+      "description": "One latest row per worker from the stable worker_health_rows channel. Worker names are ordinary string values, not numeric-series labels. STT starts at 1, followed by Worker, Failed, Priority, Running and uptime in Seconds. Internal timestamps select newest values and are not displayed. Rebuild/restart vista_edge and re-import this dashboard together after updating.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 12,
@@ -3122,7 +3145,8 @@
             "minWidth": 90
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -3266,10 +3290,10 @@
       "targets": [
         {
           "buffer": 60000,
-          "channel": "stream/vista/worker_health",
+          "channel": "stream/vista/worker_health_rows",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -3279,12 +3303,6 @@
         }
       ],
       "transformations": [
-        {
-          "id": "prepareTimeSeries",
-          "options": {
-            "format": "long"
-          }
-        },
         {
           "id": "filterFieldsByName",
           "options": {
@@ -3388,8 +3406,9 @@
           "options": {
             "sort": [
               {
-                "field": "Worker",
-                "desc": false
+                "field": "worker",
+              "desc": false,
+              "index": 0
               }
             ]
           }
@@ -3449,8 +3468,8 @@
       "type": "stat",
       "title": "Failed Workers",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 6,
@@ -3478,7 +3497,8 @@
             ]
           },
           "unit": "short",
-          "displayName": "Failed Workers"
+          "displayName": "Failed Workers",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -3503,8 +3523,8 @@
           "buffer": 60000,
           "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -3531,8 +3551,8 @@
       "type": "timeseries",
       "title": "Host Resource History",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 18,
@@ -3574,7 +3594,8 @@
             "thresholdsStyle": {
               "mode": "off"
             }
-          }
+          },
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -3641,8 +3662,8 @@
           "buffer": 60000,
           "channel": "stream/vista/system_health",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -3672,8 +3693,8 @@
       "type": "timeseries",
       "title": "Pipeline History",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 18,
@@ -3715,7 +3736,8 @@
             "thresholdsStyle": {
               "mode": "off"
             }
-          }
+          },
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -3812,8 +3834,8 @@
           "buffer": 60000,
           "channel": "stream/vista/pipeline_health",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -3847,8 +3869,8 @@
       "title": "Grafana Bridge Health",
       "description": "Grafana delivery and retry history: totals, HTTP status, successful push age and subscribed topics, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 8,
@@ -3862,7 +3884,8 @@
             "minWidth": 70
           },
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "No data"
         },
         "overrides": [
           {
@@ -3986,8 +4009,8 @@
           "buffer": 60000,
           "channel": "stream/vista/grafana_bridge_health",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -4091,8 +4114,8 @@
       "title": "Radar Targets",
       "description": "Reserved for the future radar worker.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 4,
@@ -4116,7 +4139,8 @@
             ]
           },
           "unit": "short",
-          "displayName": "Radar Targets"
+          "displayName": "Radar Targets",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -4141,8 +4165,8 @@
           "buffer": 60000,
           "channel": "stream/vista/radar_targets",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -4170,8 +4194,8 @@
       "title": "Detected Objects",
       "description": "Reserved for the future detection worker.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 4,
@@ -4195,7 +4219,8 @@
             ]
           },
           "unit": "short",
-          "displayName": "Detected Objects"
+          "displayName": "Detected Objects",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -4220,8 +4245,8 @@
           "buffer": 60000,
           "channel": "stream/vista/detected_objects",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -4249,8 +4274,8 @@
       "title": "Active Tracks",
       "description": "Reserved for the future tracking worker.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 4,
@@ -4274,7 +4299,8 @@
             ]
           },
           "unit": "short",
-          "displayName": "Active Tracks"
+          "displayName": "Active Tracks",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -4299,8 +4325,8 @@
           "buffer": 60000,
           "channel": "stream/vista/tracked_objects",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []
@@ -4328,8 +4354,8 @@
       "title": "Maximum Object Speed",
       "description": "Reserved for the future tracking worker.",
       "datasource": {
-        "type": "grafana",
-        "uid": "grafana"
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
       },
       "gridPos": {
         "h": 4,
@@ -4361,7 +4387,8 @@
             ]
           },
           "unit": "velocityms",
-          "displayName": "Maximum Object Speed"
+          "displayName": "Maximum Object Speed",
+          "noValue": "No data"
         },
         "overrides": []
       },
@@ -4386,8 +4413,8 @@
           "buffer": 60000,
           "channel": "stream/vista/tracked_objects",
           "datasource": {
-            "type": "grafana",
-            "uid": "grafana"
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
           },
           "filter": {
             "fields": []

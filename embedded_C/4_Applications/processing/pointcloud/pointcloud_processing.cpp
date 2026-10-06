@@ -446,12 +446,12 @@ platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform
     platform::WorkerTopicInputs inputs(thread_config.name);
     auto pointcloud_input=inputs.subscribe<devices::LidarPointCloudMessage>(bus,ground_stage ? models::topics::pointcloud_cleaned :
         (config.input_world_coordinates ? models::topics::pointcloud_world : models::topics::pointcloud_decoded));
-    std::optional<platform::WorkerTopicInput<devices::LidarImuMessage>> imu_input;
+    std::optional<platform::WorkerTopicInput<models::ImuMessage>> imu_input;
     // Sensor cleaning needs neither gravity nor IMU. Do not wake this worker
     // at IMU rate or allocate an unused per-subscriber sample queue.
-    if(!sensor_stage) imu_input.emplace(inputs.subscribe<devices::LidarImuMessage>(bus,models::topics::lidar_imu));
+    if(!sensor_stage) imu_input.emplace(inputs.subscribe<models::ImuMessage>(bus,models::topics::lidar_imu));
     auto publisher=bus.publisher<devices::LidarPointCloudMessage>(sensor_stage ? models::topics::pointcloud_cleaned_sensor : (ground_stage ? models::topics::pointcloud_processed : models::topics::pointcloud_cleaned));
-    auto ground_publisher=bus.publisher<models::LidarGroundStatusMessage>(models::topics::ground_status);
+    auto ground_publisher=bus.publisher<models::GroundStatusMessage>(models::topics::ground_status);
     return platform::spawn_worker(std::move(thread_config),[stop,ground_stage,inputs=std::move(inputs),pointcloud_input=std::move(pointcloud_input),imu_input=std::move(imu_input),publisher=std::move(publisher),ground_publisher=std::move(ground_publisher),config=std::move(config),on_complete=std::move(on_complete)]() mutable {
         try {
             PreprocessingReport report; PointCloudPreprocessor processor(std::move(config)); bool pointcloud_closed=false;
@@ -459,7 +459,7 @@ platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform
             while (!pointcloud_closed) {
                 const auto ready=inputs.wait();
                 if (imu_input && imu_input->is_ready(ready)) {
-                    std::shared_ptr<const devices::LidarImuMessage> message;
+                    std::shared_ptr<const models::ImuMessage> message;
                     while (imu_input->try_receive(message)==platform::ReceiveStatus::message) processor.update_imu(message->payload);
                 }
                 if (pointcloud_input.is_ready(ready)) {
@@ -481,7 +481,7 @@ platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform
                             last_ground_state=ground_status.state;
                         }
                         if (!ground_status.configured_mode.empty()) {
-                            ground_publisher.publish(models::LidarGroundStatusMessage(
+                            ground_publisher.publish(models::GroundStatusMessage(
                                 message->lidar_id,message->sequence,message->sensor_timestamp_ns,
                                 message->received_timestamp_ns,std::move(ground_status),message->received_monotonic_ns,message->measurement_timestamp_ns));
                         }

@@ -4,7 +4,7 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
-#include "models/room_map.hpp"
+#include "models/mapping/room_map.hpp"
 #include "2_Transport/storage/room_map_storage.hpp"
 
 namespace vista::transport {
@@ -14,7 +14,7 @@ struct MapVoxelKey {
 };
 struct MapVoxelHash { std::size_t operator()(const MapVoxelKey&) const noexcept; };
 struct MapVoxelCell {
-    models::PointXYZIRT point;
+    models::RoomMapPoint point;
     std::size_t observations{};
     std::int64_t last_hit_window{-1};
     std::size_t free_observations{};
@@ -45,9 +45,9 @@ public:
     void flush();
     /// Imported references use streaming point pages, preserving duplicate points.
     void set_reference();
-    void append_reference(const models::PointXYZIRT&);
+    void append_reference(const models::RoomMapPoint&);
     void for_each_confirmed(const RoomMapPointVisitor&);
-    models::PointCloudFrame select_view(const models::RoomMapViewRequest&);
+    models::RoomMapFrame select_view(const models::RoomMapViewRequest&);
     /// Flush at a mapper checkpoint, then expose disk-only queries. Queries never
     /// flush RAM or take the accumulator's update mutex.
     std::shared_ptr<const models::RoomMapViewSource> view_source(std::uint64_t timestamp_ns);

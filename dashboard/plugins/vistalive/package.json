@@ -1,0 +1,20 @@
+{
+  "name": "vista-live-datasource",
+  "version": "1.0.1",
+  "private": true,
+  "scripts": {
+    "build": "webpack --config webpack.config.cjs --mode production",
+    "typecheck": "tsc --noEmit",
+    "test": "node unittest/freshness_test.cjs"
+  },
+  "devDependencies": {
+    "@grafana/data": "13.2.2",
+    "@grafana/runtime": "13.2.2",
+    "copy-webpack-plugin": "13.0.1",
+    "rxjs": "7.8.2",
+    "ts-loader": "9.5.4",
+    "typescript": "5.9.3",
+    "webpack": "5.101.3",
+    "webpack-cli": "6.0.1"
+  }
+}

@@ -9,9 +9,9 @@
 #include <vector>
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
-#include "models/imu/imu.hpp"
+#include "models/imu/imu_message.hpp"
 #include "models/lidars/pointcloud.hpp"
-#include "models/localization.hpp"
+#include "models/mapping/localization.hpp"
 
 namespace vista::application {
 
@@ -61,6 +61,11 @@ public:
     LioEngine(const LioEngine&) = delete;
     LioEngine& operator=(const LioEngine&) = delete;
     LioOutput process(const LioScan& scan);
+    // Actual integrated horizon, not the end of the last examined/rejected scan.
+    std::optional<double> propagation_time_s() const;
+    // Re-estimate IMU at rest; retain the last accepted world pose and map.
+    // No world cloud is emitted until matching against that map succeeds.
+    models::LocalizationStatus restart_initialization();
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

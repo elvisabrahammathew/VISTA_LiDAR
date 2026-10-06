@@ -8,7 +8,7 @@ enum class LocalizationState : std::uint8_t {
     waiting_imu, initializing, tracking, degraded, lost
 };
 struct LocalizationStatus {
-    std::uint64_t timestamp_ns{}; // Host time for monitoring; never used to propagate pose.
+    std::uint64_t timestamp_ns{}; // Host calendar time for monitoring; never used to propagate pose.
     LocalizationState state{LocalizationState::waiting_imu};
     std::array<double, 3> position_m{};
     std::array<double, 4> orientation_xyzw{0, 0, 0, 1};

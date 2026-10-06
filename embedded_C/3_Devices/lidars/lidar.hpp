@@ -12,7 +12,7 @@
 
 #include "1_Platform/message_bus/message_bus.hpp"
 #include "1_Platform/threading/threading.hpp"
-#include "models/imu/imu.hpp"
+#include "models/imu/imu_message.hpp"
 #include "models/lidars/lidar_message.hpp"
 #include "models/lidars/pointcloud.hpp"
 
@@ -87,7 +87,6 @@ private:
 };
 
 using LidarRawMessage = models::LidarMessage<RawPacket>;
-using LidarImuMessage = models::ImuMessage; // Compatibility name; one shared IMU topic/type.
 using LidarPointCloudMessage = models::LidarMessage<models::PointCloudFrame>;
 
 struct LidarWorkerReport {

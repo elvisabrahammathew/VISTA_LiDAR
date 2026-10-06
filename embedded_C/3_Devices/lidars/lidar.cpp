@@ -126,7 +126,7 @@ LidarWorkerReport run_lidar_decoder(
     const std::shared_ptr<LidarDecoderSlot>& decoder_slot,
     platform::TopicSubscriber<LidarRawMessage> subscriber,
     platform::TopicPublisher<LidarPointCloudMessage> pointcloud_publisher,
-    platform::TopicPublisher<LidarImuMessage> imu_publisher) {
+    platform::TopicPublisher<models::ImuMessage> imu_publisher) {
     LidarWorkerReport report;
     platform::MeasurementClock measurement_clock;
     std::shared_ptr<const LidarRawMessage> message;
@@ -137,7 +137,7 @@ LidarWorkerReport run_lidar_decoder(
             const auto measurement_time = measurement_clock.align(
                 imu->timestamp_ns ? std::optional<std::uint64_t>(imu->timestamp_ns) : std::nullopt,
                 message->received_monotonic_ns);
-            imu_publisher.publish(LidarImuMessage(
+            imu_publisher.publish(models::ImuMessage(
                 message->lidar_id,
                 message->sequence,
                 message->sensor_timestamp_ns,
@@ -390,7 +390,7 @@ platform::WorkerHandle spawn_lidar_decode_worker(
     auto pointcloud_publisher = bus.publisher<LidarPointCloudMessage>(
         models::topics::pointcloud_decoded);
     auto imu_publisher =
-        bus.publisher<LidarImuMessage>(models::topics::lidar_imu);
+        bus.publisher<models::ImuMessage>(models::topics::lidar_imu);
     return platform::spawn_worker(
         std::move(thread_config),
         [stop,
