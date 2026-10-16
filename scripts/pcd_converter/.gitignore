@@ -1,0 +1,10 @@
+bin/
+obj/
+Tests/bin/
+Tests/obj/
+*.user
+.vs/
+
+# Keep distributable files visible to Git, including EXEs ignored at repo root.
+!/publish/
+!/publish/**

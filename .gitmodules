@@ -19,3 +19,6 @@
 [submodule "third_party/filesystem"]
 	path = third_party/filesystem
 	url = https://github.com/gulrak/filesystem.git
+[submodule "external/lidar_surface_splatting"]
+	path = external/lidar_surface_splatting
+	url = https://github.com/PaulBellette/lidar_surface_splatting.git
