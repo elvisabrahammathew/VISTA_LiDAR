@@ -30,7 +30,8 @@ GroundNormalToleranceDeg(lidar): 15.0
 GroundCalibrationFrames(lidar): 50
 GroundMinInlierRatio(lidar): 0.10
 
-# Moving mapping: keep stationary at startup; Mount is the INITIAL LiDAR world pose
+# Point-LIO (Unitree IMU-as-output); Mount is the INITIAL LiDAR world pose
+# Keep stationary at startup. IMU topic is lidar/imu; timing uses host monotonic clock.
 LioEnabled: 1
 LioLidarToImuTranslationX: 0.007698
 LioLidarToImuTranslationY: 0.014655
@@ -38,12 +39,30 @@ LioLidarToImuTranslationZ: -0.00667
 LioLidarToImuRollDeg: 0.0
 LioLidarToImuPitchDeg: 0.0
 LioLidarToImuYawDeg: 0.0
-LioScanVoxelSizeMeters: 0.05
-LioMapVoxelSizeMeters: 0.20
+# Internal odometry only, matching Unitree's L2 launch; RoomMap stays at 0.05 m.
+LioScanVoxelSizeMeters: 0.40
+LioMapVoxelSizeMeters: 0.40
 LioLocalMapRadiusMeters: 30.0
 LioLocalMapMaxPoints: 50000
 LioScanMaxPoints: 5000
 LioInitializationSamples: 50
+# Point-LIO IMU measurement R diagonals (not process Q; do not square)
+LioImuAccelerationCovariance: 0.1
+LioImuGyroscopeCovariance: 0.1
+LioImuAccelerationBiasCovariance: 0.0001
+LioImuGyroscopeBiasCovariance: 0.0001
+# Point-LIO state-output process Q and scalar LiDAR measurement covariance
+LioVelocityProcessCovariance: 20.0
+LioAccelerationProcessCovariance: 500.0
+LioAngularVelocityProcessCovariance: 1000.0
+LioLidarMeasurementCovariance: 0.01
+# Acceleration units: 9.81 for m/s^2, 1.0 for g. Saturation is per raw IMU axis.
+LioImuAccelerationNorm: 9.81
+LioImuAccelerationSaturation: 30.0
+LioImuGyroscopeSaturation: 35.0
+# Matching only: full-resolution world output/RoomMap keep valid nearer points.
+LioMinRangeMeters: 0.5
+LioPlaneThresholdMeters: 0.10
 LioMaxImuGapMilliseconds: 100
 LioMinMatchRatio: 0.15
 LioMaxResidualMeters: 0.15

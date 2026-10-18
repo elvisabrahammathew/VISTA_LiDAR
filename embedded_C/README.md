@@ -51,8 +51,9 @@ completion results, priority reporting, shutdown, and join/error handling.
 
 ## Room mapping, free-space rays, and Grafana output
 
-With `LioEnabled: 1`, a ROS-free FAST-LIO adapter aligns IMU/scan timestamps,
-initializes while stationary, deskews measurements and estimates a LiDAR-corrected
+With `LioEnabled: 1`, a ROS-free Point-LIO adapter aligns IMU/scan timestamps,
+initializes while stationary, updates its 30-DOF IMU-as-output state at IMU/point
+measurement times and estimates a LiDAR-corrected
 pose. Only accepted world-coordinate clouds enter preprocessing and room mapping;
 missing IMU or bad localization never falls back to a fixed pose. Mount XYZ/RPY
 is the initial pose, while LiDAR-to-IMU extrinsics are configured separately.
@@ -80,7 +81,7 @@ guarantee real-time performance under sustained overload. An uncovered IMU
 propagation interval after LIO starts latches LOST and requires restart, rather
 than silently reseeding the map origin. A stale accepted result is DEGRADED,
 not automatically classified as missing IMU. Original fault reasons are retained.
-Only the FAST-LIO numerical target uses optimized code in Visual Studio Debug
+Only the Point-LIO numerical target uses optimized code in Visual Studio Debug
 (debug symbols remain, variables may be optimized out). Other VISTA workers
 retain normal Debug runtime checks. Test physical motion and sensor calibration
 on target hardware before treating the map as accurate.

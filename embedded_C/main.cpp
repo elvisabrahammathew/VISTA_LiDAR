@@ -100,7 +100,7 @@ int main() {
                       << ':' << config.room_map_websocket.port << '\n';
 
         const auto started = std::chrono::steady_clock::now();
-        std::cout << "Mapping pose: " << (config.lio.enabled ? "FAST-LIO (stationary initialization required)" : "fixed mount") << '\n';
+        std::cout << "Mapping pose: " << (config.lio.enabled ? vista::application::LioEngine::backend_name() : "fixed mount") << '\n';
         if(config.lio.enabled)
             std::cout << "LIO time: host monotonic clock; IMU topic: lidar/imu (one active IMU).\n";
         vista::platform::StopToken stop;

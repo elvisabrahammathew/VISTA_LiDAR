@@ -1,0 +1,9 @@
+bin/
+obj/
+Tests/bin/
+Tests/obj/
+.vs/
+*.user
+# Keep the ready-to-run distribution visible despite the root *.exe rule.
+!/publish/
+!/publish/**

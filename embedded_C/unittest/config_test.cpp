@@ -18,6 +18,26 @@ Radar: None
 
 }  // namespace
 
+VISTA_TEST(config_parses_upstream_imu_covariances_and_preserves_old_file_defaults) {
+    const auto defaults=vista::parse_device_config_text(quanergy_config).lio;
+    VISTA_CHECK_NEAR(defaults.imu_acceleration_covariance,.1,1e-12);
+    VISTA_CHECK_NEAR(defaults.imu_gyroscope_covariance,.1,1e-12);
+    VISTA_CHECK_NEAR(defaults.imu_acceleration_bias_covariance,.0001,1e-12);
+    VISTA_CHECK_NEAR(defaults.imu_gyroscope_bias_covariance,.0001,1e-12);
+    const auto c=vista::parse_device_config_text(std::string(quanergy_config)+
+        "\nLioImuAccelerationCovariance: 0.2\nLioImuGyroscopeCovariance: 0.3\n"
+        "LioImuAccelerationBiasCovariance: 0.004\nLioImuGyroscopeBiasCovariance: 0.005\n").lio;
+    // TXT floating values use the parser's existing float representation.
+    VISTA_CHECK_NEAR(c.imu_acceleration_covariance,.2,1e-7);
+    VISTA_CHECK_NEAR(c.imu_gyroscope_covariance,.3,1e-7);
+    VISTA_CHECK_NEAR(c.imu_acceleration_bias_covariance,.004,1e-8);
+    VISTA_CHECK_NEAR(c.imu_gyroscope_bias_covariance,.005,1e-8);
+    for(const auto* key:{"LioImuAccelerationCovariance","LioImuGyroscopeCovariance",
+                         "LioImuAccelerationBiasCovariance","LioImuGyroscopeBiasCovariance"})
+        for(const auto* value:{"0","-0.1","nan","inf"})
+            VISTA_CHECK_THROWS(vista::parse_device_config_text(std::string(quanergy_config)+"\n"+key+": "+value+"\n"));
+}
+
 VISTA_TEST(config_sets_grafana_device_identity_and_room_map_performance_defaults) {
     const auto quanergy=vista::parse_device_config_text(quanergy_config);
     VISTA_CHECK(quanergy.grafana.selected_lidar_id=="quanergy-m8");
@@ -26,6 +46,35 @@ VISTA_TEST(config_sets_grafana_device_identity_and_room_map_performance_defaults
     const auto unitree=vista::parse_device_config_text(
         "Lidar: unitree-l2\nConnectionMode(unitree-l2): serial\nSerialPort(unitree-l2): COM4\nBaudRate(unitree-l2): 4000000\n");
     VISTA_CHECK(unitree.grafana.selected_lidar_id=="unitree-l2");
+}
+
+VISTA_TEST(config_point_lio_output_noise_units_saturation_and_matching_limits) {
+    const auto defaults=vista::parse_device_config_text(quanergy_config).lio;
+    VISTA_CHECK(defaults.velocity_process_covariance==20);
+    VISTA_CHECK_NEAR(defaults.scan_voxel_m,.4,1e-12);
+    VISTA_CHECK_NEAR(defaults.map_voxel_m,.4,1e-12);
+    VISTA_CHECK(defaults.acceleration_process_covariance==500);
+    VISTA_CHECK(defaults.angular_velocity_process_covariance==1000);
+    const auto c=vista::parse_device_config_text(std::string(quanergy_config)+R"(
+LioVelocityProcessCovariance: 12
+LioAccelerationProcessCovariance: 300
+LioAngularVelocityProcessCovariance: 800
+LioLidarMeasurementCovariance: 0.02
+LioImuAccelerationNorm: 1
+LioImuAccelerationSaturation: 3
+LioImuGyroscopeSaturation: 30
+LioMinRangeMeters: 0.2
+LioPlaneThresholdMeters: 0.08
+)").lio;
+    VISTA_CHECK(c.velocity_process_covariance==12 && c.acceleration_process_covariance==300 && c.angular_velocity_process_covariance==800);
+    VISTA_CHECK_NEAR(c.lidar_measurement_covariance,.02,1e-7);
+    VISTA_CHECK(c.imu_acceleration_norm==1 && c.imu_acceleration_saturation==3 && c.imu_gyroscope_saturation==30);
+    VISTA_CHECK_NEAR(c.minimum_range_m,.2,1e-7);VISTA_CHECK_NEAR(c.plane_threshold_m,.08,1e-7);
+    for(const auto* key:{"LioVelocityProcessCovariance","LioAccelerationProcessCovariance","LioAngularVelocityProcessCovariance",
+                         "LioLidarMeasurementCovariance","LioImuAccelerationNorm","LioImuAccelerationSaturation",
+                         "LioImuGyroscopeSaturation","LioMinRangeMeters","LioPlaneThresholdMeters"})
+        for(const auto* value:{"0","-1","nan","inf"})
+            VISTA_CHECK_THROWS(vista::parse_device_config_text(std::string(quanergy_config)+"\n"+key+": "+value+"\n"));
 }
 
 VISTA_TEST(config_room_mapping_settings_and_independent_mounting) {

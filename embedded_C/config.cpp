@@ -272,6 +272,32 @@ AppConfig parse_device_config_text(const std::string& contents) {
             config.lio.scan_max_points=static_cast<std::size_t>(parse_unsigned(value,key,100'000));
         } else if (key == "lioinitializationsamples") {
             config.lio.initialization_samples=static_cast<std::size_t>(parse_unsigned(value,key,100'000));
+        } else if (key == "lioimuaccelerationcovariance") {
+            config.lio.imu_acceleration_covariance=parse_float(value,key);
+        } else if (key == "lioimugyroscopecovariance") {
+            config.lio.imu_gyroscope_covariance=parse_float(value,key);
+        } else if (key == "lioimuaccelerationbiascovariance") {
+            config.lio.imu_acceleration_bias_covariance=parse_float(value,key);
+        } else if (key == "lioimugyroscopebiascovariance") {
+            config.lio.imu_gyroscope_bias_covariance=parse_float(value,key);
+        } else if (key == "liovelocityprocesscovariance") {
+            config.lio.velocity_process_covariance=parse_float(value,key);
+        } else if (key == "lioaccelerationprocesscovariance") {
+            config.lio.acceleration_process_covariance=parse_float(value,key);
+        } else if (key == "lioangularvelocityprocesscovariance") {
+            config.lio.angular_velocity_process_covariance=parse_float(value,key);
+        } else if (key == "liolidarmeasurementcovariance") {
+            config.lio.lidar_measurement_covariance=parse_float(value,key);
+        } else if (key == "lioimuaccelerationnorm") {
+            config.lio.imu_acceleration_norm=parse_float(value,key);
+        } else if (key == "lioimuaccelerationsaturation") {
+            config.lio.imu_acceleration_saturation=parse_float(value,key);
+        } else if (key == "lioimugyroscopesaturation") {
+            config.lio.imu_gyroscope_saturation=parse_float(value,key);
+        } else if (key == "liominrangemeters") {
+            config.lio.minimum_range_m=parse_float(value,key);
+        } else if (key == "lioplanethresholdmeters") {
+            config.lio.plane_threshold_m=parse_float(value,key);
         } else if (key == "liomaximugapmilliseconds") {
             config.lio.maximum_imu_gap_s=parse_float(value,key)/1000.0;
         } else if (key == "liominmatchratio") {

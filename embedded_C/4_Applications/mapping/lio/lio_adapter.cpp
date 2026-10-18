@@ -13,7 +13,13 @@ void validate_lio_config(const LioConfig& c) {
         for (double v : *values) if (!std::isfinite(v)) throw std::invalid_argument("non-finite LIO pose/extrinsic");
     for (double v : {c.scan_voxel_m, c.map_voxel_m, c.local_radius_m,
                     c.maximum_imu_gap_s, c.minimum_match_ratio, c.maximum_residual_m,
-                    c.maximum_translation_step_m, c.maximum_rotation_step_deg})
+                    c.maximum_translation_step_m, c.maximum_rotation_step_deg,
+                    c.imu_acceleration_covariance,c.imu_gyroscope_covariance,
+                    c.imu_acceleration_bias_covariance,c.imu_gyroscope_bias_covariance,
+                    c.velocity_process_covariance,c.acceleration_process_covariance,
+                    c.angular_velocity_process_covariance,c.lidar_measurement_covariance,
+                    c.imu_acceleration_norm,c.imu_acceleration_saturation,
+                    c.imu_gyroscope_saturation,c.minimum_range_m,c.plane_threshold_m})
         if (!std::isfinite(v) || v <= 0) throw std::invalid_argument("LIO limits must be positive and finite");
     if (c.minimum_match_ratio > 1 || c.maximum_rotation_step_deg > 180 ||
         c.local_max_points < 100 || c.scan_max_points < 100 ||
@@ -29,7 +35,9 @@ bool LioSynchronizer::add(TimedImu sample) {
         for (double v : values) if (!std::isfinite(v)) return false;
     double acc2=0,gyro2=0;
     for(std::size_t i=0;i<3;++i){acc2+=sample.acceleration[i]*sample.acceleration[i];gyro2+=sample.angular_velocity[i]*sample.angular_velocity[i];}
-    if(acc2>200.0*200.0 || gyro2>35.0*35.0) return false;
+    // Finite saturated samples reach Point-LIO, which masks each saturated
+    // measurement axis. Keep only a broad corruption guard at admission.
+    if(acc2>10'000.0*10'000.0 || gyro2>10'000.0*10'000.0) return false;
     if (!samples_.empty() && sample.time_s <= samples_.back().time_s) return false;
     samples_.push_back(sample);
     while (samples_.size() > 4096) { samples_.pop_front(); ++evicted_samples_; }

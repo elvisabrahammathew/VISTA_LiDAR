@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration><Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{F48633F4-F508-4A28-A471-EC9E892573D2}</ProjectGuid>
+    <OutputType>Exe</OutputType><AssemblyName>RawDataSender.Tests</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>8.0</LangVersion><Nullable>enable</Nullable>
+    <Prefer32Bit>false</Prefer32Bit><OutputPath>bin\$(Configuration)\</OutputPath><DebugType>pdbonly</DebugType>
+    <Optimize Condition=" '$(Configuration)' == 'Release' ">true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" /><Reference Include="System.Core" /><Reference Include="System.Xaml" />
+    <Reference Include="WindowsBase" /><Reference Include="PresentationCore" /><Reference Include="PresentationFramework" />
+    <Compile Include="Program.cs" /><None Include="..\App.config"><Link>App.config</Link></None>
+    <ProjectReference Include="..\RawDataSender.csproj"><Project>{4E42106B-F529-40D1-A27C-733292520328}</Project><Name>RawDataSender</Name></ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

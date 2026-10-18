@@ -1,4 +1,5 @@
 #include "4_Applications/mapping/lio/lio_adapter.hpp"
+#include "4_Applications/mapping/lio/imu_sample_history.hpp"
 #include "3_Devices/lidars/lidar.hpp"
 #include "models/topics.hpp"
 #include "1_Platform/timing/measurement_clock.hpp"
@@ -20,6 +21,8 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
         try {
             LioEngine engine(config);LioSynchronizer sync(config.maximum_imu_gap_s);
             LioReport report;models::LocalizationStatus latest;
+            ImuSampleHistory imu_history;
+            std::string recovery_reason;std::uint64_t recovery_count{};
             LioRecoveryTimer recovery;
             std::uint64_t reference_host{};bool have_reference{},clock_fault{},cloud_closed{};
             std::optional<std::uint64_t> last_imu_source_time, last_imu_host_time, last_cloud_source_time;
@@ -42,6 +45,13 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                     {fail("IMU missing normalized host measurement time");return;}
                 if(!imu_id.empty() && message.source_id!=imu_id)
                     {fail("multiple IMU sources or source changed");return;}
+                // A short, confirmed retransmission does not represent elapsed
+                // sensor time. Discard it BEFORE strict normalized-time checks.
+                // Unknown reordered samples, conflicting payloads, old epochs,
+                // missing clocks and changed producers remain explicit faults.
+                if(imu_history.contains_duplicate(message.payload)) {
+                    ++report.duplicate_imu_samples;return;
+                }
                 if(last_imu_host_time && *message.measurement_timestamp_ns<=*last_imu_host_time)
                     {fail("IMU normalized host time is not monotonic");return;}
                 if(message.payload.timestamp_ns && last_imu_source_time && message.payload.timestamp_ns<=*last_imu_source_time)
@@ -53,6 +63,7 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                 const auto& p=message.payload;
                 if(!sync.add({t,{p.linear_acceleration_x_m_s2,p.linear_acceleration_y_m_s2,p.linear_acceleration_z_m_s2},
                                 {p.angular_velocity_x_rad_s,p.angular_velocity_y_rad_s,p.angular_velocity_z_rad_s}})) fail("invalid IMU values or time ordering");
+                else imu_history.remember(p);
             };
             auto drain_imu=[&]() {
                 std::shared_ptr<const models::ImuMessage> message;
@@ -154,8 +165,10 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                 if(recovery.update(latest.state,now)) {
                     // Keep the world anchor/local map in the engine. Drop only
                     // stale temporal state; never guess a new world origin.
+                    recovery_reason=latest.reason;++recovery_count;
                     latest=engine.restart_initialization();
                     sync.clear();previous_end.reset();pending.clear();early_imu.clear();
+                    imu_history.clear();
                     synchronization_wait_since.reset();
                     last_imu_source_time.reset();last_imu_host_time.reset();last_cloud_source_time.reset();
                     clock_fault=false;fault_reason.clear();heartbeat=now;
@@ -165,7 +178,12 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                     latest.timestamp_ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
                     latest.dropped_messages=report.dropped+cloud.dropped_messages()+imu.dropped_messages();
                     latest.rejected_scans=report.rejected;
-                    telemetry.publish(latest);heartbeat=now+std::chrono::seconds(1);
+                    auto diagnostic=latest;
+                    diagnostic.reason+="; duplicate_imu_samples="+std::to_string(report.duplicate_imu_samples)+
+                        "; reinitializations="+std::to_string(recovery_count);
+                    if(!latest.pose_valid && !recovery_reason.empty())
+                        diagnostic.reason+="; previous_loss="+recovery_reason;
+                    telemetry.publish(std::move(diagnostic));heartbeat=now+std::chrono::seconds(1);
                 }
             }
             report.dropped+=cloud.dropped_messages()+imu.dropped_messages();

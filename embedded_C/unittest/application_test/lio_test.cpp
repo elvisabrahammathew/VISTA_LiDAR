@@ -1,6 +1,8 @@
 #include "unittest/test.hpp"
 #include "config.hpp"
 #include "4_Applications/mapping/lio/lio_adapter.hpp"
+#include "4_Applications/mapping/lio/core/imu_model.hpp"
+#include "4_Applications/mapping/lio/imu_sample_history.hpp"
 #include <cmath>
 #include <limits>
 #include <thread>
@@ -10,6 +12,98 @@
 #include <type_traits>
 #include "1_Platform/workers/workers.hpp"
 using namespace vista::application;
+
+VISTA_TEST(lio_duplicate_history_requires_recent_timestamp_and_identical_sample_bits) {
+    ImuSampleHistory history;vista::models::ImuFrame sample;
+    sample.timestamp_ns=1'000'000'000;sample.linear_acceleration_z_m_s2=9.81F;
+    VISTA_CHECK(!history.contains_duplicate(sample));history.remember(sample);
+    VISTA_CHECK(history.contains_duplicate(sample));
+    auto changed=sample;changed.angular_velocity_x_rad_s=.001F;
+    VISTA_CHECK(!history.contains_duplicate(changed));
+    changed=sample;changed.orientation_z=.001F;
+    VISTA_CHECK(!history.contains_duplicate(changed));
+    changed=sample;changed.timestamp_ns+=2'000'000;
+    VISTA_CHECK(!history.contains_duplicate(changed));history.remember(changed);
+    VISTA_CHECK(history.contains_duplicate(sample)); // Retransmission arrives out of order.
+    changed.timestamp_ns+=101'000'000;history.remember(changed);
+    VISTA_CHECK(!history.contains_duplicate(sample)); // Old epochs are not silently accepted.
+    history.clear();sample.timestamp_ns=0;history.remember(sample);
+    VISTA_CHECK(!history.contains_duplicate(sample) && history.size()==0);
+    for(std::uint64_t i=1;i<=2000;++i){sample.timestamp_ns=i;history.remember(sample);}
+    VISTA_CHECK(history.size()==512);
+}
+
+namespace {
+// Exercises the real worker admission path, including external IMU producers.
+void imu_admission_case(int kind) {
+    vista::platform::MessageBus bus(128);vista::platform::StopToken stop;
+    auto clouds=bus.publisher<vista::devices::LidarPointCloudMessage>(vista::models::topics::pointcloud_decoded);
+    auto imus=bus.publisher<vista::models::ImuMessage>(vista::models::topics::lidar_imu);
+    auto telemetry=bus.subscribe<vista::models::LocalizationStatus>(vista::models::topics::localization_status,"imu-admission-status");
+    LioConfig config;config.synchronization_timeout=std::chrono::milliseconds(200);
+    LioReport report;std::string error;
+    auto worker=spawn_lio_worker(bus,{"imu-admission-test",3},stop,config,[&](auto r,auto e){if(r)report=*r;error=e;});
+    vista::models::PointCloudFrame cloud(1'000'000'000,{{1,0,0,1,0,0,1'000'000'000},{1,1,0,1,0,0,1'010'000'000}});
+    clouds.publish(vista::devices::LidarPointCloudMessage("lidar",0,cloud.timestamp_ns,100,cloud,10'000'000'000,10'000'000'000));
+    auto send=[&](std::uint64_t time,float acceleration,const std::string& source="imu") {
+        vista::models::ImuFrame frame;frame.timestamp_ns=time;frame.linear_acceleration_z_m_s2=acceleration;
+        const auto normalized=9'000'000'000+time;
+        imus.publish(vista::models::ImuMessage(source,time,time,100,frame,normalized+100'000'000,normalized));
+    };
+    for(std::uint64_t i=0;i<10;++i)send(1'000'000'000+i*2'000'000,9.81F);
+    if(kind==0)send(1'012'000'000,9.81F); // Confirmed old duplicate, six ms late.
+    if(kind==1)send(1'012'000'000,9.82F); // Same time, conflicting data remains fatal.
+    if(kind==2)send(1'011'000'000,9.81F); // Unknown reordered sample remains fatal.
+    if(kind==3)send(500'000'000,9.81F);   // Genuine rewind remains fatal.
+    if(kind==4)send(1'012'000'000,9.81F,"other-imu"); // No cross-producer dedup.
+    if(kind==0)send(1'020'000'000,9.81F);
+    bool observed=false,lost=false;
+    std::shared_ptr<const vista::models::LocalizationStatus> status;
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while(std::chrono::steady_clock::now()<deadline) {
+        if(telemetry.receive_for(status,std::chrono::milliseconds(100))!=vista::platform::ReceiveStatus::message)continue;
+        lost=lost || status->state==vista::models::LocalizationState::lost;
+        if((kind==0 && status->reason.find("duplicate_imu_samples=1")!=std::string::npos) || (kind!=0 && lost)) {observed=true;break;}
+    }
+    stop.request_stop();bus.close();worker.join();
+    VISTA_CHECK(error.empty() && observed);
+    VISTA_CHECK(lost==(kind!=0));
+    VISTA_CHECK(report.duplicate_imu_samples==(kind==0?1U:0U));
+}
+}
+VISTA_TEST(lio_worker_discards_confirmed_duplicate_without_lost_or_reinitialization){imu_admission_case(0);}
+VISTA_TEST(lio_worker_does_not_hide_conflicting_imu_with_same_timestamp){imu_admission_case(1);}
+VISTA_TEST(lio_worker_does_not_hide_unknown_reordering){imu_admission_case(2);}
+VISTA_TEST(lio_worker_still_rejects_genuine_imu_epoch_rewind){imu_admission_case(3);}
+VISTA_TEST(lio_worker_never_deduplicates_across_imu_producers){imu_admission_case(4);}
+
+VISTA_TEST(point_lio_output_model_matches_upstream_30_dof_noise_and_priors) {
+    LioConfig c;
+    const auto defaults=lio_detail::imu_process_noise_diagonal(c);
+    VISTA_CHECK(defaults.size()==30);
+    VISTA_CHECK(std::string(LioEngine::backend_name()).find("Point-LIO")!=std::string::npos);
+    for(std::size_t i=0;i<12;++i)VISTA_CHECK(defaults[i]==0);
+    for(std::size_t i=0;i<3;++i){VISTA_CHECK(defaults[12+i]==20);VISTA_CHECK(defaults[15+i]==1000);VISTA_CHECK(defaults[18+i]==500);VISTA_CHECK(defaults[21+i]==0);}
+    c.imu_gyroscope_covariance=.2;c.imu_acceleration_covariance=.3;
+    c.imu_gyroscope_bias_covariance=.004;c.imu_acceleration_bias_covariance=.005;
+    const auto q=lio_detail::imu_process_noise_diagonal(c);
+    for(std::size_t i=0;i<3;++i) {
+        VISTA_CHECK_NEAR(q[i+24],.004,1e-12);VISTA_CHECK_NEAR(q[i+27],.005,1e-12);
+        VISTA_CHECK_NEAR(q[i+15],1000,1e-12); // R=.2/.3 must NOT replace output Q.
+    }
+    const auto p=lio_detail::imu_initial_covariance_diagonal();
+    for(std::size_t i=0;i<p.size();++i) {
+        const double expected=(i>=6 && i<12)||(i>=21 && i<24)?.0001:i>=24?.001:.01;
+        VISTA_CHECK_NEAR(p[i],expected,1e-12);
+    }
+}
+VISTA_TEST(lio_imu_covariances_reject_invalid_values_even_if_disabled) {
+    for(auto member:{&LioConfig::imu_acceleration_covariance,&LioConfig::imu_gyroscope_covariance,
+                     &LioConfig::imu_acceleration_bias_covariance,&LioConfig::imu_gyroscope_bias_covariance})
+        for(double bad:{0.0,-1.0,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+            LioConfig c;c.*member=bad;VISTA_CHECK_THROWS(validate_lio_config(c));
+        }
+}
 
 VISTA_TEST(lio_synchronizer_retains_overlap_history_with_bounded_buffer) {
     LioSynchronizer sync(0.1);
@@ -182,7 +276,70 @@ VISTA_TEST(lio_stationary_room_tracks_and_keeps_ground_in_world_output) {
     VISTA_CHECK(out.status.local_map_points<=config.local_max_points);
 }
 
-VISTA_TEST(lio_nonrepeating_surface_samples_support_stationary_constraint) {
+VISTA_TEST(point_lio_updates_many_lidar_times_and_each_new_imu_once) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine engine(c);
+    for(int i=0;i<9;++i)engine.process(scan(i*.1));
+    const auto before=engine.statistics();const auto out=engine.process(scan(.9));const auto after=engine.statistics();
+    VISTA_CHECK(out.status.pose_valid && out.world_cloud);
+    VISTA_CHECK(after.lidar_updates-before.lidar_updates>20); // Not one scan-end EKF correction.
+    VISTA_CHECK(after.imu_updates-before.imu_updates==10); // Left bracket is never replayed.
+}
+VISTA_TEST(point_lio_independent_instances_do_not_share_estimator_or_map_globals) {
+    LioConfig a,b;a.initial_position_m={2,0,0};b.initial_position_m={-5,3,0};
+    LioEngine first(a),second(b);LioOutput x,y;
+    for(int i=0;i<12;++i){x=first.process(scan(i*.1));y=second.process(scan(i*.1));}
+    VISTA_CHECK(x.status.pose_valid && y.status.pose_valid);
+    VISTA_CHECK_NEAR(x.status.position_m[0],2,.02);VISTA_CHECK_NEAR(y.status.position_m[0],-5,.02);
+    VISTA_CHECK_NEAR(y.status.position_m[1],3,.02);
+}
+VISTA_TEST(point_lio_masks_saturated_axes_without_treating_them_as_motion_inputs) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine engine(c);
+    for(int i=0;i<9;++i)engine.process(scan(i*.1));
+    const auto before=engine.statistics();
+    auto s=scan(.9);for(auto& m:s.imu){m.angular_velocity[0]=35;m.acceleration[1]=30;}
+    const auto out=engine.process(s);const auto after=engine.statistics();
+    VISTA_CHECK(after.saturated_imu_axes-before.saturated_imu_axes>=20);
+    VISTA_CHECK(out.status.reason.find("non-finite IMU")==std::string::npos);
+    LioSynchronizer sync(.1);VISTA_CHECK(sync.add({0,{0,30,9.81},{35,0,0}}));
+}
+VISTA_TEST(point_lio_accepts_acceleration_in_g_with_explicit_unit_norm) {
+    LioConfig c;c.imu_acceleration_norm=1;c.imu_acceleration_saturation=3;c.scan_voxel_m=.1;c.map_voxel_m=.1;
+    LioEngine engine(c);LioOutput out;
+    for(int i=0;i<12;++i){auto s=scan(i*.1);for(auto& m:s.imu)m.acceleration[2]=1;out=engine.process(s);}
+    VISTA_CHECK(out.status.pose_valid && out.world_cloud);VISTA_CHECK_NEAR(out.status.position_m[2],0,.02);
+}
+VISTA_TEST(point_lio_recovery_holds_map_until_three_consistent_matches) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine engine(c);LioOutput out;
+    for(int i=0;i<8;++i)out=engine.process(scan(i*.1));
+    VISTA_CHECK(out.status.pose_valid);
+    const auto accepted=out.status;auto broken=scan(.8);for(auto& p:broken.cloud.points)p.x+=30;
+    out=engine.process(broken);VISTA_CHECK(!out.world_cloud && !out.status.pose_valid);
+    for(int i=9;i<=10;++i){out=engine.process(scan(i*.1));VISTA_CHECK(!out.world_cloud && !out.status.pose_valid);VISTA_CHECK(out.status.local_map_points==accepted.local_map_points);}
+    out=engine.process(scan(1.1));VISTA_CHECK(out.status.pose_valid && out.world_cloud);
+}
+
+VISTA_TEST(lio_upstream_imu_model_handles_bias_change_without_stationary_lock) {
+    LioConfig config;config.scan_voxel_m=.10;config.map_voxel_m=.10;
+    LioEngine engine(config);LioOutput out;double maximum=0;
+    for(int i=0;i<100;++i) {
+        auto frame=scan(i*.1);
+        if(i>=15)for(auto& imu:frame.imu) {
+            imu.acceleration[0]=.30;imu.angular_velocity[2]=.05;
+        }
+        out=engine.process(frame);
+        if(i>=25) {
+            VISTA_CHECK(out.status.pose_valid && out.world_cloud);
+            // Measured gyro change exceeds the rest detector's .03 threshold:
+            // this must exercise LiDAR/IMU bias correction, not a fixed pose.
+            VISTA_CHECK(out.status.reason.find("stationary velocity constraint")==std::string::npos);
+            double squared=0;for(double x:out.status.position_m)squared+=x*x;
+            maximum=std::max(maximum,std::sqrt(squared));
+        }
+    }
+    VISTA_CHECK(maximum<.10);
+}
+
+VISTA_TEST(point_lio_nonrepeating_surfaces_track_without_fixed_pose_constraint) {
     LioConfig config;config.scan_voxel_m=.05;config.map_voxel_m=.20;
     LioEngine engine(config);std::size_t constrained=0;
     for(int i=0;i<80;++i) {
@@ -201,7 +358,7 @@ VISTA_TEST(lio_nonrepeating_surface_samples_support_stationary_constraint) {
         if(out.status.reason.find("stationary velocity constraint")!=std::string::npos)++constrained;
         VISTA_CHECK(std::abs(out.status.position_m[0])<.03);
     }
-    VISTA_CHECK(constrained>50);
+    VISTA_CHECK(constrained==0); // Point-LIO learns motion/bias, no old ZUPT shortcut.
 }
 VISTA_TEST(lio_rejected_unintegrated_scan_keeps_actual_propagation_horizon) {
     LioEngine engine(LioConfig{});
@@ -212,8 +369,11 @@ VISTA_TEST(lio_rejected_unintegrated_scan_keeps_actual_propagation_horizon) {
     VISTA_CHECK(*engine.propagation_time_s()==*horizon);
     auto next=scan(.9);next.imu.clear();
     for(int i=0;i<=20;++i)next.imu.push_back({*horizon+i*.01,{0,0,9.81},{0,0,0}});
-    const auto out=engine.process(next);VISTA_CHECK(out.status.pose_valid);
+    auto out=engine.process(next);
+    VISTA_CHECK(!out.status.pose_valid && !out.world_cloud); // First recovery confirmation.
     VISTA_CHECK_NEAR(*engine.propagation_time_s(),1.0,1e-8);
+    out=engine.process(scan(1.0));VISTA_CHECK(!out.status.pose_valid && !out.world_cloud);
+    out=engine.process(scan(1.1));VISTA_CHECK(out.status.pose_valid && out.world_cloud);
 }
 VISTA_TEST(lio_constant_velocity_is_not_stationary_even_with_quiet_imu) {
     LioConfig config;config.scan_voxel_m=.10;config.map_voxel_m=.10;
@@ -321,7 +481,7 @@ VISTA_TEST(lio_initialization_reports_motion_and_resumes_after_stable_window) {
     VISTA_CHECK(out.status.pose_valid && out.world_cloud);
 }
 
-VISTA_TEST(lio_stationary_velocity_constraint_survives_small_bias_change) {
+VISTA_TEST(point_lio_output_measurements_handle_small_bias_change_without_zupt) {
     LioConfig config;config.initialization_samples=20;config.scan_voxel_m=0.10;config.map_voxel_m=0.10;
     LioEngine engine(config);LioOutput out;bool constrained=false;
     for(int i=0;i<80;++i) {
@@ -331,7 +491,9 @@ VISTA_TEST(lio_stationary_velocity_constraint_survives_small_bias_change) {
         constrained|=out.status.reason.find("stationary velocity constraint")!=std::string::npos;
         if(i>=12)VISTA_CHECK(out.status.pose_valid && out.world_cloud);
     }
-    VISTA_CHECK(constrained);VISTA_CHECK_NEAR(out.status.position_m[0],0,0.04);
+    VISTA_CHECK(!constrained);VISTA_CHECK_NEAR(out.status.position_m[0],0,0.04);
+    VISTA_CHECK(engine.statistics().imu_updates>100);
+    VISTA_CHECK(engine.statistics().lidar_updates>100);
 }
 
 VISTA_TEST(lio_reinitialization_retains_accepted_world_anchor_and_local_map) {
@@ -395,7 +557,10 @@ VISTA_TEST(lio_worker_reinitializes_after_five_seconds_without_resetting_live_br
     while(std::chrono::steady_clock::now()<deadline) {
         if(telemetry.receive_for(state,std::chrono::milliseconds(500))!=vista::platform::ReceiveStatus::message)continue;
         if(state->state==vista::models::LocalizationState::lost)lost=true;
-        if(lost && state->state==vista::models::LocalizationState::initializing && state->reason.find("automatic IMU reinitialization")!=std::string::npos){restarted=true;break;}
+        if(lost && state->state==vista::models::LocalizationState::initializing && state->reason.find("automatic IMU reinitialization")!=std::string::npos){
+            restarted=state->reason.find("previous_loss=LiDAR source changed or sensor timestamp reset/replay loop")!=std::string::npos &&
+                state->reason.find("reinitializations=1")!=std::string::npos;break;
+        }
     }
     std::shared_ptr<const vista::devices::LidarPointCloudMessage> message;
     const bool published=world.try_receive(message)==vista::platform::ReceiveStatus::message;
