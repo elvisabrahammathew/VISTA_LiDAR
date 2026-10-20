@@ -17,6 +17,7 @@ namespace vista::transport { class RoomMapSessionFile; }
 namespace vista::application {
 
 struct RoomMapConfig {
+    bool surface_snapshots{false}; // Derived from GaussianMapEnabled; not a separate TXT setting.
     bool enabled{false};
     float voxel_size_m{0.05F};
     std::size_t cache_max_voxels{250'000}; // RAM working set, NOT total map size.

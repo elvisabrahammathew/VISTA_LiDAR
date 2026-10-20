@@ -1,0 +1,4489 @@
+{
+  "__inputs": [{"name": "DS_VISTA_LIVE", "label": "VISTA Live", "description": "Select the VISTA Live companion data source (heartbeat expiry)", "type": "datasource", "pluginId": "vista-live-datasource", "pluginName": "VISTA Live"}],
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "vista-live-datasource",
+      "name": "VISTA Live",
+      "version": "1.0.0"
+    },
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "13.2.2"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "vista-lidarpointcloud-panel",
+      "name": "lidarpointcloud",
+      "version": "1.2.0"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Live monitoring dashboard for the VISTA C++ sensor-processing application. Data is received through Grafana Live channels published by grafana_bridge.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Room Map, Gaussian Map and Ground Validation",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 51,
+      "type": "vista-lidarpointcloud-panel",
+      "title": "Room Map - Geometric Gaussian Surfaces",
+      "description": "GSP1 world-space anisotropic Gaussian surfaces fitted from full confirmed Room Map regions, including the floor. Incremental halo updates preserve continuity; deleted map geometry is removed. CPU geometric/intensity representation, not RGB camera-trained 3DGS. The last complete Gaussian revision is retained while the next is built. Live sensor 3D delivery is retired; LiDAR/IMU health remains unchanged.",
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "sourceMode": "websocket",
+        "websocketUrl": "ws://127.0.0.1:8767",
+        "reconnectDelayMs": 2000,
+        "maxPoints": 100000,
+        "pointSize": 2,
+        "colorMode": "height",
+        "solidColor": "#55d6ff",
+        "backgroundColor": "#0b0f14",
+        "showGrid": true,
+        "showAxes": true,
+        "autoRotate": false
+      },
+      "targets": []
+    },
+    {
+      "id": 60,
+      "type": "vista-lidarpointcloud-panel",
+      "title": "Room Map - Out-of-Core LOD",
+      "description": "Complete geometry is stored in disk tiles and exported to PCD, with no total voxel-count cap. Plugin 1.1.0 requests camera-dependent octree LOD; maxPoints is a rendering budget, not the total map size. Zoom/pan to retrieve more detail. Building supports measured free-space cleanup; frozen/loaded references remain unchanged.",
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "sourceMode": "websocket",
+        "websocketUrl": "ws://127.0.0.1:8766",
+        "reconnectDelayMs": 2000,
+        "maxPoints": 100000,
+        "pointSize": 2,
+        "colorMode": "height",
+        "solidColor": "#55d6ff",
+        "backgroundColor": "#0b0f14",
+        "showGrid": true,
+        "showAxes": true,
+        "autoRotate": false
+      },
+      "targets": []
+    },
+    {
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "transformations": [
+        {
+          "options": {
+            "include": {
+              "names": [
+                "state_code"
+              ]
+            }
+          },
+          "id": "filterFieldsByName"
+        }
+      ],
+      "title": "Localization State",
+      "description": "TRACKING means a fresh accepted pose. DEGRADED can mean stale processing, not necessarily missing IMU. LOST holds the map and preserves the root fault reason; clock/coverage faults require restart.",
+      "type": "stat",
+      "targets": [
+        {
+          "buffer": 60000,
+          "filter": {
+            "fields": []
+          },
+          "refId": "A",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "channel": "stream/vista/localization",
+          "queryType": "measurements"
+        }
+      ],
+      "id": 86,
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ],
+            "mode": "absolute"
+          },
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "color": "orange",
+                  "text": "WAITING IMU"
+                },
+                "1": {
+                  "color": "yellow",
+                  "text": "INITIALIZING"
+                },
+                "2": {
+                  "color": "green",
+                  "text": "TRACKING"
+                },
+                "3": {
+                  "color": "orange",
+                  "text": "DEGRADED"
+                },
+                "4": {
+                  "color": "red",
+                  "text": "LOST"
+                }
+              }
+            }
+          ],
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "fields": "",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "colorMode": "background"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "h": 8,
+        "w": 4
+      }
+    },
+    {
+      "id": 85,
+      "type": "table",
+      "title": "Localization Pose and Quality",
+      "gridPos": {
+        "x": 4,
+        "y": 19,
+        "h": 8,
+        "w": 20
+      },
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "options": "Position X",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Position Y",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Position Z",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Match Residual",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "lengthm",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Match Ratio",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "percentunit",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Time",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "dateTimeAsLocal",
+                "id": "unit"
+              },
+              {
+                "value": 3,
+                "id": "decimals"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "options": "Position Variance",
+              "id": "byName"
+            },
+            "properties": [
+              {
+                "value": "none",
+                "id": "unit"
+              },
+              {
+                "value": 6,
+                "id": "decimals"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/localization",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "pose_valid",
+                "position_x_m",
+                "position_y_m",
+                "position_z_m",
+                "match_ratio",
+                "residual_m",
+                "position_variance",
+                "local_map_points",
+                "rejected_scans",
+                "dropped_messages",
+                "reason"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "pose_valid": 0,
+              "position_x_m": 1,
+              "position_y_m": 2,
+              "position_z_m": 3,
+              "match_ratio": 4,
+              "residual_m": 5,
+              "position_variance": 6,
+              "local_map_points": 7,
+              "rejected_scans": 8,
+              "dropped_messages": 9,
+              "reason": 10,
+              "Time": 11,
+              "time": 11
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "pose_valid": "Pose Valid",
+              "position_x_m": "Position X",
+              "position_y_m": "Position Y",
+              "position_z_m": "Position Z",
+              "match_ratio": "Match Ratio",
+              "residual_m": "Match Residual",
+              "position_variance": "Position Variance",
+              "local_map_points": "Local Map Points",
+              "rejected_scans": "Rejected Scans",
+              "dropped_messages": "LIO Input Drops",
+              "reason": "Reason"
+            }
+          }
+        }
+      ],
+      "description": "Only a valid LiDAR-corrected pose feeds the Room Map. On missing IMU, timing faults or rejected localization the map is held, while sensor-frame live point cloud continues. Reason distinguishes clock reset, source changes, missing temporal coverage and stale processing."
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Ground State",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "CALIBRATING",
+                  "color": "yellow",
+                  "index": 0
+                },
+                "1": {
+                  "text": "VALID",
+                  "color": "green",
+                  "index": 1
+                },
+                "2": {
+                  "text": "STATIC FALLBACK",
+                  "color": "orange",
+                  "index": 2
+                },
+                "3": {
+                  "text": "INVALID",
+                  "color": "red",
+                  "index": 3
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "Ground State",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/ground_state",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "state_code"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "table",
+      "title": "Ground Validation",
+      "gridPos": {
+        "x": 4,
+        "y": 27,
+        "w": 20,
+        "h": 8
+      },
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ground Tilt"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ground Tilt"
+              },
+              {
+                "id": "unit",
+                "value": "degree"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Height Error"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Height Error"
+              },
+              {
+                "id": "unit",
+                "value": "lengthm"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ground Inliers"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ground Inliers"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RMS Residual"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RMS Residual"
+              },
+              {
+                "id": "unit",
+                "value": "lengthm"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Removed as Ground"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Removed as Ground"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LiDAR"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "LiDAR"
+              },
+              {
+                "id": "unit",
+                "value": "string"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ground Mode"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ground Mode"
+              },
+              {
+                "id": "unit",
+                "value": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/ground_status",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "ground_tilt_deg",
+                "ground_height_error_m",
+                "ground_inlier_ratio",
+                "rms_residual_m",
+                "removed_ground_ratio",
+                "lidar_id",
+                "mode"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "lidar_id": 0,
+              "mode": 1,
+              "ground_tilt_deg": 2,
+              "ground_height_error_m": 3,
+              "ground_inlier_ratio": 4,
+              "rms_residual_m": 5,
+              "removed_ground_ratio": 6,
+              "Time": 7,
+              "time": 7
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "ground_tilt_deg": "Ground Tilt",
+              "ground_height_error_m": "Height Error",
+              "ground_inlier_ratio": "Ground Inliers",
+              "rms_residual_m": "RMS Residual",
+              "removed_ground_ratio": "Removed as Ground",
+              "lidar_id": "LiDAR",
+              "mode": "Ground Mode"
+            }
+          }
+        }
+      ],
+      "description": "Ground validation history, one row per sample, newest first. LiDAR and ground mode identify the source. Ground State is shown separately. History is limited to the current Grafana Live buffer, not persistent storage."
+    },
+    {
+      "id": 61,
+      "type": "stat",
+      "title": "Room Map State",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "EMPTY",
+                  "color": "gray",
+                  "index": 0
+                },
+                "1": {
+                  "text": "BUILDING",
+                  "color": "yellow",
+                  "index": 1
+                },
+                "2": {
+                  "text": "FROZEN",
+                  "color": "green",
+                  "index": 2
+                },
+                "3": {
+                  "text": "LOADED / READ ONLY",
+                  "color": "blue",
+                  "index": 3
+                },
+                "4": {
+                  "text": "DISABLED",
+                  "color": "gray",
+                  "index": 4
+                },
+                "5": {
+                  "text": "LOAD ERROR",
+                  "color": "red",
+                  "index": 5
+                },
+                "6": {
+                  "text": "STORAGE ERROR",
+                  "color": "red",
+                  "index": 6
+                }
+              }
+            }
+          ],
+          "displayName": "Room Map State",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "state_code"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "EMPTY: no confirmed points yet. BUILDING: measured hits/free-space rays update geometry. FROZEN: no updates. LOADED: read-only reference. DISABLED: mapping off. LOAD ERROR: invalid/missing file. STORAGE ERROR: disk/cache failure; live capture continues."
+    },
+    {
+      "id": 74,
+      "type": "table",
+      "title": "Room Map Build and Free Space",
+      "description": "Confirmed/candidate geometry, active build time, input drops and free-space ray counters over time, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Candidate Voxels"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Candidate Voxels"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Active Build Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Active Build Time"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Input Drops"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Input Drops"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cleared Map Voxels"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cleared Map Voxels"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Rays Cast"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Rays Cast"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Free Space Checks"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Free Space Checks"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ray Work Skipped"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ray Work Skipped"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ray Traversal Steps"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ray Traversal Steps"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Missing Ray Origin"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Missing Ray Origin"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Confirmed Map Points"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Confirmed Map Points"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "point_count",
+                "candidate_voxels",
+                "active_build_seconds",
+                "dropped_input_messages",
+                "cleared_voxels",
+                "raycasts",
+                "free_space_checks",
+                "ray_budget_skipped_points",
+                "ray_traversal_steps",
+                "missing_origin_messages"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "point_count": 0,
+              "candidate_voxels": 1,
+              "active_build_seconds": 2,
+              "dropped_input_messages": 3,
+              "cleared_voxels": 4,
+              "raycasts": 5,
+              "free_space_checks": 6,
+              "ray_budget_skipped_points": 7,
+              "ray_traversal_steps": 8,
+              "missing_origin_messages": 9,
+              "Time": 10,
+              "time": 10
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "point_count": "Confirmed Map Points",
+              "candidate_voxels": "Candidate Voxels",
+              "active_build_seconds": "Active Build Time",
+              "dropped_input_messages": "Map Input Drops",
+              "cleared_voxels": "Cleared Map Voxels",
+              "raycasts": "Rays Cast",
+              "free_space_checks": "Free Space Checks",
+              "ray_budget_skipped_points": "Ray Work Skipped",
+              "ray_traversal_steps": "Ray Traversal Steps",
+              "missing_origin_messages": "Missing Ray Origin"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 83,
+      "type": "table",
+      "title": "Room Map Cache and Operation Timing",
+      "description": "RAM/disk cache and operation timing history, newest first. RAM Voxel Budget limits the resident cache, not the total map. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RAM Voxels"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RAM Voxels"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RAM Voxel Budget"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RAM Voxel Budget"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RAM Tiles"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RAM Tiles"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cache Evictions"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cache Evictions"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Disk Tiles"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Disk Tiles"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Integration"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Integration"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Maximum Map Integration"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Maximum Map Integration"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Lock Wait"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Lock Wait"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Map Checkpoint"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Map Checkpoint"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOD View Query"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "LOD View Query"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "View Lock Wait"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "View Lock Wait"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "cache_voxels",
+                "cache_max_voxels",
+                "cache_tiles",
+                "cache_evictions",
+                "disk_tiles",
+                "last_integration_ms",
+                "max_integration_ms",
+                "last_map_lock_wait_ms",
+                "last_checkpoint_ms",
+                "last_view_ms",
+                "last_view_lock_wait_ms"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "cache_voxels": 0,
+              "cache_max_voxels": 1,
+              "cache_tiles": 2,
+              "cache_evictions": 3,
+              "disk_tiles": 4,
+              "last_integration_ms": 5,
+              "max_integration_ms": 6,
+              "last_map_lock_wait_ms": 7,
+              "last_checkpoint_ms": 8,
+              "last_view_ms": 9,
+              "last_view_lock_wait_ms": 10,
+              "Time": 11,
+              "time": 11
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "cache_voxels": "RAM Voxels",
+              "cache_max_voxels": "RAM Voxel Budget",
+              "cache_tiles": "RAM Tiles",
+              "cache_evictions": "Cache Evictions",
+              "disk_tiles": "Disk Tiles",
+              "last_integration_ms": "Map Integration",
+              "max_integration_ms": "Maximum Map Integration",
+              "last_map_lock_wait_ms": "Map Lock Wait",
+              "last_checkpoint_ms": "Map Checkpoint",
+              "last_view_ms": "LOD View Query",
+              "last_view_lock_wait_ms": "View Lock Wait"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 84,
+      "type": "table",
+      "title": "Room Map I/O and Counters",
+      "description": "Integration/query/cache and disk/LOD I/O counter history, including cumulative I/O durations, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Integrated Frames"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Integrated Frames"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Preview Queries"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Preview Queries"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "View Queries"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "View Queries"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cache Misses"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cache Misses"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tile Reads"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tile Reads"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tile Writes"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tile Writes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOD Node Writes"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "LOD Node Writes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Tile Read Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total Tile Read Time"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Tile Write Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total Tile Write Time"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total LOD Update Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total LOD Update Time"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/room_map_status",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "integrated_frames",
+                "preview_queries",
+                "view_queries",
+                "cache_misses",
+                "tile_reads",
+                "tile_writes",
+                "lod_node_writes",
+                "tile_read_total_ms",
+                "tile_write_total_ms",
+                "lod_update_total_ms"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "integrated_frames": 0,
+              "preview_queries": 1,
+              "view_queries": 2,
+              "cache_misses": 3,
+              "tile_reads": 4,
+              "tile_writes": 5,
+              "lod_node_writes": 6,
+              "tile_read_total_ms": 7,
+              "tile_write_total_ms": 8,
+              "lod_update_total_ms": 9,
+              "Time": 10,
+              "time": 10
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "integrated_frames": "Integrated Frames",
+              "preview_queries": "Preview Queries",
+              "view_queries": "View Queries",
+              "cache_misses": "Cache Misses",
+              "tile_reads": "Tile Reads",
+              "tile_writes": "Tile Writes",
+              "lod_node_writes": "LOD Node Writes",
+              "tile_read_total_ms": "Total Tile Read Time",
+              "tile_write_total_ms": "Total Tile Write Time",
+              "lod_update_total_ms": "Total LOD Update Time"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 67,
+      "type": "text",
+      "title": "Room Map Modes and Free-Space Clearing",
+      "transparent": true,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Room Map :8766 and Gaussian Map :8767.** GrafanaEnabled controls health telemetry and both map WebSockets. Live sensor XYZ is no longer sent to Grafana; LiDAR/IMU health remains available. Install the updated vista-lidarpointcloud-panel and re-import this V5 JSON. Change WebSocket addresses when VISTA and the browser are on different machines.\n\n**BUILD:** RoomMapEnabled: 1, RoomMapLoadExisting: 0. Confirmed world geometry includes the floor. Repeated free-space evidence clears old geometry; points occluded behind a measured surface remain. RoomMapPublishIntervalMilliseconds checkpoints changed map tiles and notifies the independent Gaussian worker. Gaussian fits full confirmed regions plus neighboring support, not the display's LOD samples. Only changed regions and neighbors are rebuilt. A completed immutable Gaussian revision replaces the previous view, including deletions. Unchanged map heartbeats do not rebuild or retransmit geometry.\n\n**FROZEN:** RoomMapFreezeAfterSeconds stops fusion/clearing after active acquisition; 0 means continuous. The final confirmed map is still processed by Gaussian. **LOAD:** RoomMapLoadExisting: 1 reads RoomMapFile without changing it; Gaussian can derive surfaces from this reference too. Missing/invalid input gives LOAD ERROR, not rebuilding. Building sessions save the complete PCD on freeze/clean shutdown at Repo/data/maps/RoomMap_YYYYMMDD_HHMMSS.pcd. This does not change PCD contents or add an export worker.\n\nRoomMapCacheMaxVoxels and RoomMapCacheMaxTiles bound the live geometry cache, not the total map. RoomMapTileSizeMeters and RoomMapLodPointsPerNode control spatial storage/LOD. Gaussian uses disk-backed immutable pages and one tile plus a small halo as its point working set; per-tile catalogs still grow with mapped area. RoomMapWebSocketMaxPoints, GaussianMapWebSocketMaxPoints and panel maxPoints limit each visible view, not stored geometry. Disk capacity and browser CPU/GPU budgets still apply.\n\nGaussianMapEnabled: 0 disables the optional Gaussian branch. This version fits CPU geometric/intensity anisotropic surface Gaussians. It does not run the external lidar_surface_splatting batch optimizer, train RGB appearance, or implement camera fusion, clustering, detection or tracking. Room Map remains the geometric source of truth."
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "LiDAR and IMU",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "LiDAR Online",
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 66
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "OFFLINE"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "ONLINE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "LiDAR Online",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud_current",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "online"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "IMU Online",
+      "description": "Latest IMU state published by the LiDAR decode worker.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 66
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "OFFLINE"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "ONLINE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "IMU Online",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "online"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "IMU Sample Rate",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 66
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "suffix: samples/s",
+          "displayName": "IMU Sample Rate",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "sample_rate_hz"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Point Cloud History",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 70
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Points",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "input_point_count"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Input Points"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "point_count"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Processed Points"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud_current",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "input_point_count",
+                "point_count"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately."
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Orientation Quaternion",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 6,
+        "x": 12,
+        "y": 70
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Quaternion",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short",
+          "decimals": 3,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_x"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion X"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_y"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion Y"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_z"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion Z"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "orientation_w"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Quaternion W"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "orientation_x",
+                "orientation_y",
+                "orientation_z",
+                "orientation_w"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Angular Velocity",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 6,
+        "x": 18,
+        "y": 70
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "rad/s",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "suffix: rad/s",
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "angular_velocity_x_rad_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Angular Velocity X"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "angular_velocity_y_rad_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Angular Velocity Y"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "angular_velocity_z_rad_s"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Angular Velocity Z"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "angular_velocity_x_rad_s",
+                "angular_velocity_y_rad_s",
+                "angular_velocity_z_rad_s"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Message Rate and Data Age",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "message_rate_hz"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: msg/s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "displayName",
+                "value": "Processed Message Rate"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "data_age_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "Point Cloud Data Age"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pointcloud_current",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "message_rate_hz",
+                "data_age_ms"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately."
+    },
+    {
+      "id": 43,
+      "type": "timeseries",
+      "title": "Linear Acceleration",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 12,
+        "x": 12,
+        "y": 88
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "m/s²",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "suffix: m/s²",
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "linear_acceleration_x_m_s2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Linear Acceleration X"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "linear_acceleration_y_m_s2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Linear Acceleration Y"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "linear_acceleration_z_m_s2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Linear Acceleration Z"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/imu",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "linear_acceleration_x_m_s2",
+                "linear_acceleration_y_m_s2",
+                "linear_acceleration_z_m_s2"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "System Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 104
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Running Workers",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 105
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Running Workers",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "worker_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "table",
+      "title": "Worker Health",
+      "description": "One latest row per worker from the stable worker_health_rows channel. Worker names are ordinary string values, not numeric-series labels. STT starts at 1, followed by Worker, Failed, Priority, Running and uptime in Seconds. Internal timestamps select newest values and are not displayed. Rebuild/restart vista_edge and re-import this dashboard together after updating.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 20,
+        "x": 4,
+        "y": 105
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 90
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "STT"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "STT"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Worker"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Worker"
+              },
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Failed"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Priority"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Priority"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Running"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Running"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Seconds"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/worker_health_rows",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "worker",
+                "failed",
+                "priority",
+                "running",
+                "uptime_seconds"
+              ]
+            }
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "worker": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "failed": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              },
+              "priority": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              },
+              "running": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              },
+              "uptime_seconds": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "time": true
+            },
+            "indexByName": {
+              "worker": 0,
+              "failed (lastNotNull)": 1,
+              "priority (lastNotNull)": 2,
+              "running (lastNotNull)": 3,
+              "uptime_seconds (lastNotNull)": 4
+            },
+            "renameByName": {
+              "worker": "Worker",
+              "failed (lastNotNull)": "Failed",
+              "priority (lastNotNull)": "Priority",
+              "running (lastNotNull)": "Running",
+              "uptime_seconds (lastNotNull)": "Seconds"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "worker",
+              "desc": false,
+              "index": 0
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "index",
+            "alias": "Row Index",
+            "index": {
+              "asPercentile": false
+            },
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "alias": "STT",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Row Index"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "fixed": "1"
+              }
+            },
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Row Index": true
+            },
+            "indexByName": {
+              "STT": 0,
+              "Worker": 1,
+              "Failed": 2,
+              "Priority": 3,
+              "Running": 4,
+              "Seconds": 5
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Failed Workers",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 111
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Failed Workers",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "failed_workers"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Host Resource History",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 117
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cpu_percent"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "displayName",
+                "value": "Host CPU"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "memory_mb"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "Host Memory"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/system_health",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "cpu_percent",
+                "memory_mb"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Pipeline History",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 12,
+        "y": 117
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_fps"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Raw Message Rate"
+              },
+              {
+                "id": "unit",
+                "value": "suffix: msg/s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_queue_fill_percent"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Raw Queue Fill"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "processed_queue_fill_percent"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Processed Queue Fill"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dropped_messages"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bridge Input Drops"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/pipeline_health",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "raw_fps",
+                "raw_queue_fill_percent",
+                "processed_queue_fill_percent",
+                "dropped_messages"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Raw input message rate, queue fills and bridge input drops. Processed Message Rate and Point Cloud Data Age appear only in the LiDAR and IMU section; duplicate processed rate and similar age/latency fields are omitted here."
+    },
+    {
+      "id": 29,
+      "type": "table",
+      "title": "Grafana Bridge Health",
+      "description": "Grafana delivery and retry history: totals, HTTP status, successful push age and subscribed topics, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 135
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 70
+          },
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Published Measurements"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Published Measurements"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed Publish Attempts"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Failed Publish Attempts"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last HTTP Status"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last HTTP Status"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Successful Push Age"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last Successful Push Age"
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Retrying"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Retrying"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Subscribed Topics"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Subscribed Topics"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ]
+        },
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/grafana_bridge_health",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "time",
+                "published_measurements",
+                "failed_publish_attempts",
+                "last_http_status",
+                "last_success_age_ms",
+                "retrying",
+                "subscribed_topics"
+              ]
+            }
+          }
+        },
+        {
+          "id": "prepareTimeSeries",
+          "options": {
+            "format": "long"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "rename",
+          "options": {
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Time": 0,
+              "published_measurements": 1,
+              "failed_publish_attempts": 2,
+              "last_http_status": 3,
+              "last_success_age_ms": 4,
+              "retrying": 5,
+              "subscribed_topics": 6
+            },
+            "renameByName": {
+              "Time": "Time",
+              "time": "Time",
+              "published_measurements": "Published Measurements",
+              "failed_publish_attempts": "Failed Publish Attempts",
+              "last_http_status": "Last HTTP Status",
+              "last_success_age_ms": "Last Successful Push Age",
+              "retrying": "Retrying",
+              "subscribed_topics": "Subscribed Topics"
+            }
+          }
+        }
+      ],
+      "maxDataPoints": 1000
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Future Sensors and Applications",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 143
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Radar Targets",
+      "description": "Reserved for the future radar worker.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 144
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Radar Targets",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/radar_targets",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "target_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Detected Objects",
+      "description": "Reserved for the future detection worker.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 144
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Detected Objects",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/detected_objects",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "object_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Active Tracks",
+      "description": "Reserved for the future tracking worker.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 144
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "Active Tracks",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/tracked_objects",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "track_count"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Maximum Object Speed",
+      "description": "Reserved for the future tracking worker.",
+      "datasource": {
+        "type": "vista-live-datasource",
+        "uid": "${DS_VISTA_LIVE}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 144
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          },
+          "unit": "velocityms",
+          "displayName": "Maximum Object Speed",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": false
+      },
+      "targets": [
+        {
+          "buffer": 60000,
+          "channel": "stream/vista/tracked_objects",
+          "datasource": {
+            "type": "vista-live-datasource",
+            "uid": "${DS_VISTA_LIVE}"
+          },
+          "filter": {
+            "fields": []
+          },
+          "queryType": "measurements",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "max_speed_mps"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "text",
+      "title": "VISTA Live Data Contract",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 148
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Operational summaries use Grafana Live under namespace vista. The 3D panels show Room Map (:8766, LPC1) and geometric Gaussian Map (:8767, GSP1), not live sensor frames. LiDAR/IMU health, Point Cloud History, rates, localization and worker diagnostics remain. Internal cleaned sensor processing continues independently of LIO; world map updates wait for a fresh valid pose. Gaussian is an independent consumer of confirmed Room Map checkpoints.\n\nGround Validation, Room Map Build and Free Space, Room Map Cache and Operation Timing, Room Map I/O and Counters, and Grafana Bridge Health retain newest-first buffered Live history. Worker Health shows one latest row per worker. Live buffers are not persistent history. Geometry uses separate bounded WebSockets, not the Grafana metrics bridge. Both 3D panels retain their last scene when disconnected."
+      },
+      "transparent": true
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "vista",
+    "sensors",
+    "lidar",
+    "grafana-live",
+    "cpp",
+    "room-map",
+    "free-space"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "timezone": "browser",
+  "title": "VISTA Sensor Processing - Room Map and Gaussian Map (V5)",
+  "uid": "vistalive",
+  "version": 9,
+  "weekStart": ""
+}

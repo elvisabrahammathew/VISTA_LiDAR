@@ -49,6 +49,10 @@ void validate_worker_selection(
         throw std::invalid_argument("room-mapping requires the pointcloud-preprocessing worker");
     if (runtime.threads.room_map_websocket.enabled && !runtime.threads.room_mapping.enabled)
         throw std::invalid_argument("room-map-websocket requires the room-mapping worker");
+    if(runtime.threads.gaussian_mapping.enabled && !runtime.threads.room_mapping.enabled)
+        throw std::invalid_argument("gaussian-mapping requires the room-mapping worker");
+    if(runtime.threads.gaussian_map_websocket.enabled && !runtime.threads.gaussian_mapping.enabled)
+        throw std::invalid_argument("gaussian-map-websocket requires the gaussian-mapping worker");
 }
 
 namespace {

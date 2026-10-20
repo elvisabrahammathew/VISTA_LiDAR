@@ -1,16 +1,34 @@
 # lidarpointcloud
 
-`lidarpointcloud` is an unsigned Grafana panel plugin for displaying live LiDAR point clouds with Three.js/WebGL.
+`lidarpointcloud` is an unsigned Grafana panel for Room Map and geometric Gaussian surfaces with Three.js/WebGL. Plugin ID is unchanged: `vista-lidarpointcloud-panel`.
 
 The ground grid covers 60 m x 60 m, centered at the world origin (`-30` to
 `+30` m on X and Y), with one square per metre.
 
 ## Sources
 
-- **WebSocket**: receives binary `LPC1` packets and also accepts the earlier `LDR1` test packets.
+- **WebSocket**: receives Room Map `LPC1` on :8766 and Gaussian Map `GSP1` on :8767. Earlier `LDR1` test packets remain compatible. Production no longer publishes live sensor 3D frames.
 - **Grafana DataFrame**: reads numeric fields named `x`, `y`, `z`, and optional `intensity`/`reflectivity`/`i` from the panel query.
 
-The WebSocket is opened by the user's browser. Therefore, `ws://127.0.0.1:8765` refers to the computer running the browser, not necessarily the Grafana server.
+The browser opens the WebSocket. `127.0.0.1` means the browser's computer, not necessarily Grafana or VISTA. For ADLINK use its reachable LAN address in both panel URLs.
+
+## Gaussian surface rendering (1.2.0)
+
+GSP1 is little-endian: magic[4], header size u32 (32), point count u32,
+stride u32 (44), completed revision u64, host timestamp ns u64; followed by
+11 float32 values per record: XYZ, normalized intensity, covariance
+xx/xy/xz/yy/yz/zz (m²), opacity. Packet length and positive-definite covariance
+are checked before accepting a replacement frame.
+
+Instanced quads project the full world covariance into screen ellipses and
+blend Gaussian alpha back-to-front. Camera motion updates projection/sorting;
+VIEW requests obtain bounded disk-backed regional samples. Empty replacements
+clear old geometry. Disconnects retain the last scene. Point size applies only
+to ordinary point clouds; Gaussian size comes from covariance in metres.
+
+These are CPU-fitted geometric/intensity surface Gaussians, NOT a photometrically
+trained RGB 3DGS model. No camera, clustering, detection or tracking is added.
+The external Python splatting repository is not launched on map updates.
 
 ## LPC1 packet format
 

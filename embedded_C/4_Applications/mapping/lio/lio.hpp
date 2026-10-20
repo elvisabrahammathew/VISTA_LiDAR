@@ -17,6 +17,9 @@ namespace vista::application {
 
 struct LioConfig {
     bool enabled{false};
+    // Lightweight optional layers inside the SAME Point-LIO engine, for A/B.
+    bool robust_imu_enabled{true};
+    bool stationary_update_enabled{true};
     // The single active IMU always uses lidar/imu and host monotonic timing.
     std::array<double, 3> initial_position_m{};
     std::array<double, 3> initial_rpy_deg{};
@@ -69,6 +72,8 @@ struct LioOutput {
 };
 struct LioEngineStatistics {
     std::uint64_t imu_updates{}, lidar_updates{}, saturated_imu_axes{};
+    std::uint64_t downweighted_imu_axes{}, stationary_updates{};
+    double velocity_norm_m_s{};
 };
 
 // Owns the local odometry map only. The persistent RoomMap is a separate consumer.

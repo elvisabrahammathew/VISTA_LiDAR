@@ -189,7 +189,7 @@ async function emptyCompletion() {
   assert.equal(attempts, 4);
 }
 
-const dashboard = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../VISTA_Live_Dashboard_V4_Free_Space.json'), 'utf8'));
+const dashboard = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../VISTA_Live_Dashboard_V5_Gaussian_Map.json'), 'utf8'));
 assert.equal(dashboard.uid, 'vistalive');
 assert.equal(dashboard.__inputs[0].pluginId, 'vista-live-datasource');
 const metrics = dashboard.panels.filter(panel => ['stat','table','timeseries'].includes(panel.type));

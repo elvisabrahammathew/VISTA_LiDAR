@@ -20,6 +20,7 @@
 #include "4_Applications/pointcloud_websocket/pointcloud_websocket.hpp"
 #include "models/topics.hpp"
 #include "unittest/test.hpp"
+#include "4_Applications/mapping/gaussian_map/gaussian_map.hpp"
 
 namespace {
 using namespace std::chrono_literals;
@@ -152,6 +153,55 @@ VISTA_TEST(room_map_websocket_replays_to_late_client_and_serves_camera_view) {
     const auto view=client.read_frame();VISTA_CHECK(view.first==2 && view.second.size()==48);
     float x{};std::memcpy(&x,view.second.data()+32,4);VISTA_CHECK(x>0);
     stop.request_stop();bus.close();worker.join();VISTA_CHECK(failure.empty());
+}
+
+VISTA_TEST(gaussian_worker_and_websocket_use_full_map_checkpoint_and_clear_load_errors) {
+    Runtime runtime;
+    vista::application::RoomMapConfig options;
+    options.voxel_size_m=1;options.tile_size_m=1;options.minimum_observations=1;
+    options.freeze_after=0ms;options.surface_snapshots=true;
+    vista::application::RoomMapAccumulator map(options);
+    map.integrate({1,{{1.25F,.25F,.25F,77,0,0,0},{-1.25F,.25F,.25F,88,0,0,0}}},0ms);
+    map.freeze();map.flush();
+    vista::platform::MessageBus bus;vista::platform::StopToken stop;
+    auto publisher=bus.publisher<vista::models::RoomMapViewMessage>(vista::models::topics::room_map_view);
+    auto observer=bus.subscribe<vista::models::RoomMapViewMessage>(vista::models::topics::gaussian_map_view,"test-gaussian-output");
+    vista::application::PointCloudWebSocketConfig config;config.gaussian_map=true;config.room_map_lod=true;
+    config.port=available_port();config.maximum_points=10;config.publish_interval=20ms;
+    std::string build_error,socket_error;
+    std::optional<vista::application::GaussianMapReport> report;
+    auto socket=vista::application::spawn_pointcloud_websocket(bus,{"test-gaussian-websocket",4},stop,config,
+        [&](auto,auto error){socket_error=std::move(error);});
+    auto worker=vista::application::spawn_gaussian_map_worker(bus,{"test-gaussian-builder",4},stop,{},
+        [&](auto result,auto error){report=result;build_error=std::move(error);});
+    struct Finish {
+        vista::platform::StopToken& stop;vista::platform::MessageBus& bus;
+        vista::platform::WorkerHandle& worker;vista::platform::WorkerHandle& socket;
+        ~Finish(){stop.request_stop();bus.close();worker.join();socket.join();}
+    } finish{stop,bus,worker,socket};
+    auto source=map.view_source();
+    publisher.publish({source,7,123,2,vista::models::RoomMapState::frozen});
+    std::shared_ptr<const vista::models::RoomMapViewMessage> output;
+    VISTA_CHECK(observer.receive_for(output,3s)==vista::platform::ReceiveStatus::message);
+    VISTA_CHECK(output->source && output->state==vista::models::RoomMapState::frozen);
+    const auto revision=output->revision;
+    std::this_thread::sleep_for(100ms);
+    Client client;client.connect(config.port);client.handshake();
+    VISTA_CHECK(client.read_frame().first==1);
+    const auto frame=client.read_frame();
+    VISTA_CHECK(frame.first==2 && frame.second.size()==32+2*44 && std::memcmp(frame.second.data(),"GSP1",4)==0);
+    client.send_bytes(masked_text("VIEW 10 600 0 0 10 1 0 0 0 -1 0 0 100 0 1 0 100 0 -1 0 100 0 0 1 100 0 0 -1 100"));
+    VISTA_CHECK(client.read_frame().first==1);
+    VISTA_CHECK(client.read_frame().second.size()==32+44);
+    publisher.publish({source,8,124,2,vista::models::RoomMapState::frozen});
+    VISTA_CHECK(observer.receive_for(output,2s)==vista::platform::ReceiveStatus::message);
+    VISTA_CHECK(output->revision==revision); // No changed geometry: no rebuild/resend.
+    publisher.publish({nullptr,9,125,0,vista::models::RoomMapState::load_error});
+    VISTA_CHECK(client.read_frame().first==1);
+    VISTA_CHECK(client.read_frame().second.size()==32);
+    VISTA_CHECK(!stop.is_stop_requested());
+    stop.request_stop();bus.close();worker.join();socket.join();
+    VISTA_CHECK(build_error.empty() && socket_error.empty() && report && report->completed_revisions==1);
 }
 
 VISTA_TEST(room_map_websocket_sends_new_checkpoint_without_second_interval_delay) {

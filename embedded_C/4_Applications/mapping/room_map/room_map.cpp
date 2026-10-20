@@ -82,6 +82,7 @@ public:
         cells=std::make_unique<transport::RoomMapTileStore>(config.storage_directory,
             config.voxel_size_m,config.tile_size_m,config.cache_max_voxels,
             config.cache_max_tiles,config.minimum_observations,config.lod_points_per_node);
+        cells->enable_surface_snapshots(config.surface_snapshots);
     }
     models::RoomMapFrame select_view(const models::RoomMapViewRequest& request) const {
         std::lock_guard<std::mutex> lock(mutex);

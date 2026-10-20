@@ -205,6 +205,12 @@ UnitreeL2Decoder::UnitreeL2Decoder(std::size_t cloud_scan_count)
         cloud_scan_count_ * unitree_protocol::points_per_packet);
 }
 
+void UnitreeL2Decoder::discard_pending_scan() {
+    accumulated_scan_count_ = 0;
+    cloud_timestamp_ns_ = 0;
+    accumulated_points_.clear();
+}
+
 std::optional<models::ImuFrame> UnitreeL2Decoder::decode_imu_packet(
     const RawPacket& packet) {
     if (unitree_protocol::packet_type(packet.bytes()) !=

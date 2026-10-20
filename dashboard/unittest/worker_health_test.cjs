@@ -7,10 +7,14 @@ const assert = require('node:assert/strict');
 const dataPath = path.resolve(__dirname, '../plugins/lidarpointcloud/node_modules/@grafana/data');
 const data = require(dataPath);
 const {of, lastValueFrom} = require(require.resolve('rxjs', {paths: [require.resolve(dataPath)]}));
-const dashboard = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../VISTA_Live_Dashboard_V4_Free_Space.json'), 'utf8'));
+const dashboard = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../VISTA_Live_Dashboard_V5_Gaussian_Map.json'), 'utf8'));
 const panel = dashboard.panels.find(panel => panel.id === 28);
 const transformers = Object.fromEntries(Object.values(data.standardTransformers).map(transform => [transform.id, transform]));
 assert.equal(dashboard.uid, 'vistalive');
+assert(dashboard.title.endsWith('(V5)'));
+assert.equal(dashboard.__requires.find(plugin => plugin.id === 'vista-lidarpointcloud-panel').version, '1.2.0');
+assert.deepEqual(dashboard.panels.filter(panel => panel.type === 'vista-lidarpointcloud-panel')
+  .map(panel => panel.options.websocketUrl).sort(), ['ws://127.0.0.1:8766', 'ws://127.0.0.1:8767']);
 assert.equal(panel.targets[0].channel, 'stream/vista/worker_health_rows');
 assert(!panel.transformations.some(transform => transform.id === 'prepareTimeSeries'));
 
@@ -54,9 +58,9 @@ async function check(count, splitFrames) {
 }
 
 (async () => {
-  for (const count of [1, 9, 11, 12, 13]) {
+  for (const count of [1, 9, 11, 12, 13, 14]) {
     await check(count, false);
     await check(count, true);
   }
-  console.log('Worker Health: 10 Grafana transformation scenarios passed.');
+  console.log('Worker Health: 12 Grafana transformation scenarios passed.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

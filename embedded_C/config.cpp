@@ -262,6 +262,10 @@ AppConfig parse_device_config_text(const std::string& contents) {
                     value, "PointCloudLoggingEnabled(Lidar)");
         } else if (key == "lioenabled") {
             config.lio.enabled=parse_boolean(value,"LioEnabled");
+        } else if (key == "liorobustimuenabled") {
+            config.lio.robust_imu_enabled=parse_boolean(value,"LioRobustImuEnabled");
+        } else if (key == "liostationaryupdateenabled") {
+            config.lio.stationary_update_enabled=parse_boolean(value,"LioStationaryUpdateEnabled");
         } else if (key == "liolidartoimutranslationx" || key == "liolidartoimutranslationy" || key == "liolidartoimutranslationz") {
             config.lio.lidar_to_imu_translation_m[key.back()=='x'?0:key.back()=='y'?1:2]=parse_float(value,key);
         } else if (key == "liolidartoimurolldeg" || key == "liolidartoimupitchdeg" || key == "liolidartoimuyawdeg") {
@@ -435,6 +439,14 @@ AppConfig parse_device_config_text(const std::string& contents) {
                     value,
                     "point-cloud WebSocket retry interval",
                     maximum_reconnect_interval_seconds));
+        } else if (key == "gaussianmapenabled") {
+            config.gaussian_map.enabled=parse_boolean(value,"GaussianMapEnabled");
+        } else if (key == "gaussianmapwebsocketbindaddress") {
+            config.gaussian_map_websocket.bind_address=value;
+        } else if (key == "gaussianmapwebsocketport") {
+            config.gaussian_map_websocket.port=static_cast<std::uint16_t>(parse_unsigned(value,"GaussianMapWebSocketPort",65'535));
+        } else if (key == "gaussianmapwebsocketmaxpoints") {
+            config.gaussian_map_websocket.maximum_points=static_cast<std::size_t>(parse_unsigned(value,"GaussianMapWebSocketMaxPoints",2'000'000));
         } else if (key == "roommapenabled") {
             config.room_map.enabled = parse_boolean(value, "RoomMapEnabled");
         } else if (key == "roommapvoxelsizemeters") {
@@ -552,8 +564,13 @@ AppConfig parse_device_config_text(const std::string& contents) {
     }
     application::validate_lio_config(config.lio);
     // Keep the internal flags, deriving them after parsing so TXT order is irrelevant.
-    config.pointcloud_websocket.enabled = config.grafana.enabled;
+    config.pointcloud_websocket.enabled = false; // Legacy keys parse, but raw/live 3D delivery is retired.
     config.room_map_websocket.enabled = config.grafana.enabled;
+    config.gaussian_map_websocket.enabled=config.grafana.enabled && config.gaussian_map.enabled;
+    config.room_map.surface_snapshots=config.gaussian_map.enabled && config.room_map.enabled;
+    config.gaussian_map_websocket.maximum_clients=config.room_map_websocket.maximum_clients;
+    config.gaussian_map_websocket.retry_interval=config.room_map_websocket.retry_interval;
+    config.gaussian_map_websocket.publish_interval=config.room_map.publish_interval;
     // One TXT cadence owns map checkpoint/publication. Reuse it only to bound
     // camera-request work; a newly checkpointed revision is delivered immediately.
     config.room_map_websocket.publish_interval = config.room_map.publish_interval;
@@ -563,9 +580,9 @@ AppConfig parse_device_config_text(const std::string& contents) {
         config.pointcloud_websocket);
     application::validate_room_map_config(config.room_map);
     application::validate_pointcloud_websocket_config(config.room_map_websocket);
-    if (config.grafana.enabled &&
-        config.room_map_websocket.port == config.pointcloud_websocket.port)
-        throw std::invalid_argument("room-map and live WebSocket ports must be different");
+    application::validate_pointcloud_websocket_config(config.gaussian_map_websocket);
+    if(config.gaussian_map_websocket.enabled && config.room_map_websocket.port==config.gaussian_map_websocket.port)
+        throw std::invalid_argument("Room Map and Gaussian Map WebSocket ports must be different");
     return config;
 }
 
@@ -686,7 +703,7 @@ RuntimeConfig AppConfig::runtime_config() const {
             WorkerConfig{
                 grafana.enabled, platform::ThreadConfig("grafana-bridge", 4)},
             WorkerConfig{
-                grafana.enabled,
+                false,
                 platform::ThreadConfig("pointcloud-websocket", 4)},
             WorkerConfig{true, platform::ThreadConfig("ground-processing", 3)},
             // Also serves DISABLED/LOAD ERROR status and empty snapshots when no map exists.
@@ -695,6 +712,8 @@ RuntimeConfig AppConfig::runtime_config() const {
                 platform::ThreadConfig("room-map-websocket", 5)},
             WorkerConfig{lio.enabled,platform::ThreadConfig("lidar-inertial-odometry",3)},
             WorkerConfig{true,platform::ThreadConfig("live-pointcloud-preprocessing",3)},
+            WorkerConfig{gaussian_map.enabled,platform::ThreadConfig("gaussian-mapping",5)},
+            WorkerConfig{grafana.enabled && gaussian_map.enabled,platform::ThreadConfig("gaussian-map-websocket",5)},
         },
         TopicQueueConfig{32, 8, 8, 16},
     };

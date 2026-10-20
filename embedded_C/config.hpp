@@ -15,6 +15,7 @@
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 #include "4_Applications/mapping/room_map/room_map.hpp"
 #include "4_Applications/mapping/lio/lio.hpp"
+#include "4_Applications/mapping/gaussian_map/gaussian_map.hpp"
 
 namespace vista {
 
@@ -40,6 +41,8 @@ struct ThreadSetConfig {
     WorkerConfig room_map_websocket;
     WorkerConfig localization;
     WorkerConfig live_preprocessing;
+    WorkerConfig gaussian_mapping{false,{"gaussian-mapping",5}};
+    WorkerConfig gaussian_map_websocket{false,{"gaussian-map-websocket",5}};
 };
 
 struct TopicQueueConfig {
@@ -82,7 +85,7 @@ struct AppConfig {
     /// Delay before retrying while the selected LiDAR is unavailable.
     std::chrono::milliseconds lidar_reconnect_interval{5'000};
     application::GrafanaBridgeConfig grafana;
-    /// Both WebSocket enabled flags are derived from grafana.enabled, not separate TXT switches.
+    /// Legacy live socket settings parse for old files, but are never enabled.
     application::PointCloudWebSocketConfig pointcloud_websocket = [] {
         application::PointCloudWebSocketConfig value;
         value.input_topic = "pointcloud/cleaned_sensor";
@@ -91,6 +94,7 @@ struct AppConfig {
         return value;
     }();
     application::RoomMapConfig room_map;
+    application::GaussianMapConfig gaussian_map;
     application::LioConfig lio;
     application::PointCloudWebSocketConfig room_map_websocket = [] {
         application::PointCloudWebSocketConfig value;
@@ -103,6 +107,13 @@ struct AppConfig {
         value.retained_snapshot = true;
         value.room_map_lod = true;
         value.include_ground_status = false;
+        return value;
+    }();
+    application::PointCloudWebSocketConfig gaussian_map_websocket = [] {
+        application::PointCloudWebSocketConfig value;
+        value.port=8767;value.room_map_lod=true;value.retained_snapshot=true;
+        value.gaussian_map=true;value.include_ground_status=false;
+        value.publish_interval=application::RoomMapConfig{}.publish_interval;
         return value;
     }();
     application::SystemMonitorConfig system_monitor;

@@ -4,7 +4,7 @@
   "name": "lidarpointcloud",
   "id": "vista-lidarpointcloud-panel",
   "info": {
-    "description": "Live 3D LiDAR point-cloud panel for VISTA Edge.",
+    "description": "Room Map and geometric Gaussian surface views for VISTA Edge.",
     "author": {
       "name": "VISTA"
     },
@@ -15,8 +15,8 @@
     },
     "links": [],
     "screenshots": [],
-    "version": "1.1.0",
-    "updated": "2026-10-05"
+    "version": "1.2.0",
+    "updated": "2026-10-20"
   },
   "dependencies": {
     "grafanaDependency": ">=12.0.0",

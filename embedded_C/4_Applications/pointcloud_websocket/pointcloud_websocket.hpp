@@ -29,6 +29,7 @@ struct PointCloudWebSocketConfig {
     bool retained_snapshot{false};
     bool room_map_lod{false};
     bool include_ground_status{true};
+    bool gaussian_map{false};
 };
 
 void validate_pointcloud_websocket_config(

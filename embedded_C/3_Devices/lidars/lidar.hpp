@@ -112,6 +112,8 @@ public:
 class ILidarDecoder {
 public:
     virtual ~ILidarDecoder() = default;
+    // Drop only partial scan assembly when the hardware clock changes epoch.
+    virtual void discard_pending_scan() {}
     /// Returns one IMU sample when this packet type is supported by the sensor.
     virtual std::optional<models::ImuFrame> decode_imu_packet(
         const RawPacket& packet) {
@@ -126,6 +128,7 @@ public:
 class LidarDecoderSlot {
 public:
     void replace(std::unique_ptr<ILidarDecoder> decoder);
+    void discard_pending_scan() const;
     std::optional<models::ImuFrame> decode_imu_packet(
         const RawPacket& packet) const;
     models::PointCloudFrame decode_packet(const RawPacket& packet) const;

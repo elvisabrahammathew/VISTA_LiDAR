@@ -18,6 +18,8 @@ export interface LidarPointCloudOptions {
 export interface PointCloudFrame {
   positions: Float32Array;
   intensities?: Float32Array;
+  covariances?: Float32Array;
+  opacities?: Float32Array;
   pointCount: number;
   frameId?: bigint;
   timestampNs?: bigint;

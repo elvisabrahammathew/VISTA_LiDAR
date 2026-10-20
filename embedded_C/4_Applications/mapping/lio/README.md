@@ -16,7 +16,7 @@ input. LiDAR observations update the filter at retained point acquisition times.
 ## Pipeline and compatibility
 
 ```text
-Read -> RAW -> decoder -> pointcloud/decoded -> independent live filters -> :8765
+Read -> RAW -> decoder -> pointcloud/decoded -> independent live health filters
                    |             |
                    +-> lidar/imu +-> Point-LIO synchronization
 External IMU (alternative) -> lidar/imu       |
@@ -30,12 +30,15 @@ External IMU (alternative) -> lidar/imu       |
                             /                   \
                   disk-backed RoomMap       existing ground processing
                          :8766              optional processed PCD logger
+                           |
+                    Gaussian surface map :8767
 ```
 
 The public topics, localization state codes, Grafana field names, LPC1 WebSocket
 format, PCD and room-map tile formats are unchanged. No Grafana plugin or JSON
-reimport is required solely for the backend migration. No detection/tracking is
-added. Live sensor-frame rendering remains independent of localization validity.
+reimport is required solely for clock recovery. No detection/tracking is
+added. Live sensor health remains independent of localization validity; live
+sensor-point WebSocket publishing is retired (RoomMap/Gaussian remain enabled).
 `LioEnabled: 0` still selects fixed-mount mapping.
 
 Point-time updates are internal. The existing message bus still publishes
@@ -113,6 +116,53 @@ points below the matching blind range can still be emitted to RoomMap.
 
 ## Timing, loss and recovery
 
+### Lightweight IMU robustness and qualified rest updates
+
+`LioRobustImuEnabled: 1` and `LioStationaryUpdateEnabled: 1` enable two bounded
+layers inside the existing Point-LIO engine. Each can be set to 0 for A/B tests;
+there is no additional worker, estimator, ICP pass, RAW rewrite, ROS dependency
+or extra Grafana series. RAW and public IMU samples/timestamps are unchanged.
+
+- One causal 15-sample, six-channel median/MAD detector inflates the existing
+  per-axis measurement R for isolated outliers. It does not replace samples or
+  delete timestamps. A coherent sustained step is released after two samples;
+  alternating glitches are not mistaken for a sustained motion step. Existing
+  saturation masks still apply. Observed IMU-window variance can increase R but
+  cannot make it smaller than the configured measurement covariance.
+- Initialization retains the original quiet-window path. A separate vibration
+  qualification requires at least 0.70 s, five populated 150-ms blocks with
+  consistent means, bounded raw RMS, and low mean angular rate. It is not merely
+  a larger RMS threshold or smoothing data until it passes. Reason distinguishes
+  `startup_mode=quiet`, `vibration-qualified`, and `waiting`. Stationary startup
+  is still an assumption: inertial statistics alone cannot prove no motion.
+- Rest evidence reuses the plane correspondences, Jacobians and 6-DOF information
+  eigendecomposition ALREADY calculated by Point-LIO. A bounded 1.2-s window
+  checks LiDAR displacement slope/scatter together with IMU consistency and
+  estimated velocity. This guards against constant-velocity false detections.
+- Qualified rest adds a velocity measurement through a rank-three Schmidt/Joseph
+  EKF update. Pose/extrinsic gain rows are zero: it does not overwrite position,
+  reset to Mount, rotate old map geometry or invalidate already-generated rays.
+  This deliberately differs from hard-locking the device to make drift look zero.
+- After local-map warmup, the stationary layer also gates odometry-cache
+  insertion on at least 5 cm translation or 0.5 degree rotation. This avoids
+  repeatedly feeding sub-voxel registration jitter into its reference. The
+  separate persistent **RoomMap still receives every accepted full-resolution
+  world cloud**. The gate is disabled with `LioStationaryUpdateEnabled: 0`.
+
+The rolling IMU statistics are shared by initialization, R adjustment and rest
+qualification. Once initialized, a large initialization sample count does not
+retain a long stale statistics window. Rest history holds at most 128 entries;
+the outlier detector has fixed storage. No second registration/search is added.
+
+Temporal-epoch initialization clears both new histories. A tentative rejected
+scan restores the outlier-detector state along with the EKF before any IMU-only
+replay, so old samples do not acquire a different weight after rollback.
+
+Diagnostics reuse the existing Reason field: `imu_downweighted_axes`,
+`zupt_updates`, `rest_confirmed`, `rest_gate`, `rest_lidar_m`, `rest_imu_error`.
+No dashboard/plugin update is needed. These layers do not guarantee zero drift,
+globally relocalize a lost sensor, or replace extrinsic/time/IMU calibration.
+
 Initialization requires the configured number of unique IMU samples plus at least
 0.5 seconds of a stable bounded IMU window. Motion prevents initialization; the
 Reason column reports sample count and IMU statistics. Mount is an initial pose;
@@ -137,8 +187,42 @@ Persistent quality rejection becomes LOST after two acquisition seconds; unsafe
 timing can enter LOST immediately. Five continuous host seconds in LOST trigger
 IMU initialization while keeping the accepted world anchor/map. Confirmed recent
 bit-identical duplicate IMUs are discarded; conflicting samples, unknown
-reordering, clock resets or a second active producer are not silently hidden.
-RoomMap is held and live :8765 continues while localization is invalid.
+reordering or a second active producer are not silently hidden.
+RoomMap is held and live sensor health continues while localization is invalid.
+
+### Sensor-clock epoch recovery
+
+A backward device timestamp step greater than 500 ms starts an explicit new
+measurement-clock epoch. This is a reset of the sensor-to-host time adapter,
+**not** a reset of Windows/Linux clocks or a hardware Restart command. Small
+interleaving stays in the same epoch. Invalid/backward host monotonic time is
+still a latched fault and cannot be repaired by a sensor-time reset.
+
+The decoder checks every RAW packet and discards partial Unitree scan assembly
+at the boundary. LiDAR and IMU envelopes carry independent timing metadata
+(`measurement_clock_epoch`, `measurement_epoch_started_ns`) without depending
+on each other's message definitions. Integrated streams share one boundary;
+external producers must publish their own adapter's epoch and host boundary.
+
+Either stream's new boundary immediately resets LIO temporal state, including
+its synchronizer, pending scans, early IMUs, duplicate history and relative host
+reference. The same integrated boundary is handled once, even if the two topic
+queues deliver it at different times. Pre-boundary receipts and older stream
+epochs are discarded. Independent external IMU clocks need not use the same
+epoch counter as the LiDAR.
+
+The accepted world anchor and local map remain held. Fresh stationary IMU
+initialization and three qualifying local-map matches are required before world
+cloud publication resumes. If initialization quality is insufficient or the
+device moved beyond local matching range, mapping stays paused: recovery is not
+a guarantee of global relocalization or a license to seed a different room.
+Clock recovery itself does not relax quality gates. The optional vibration
+qualification above is a separate initialization path; geometry gates remain.
+
+The existing Reason field adds `clock_epoch_recoveries` and
+`stale_epoch_messages` alongside `reinitializations`. No dashboard/plugin or
+DeviceConfig change is required. RAW-only replay reconstructs host receipt
+timing; it does not reproduce the original USB delays.
 
 ## Build and validation
 

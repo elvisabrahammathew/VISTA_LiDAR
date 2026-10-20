@@ -1,5 +1,6 @@
 #include "4_Applications/mapping/lio/lio_adapter.hpp"
 #include "4_Applications/mapping/lio/imu_sample_history.hpp"
+#include "4_Applications/mapping/lio/measurement_epoch.hpp"
 #include "3_Devices/lidars/lidar.hpp"
 #include "models/topics.hpp"
 #include "1_Platform/timing/measurement_clock.hpp"
@@ -22,6 +23,8 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
             LioEngine engine(config);LioSynchronizer sync(config.maximum_imu_gap_s);
             LioReport report;models::LocalizationStatus latest;
             ImuSampleHistory imu_history;
+            MeasurementEpochGate epochs;
+            std::uint64_t stale_epoch_messages{}, clock_epoch_recoveries{};
             std::string recovery_reason;std::uint64_t recovery_count{};
             LioRecoveryTimer recovery;
             std::uint64_t reference_host{};bool have_reference{},clock_fault{},cloud_closed{};
@@ -36,15 +39,38 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
             struct Pending { std::shared_ptr<const devices::LidarPointCloudMessage> message;double begin,end;std::chrono::steady_clock::time_point arrival; };
             std::deque<Pending> pending;
             auto heartbeat=std::chrono::steady_clock::now();auto last_valid=heartbeat;
+            auto reset_temporal=[&](const std::string& reason) {
+                recovery_reason=reason;++recovery_count;
+                latest=engine.restart_initialization();
+                sync.clear();previous_end.reset();pending.clear();early_imu.clear();
+                imu_history.clear();synchronization_wait_since.reset();
+                last_imu_source_time.reset();last_imu_host_time.reset();last_cloud_source_time.reset();
+                reference_host=0;have_reference=false;
+                clock_fault=false;fault_reason.clear();
+                heartbeat=std::chrono::steady_clock::now();
+                recovery.update(models::LocalizationState::initializing,heartbeat);
+            };
+            auto admit_epoch=[&](std::size_t stream,std::uint64_t epoch,std::uint64_t started,std::uint64_t received) {
+                const auto result=epochs.observe(stream,epoch,started,received);
+                if(result==MeasurementEpochGate::Result::stale){++stale_epoch_messages;return false;}
+                if(result==MeasurementEpochGate::Result::invalid){fail("invalid measurement clock epoch metadata");return false;}
+                if(result==MeasurementEpochGate::Result::changed){
+                    ++clock_epoch_recoveries;
+                    reset_temporal("sensor clock epoch changed; synchronized time and LIO reset; retained map held until matched");
+                }
+                return true;
+            };
             auto accept_imu=[&](models::ImuMessage message) {
-                if(clock_fault)return;
-                if(!have_reference){early_imu.push_back(std::move(message));while(early_imu.size()>4096){early_imu.pop_front();++early_imu_evictions;}return;}
                 // One active producer, no configured source selector. Refuse to
                 // mix two physical IMUs or silently switch an epoch mid-session.
                 if(message.source_id.empty() || !message.measurement_timestamp_ns || message.received_monotonic_ns==0)
                     {fail("IMU missing normalized host measurement time");return;}
                 if(!imu_id.empty() && message.source_id!=imu_id)
                     {fail("multiple IMU sources or source changed");return;}
+                if(!admit_epoch(0,message.measurement_clock_epoch,message.measurement_epoch_started_ns,message.received_monotonic_ns))return;
+                if(clock_fault)return;
+                imu_id=message.source_id;
+                if(!have_reference){early_imu.push_back(std::move(message));while(early_imu.size()>4096){early_imu.pop_front();++early_imu_evictions;}return;}
                 // A short, confirmed retransmission does not represent elapsed
                 // sensor time. Discard it BEFORE strict normalized-time checks.
                 // Unknown reordered samples, conflicting payloads, old epochs,
@@ -91,6 +117,9 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                         if(received!=platform::ReceiveStatus::message) break;
                         if(m->payload.points.empty()) continue;
                         ++report.received;
+                        if(m->lidar_id.empty() || (!lidar_id.empty() && lidar_id!=m->lidar_id)) {fail("LiDAR source changed or sensor timestamp reset/replay loop");continue;}
+                        if(!admit_epoch(1,m->measurement_clock_epoch,m->measurement_epoch_started_ns,m->received_monotonic_ns))continue;
+                        if(clock_fault)continue;
                         auto minimum=std::numeric_limits<std::uint64_t>::max();std::uint64_t maximum{};
                         for(const auto& p:m->payload.points){minimum=std::min(minimum,p.timestamp_ns);maximum=std::max(maximum,p.timestamp_ns);}
                         if(minimum==0 || maximum<minimum || maximum-minimum>500'000'000ULL){++report.rejected;latest.reason="invalid per-point timestamps/scan duration";latest.state=models::LocalizationState::degraded;latest.pose_valid=false;continue;}
@@ -122,7 +151,8 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                     // Ingest new IMU between every scan and before declaring a
                     // timeout; do not process four scans against a stale buffer.
                     drain_imu();
-                    if(clock_fault) break;
+                    // A new IMU epoch can clear this deque while draining.
+                    if(clock_fault || pending.empty()) break;
                     auto& p=pending.front();
                     const auto horizon=engine.propagation_time_s();
                     const auto history_begin=horizon?horizon:previous_end;
@@ -150,7 +180,7 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                     scan.begin_s=p.begin;scan.end_s=p.end;scan.imu=*batch;
                     auto output=engine.process(scan);latest=std::move(output.status);previous_end=p.end;
                     if(const auto integrated=engine.propagation_time_s())sync.retain_from(*integrated);
-                    if(output.world_cloud){world.publish(devices::LidarPointCloudMessage(p.message->lidar_id,p.message->sequence,p.message->sensor_timestamp_ns,p.message->received_timestamp_ns,std::move(*output.world_cloud),p.message->received_monotonic_ns,p.message->measurement_timestamp_ns));++report.published;last_valid=std::chrono::steady_clock::now();}
+                    if(output.world_cloud){world.publish(devices::LidarPointCloudMessage(p.message->lidar_id,p.message->sequence,p.message->sensor_timestamp_ns,p.message->received_timestamp_ns,std::move(*output.world_cloud),p.message->received_monotonic_ns,p.message->measurement_timestamp_ns,p.message->measurement_clock_epoch,p.message->measurement_epoch_started_ns));++report.published;last_valid=std::chrono::steady_clock::now();}
                     else ++report.rejected;
                     pending.pop_front();
                     break;
@@ -165,13 +195,7 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                 if(recovery.update(latest.state,now)) {
                     // Keep the world anchor/local map in the engine. Drop only
                     // stale temporal state; never guess a new world origin.
-                    recovery_reason=latest.reason;++recovery_count;
-                    latest=engine.restart_initialization();
-                    sync.clear();previous_end.reset();pending.clear();early_imu.clear();
-                    imu_history.clear();
-                    synchronization_wait_since.reset();
-                    last_imu_source_time.reset();last_imu_host_time.reset();last_cloud_source_time.reset();
-                    clock_fault=false;fault_reason.clear();heartbeat=now;
+                    reset_temporal(latest.reason);
                 }
                 if(now>=heartbeat) {
                     if(latest.pose_valid && now-last_valid>config.synchronization_timeout){latest.pose_valid=false;latest.state=models::LocalizationState::degraded;latest.reason="no fresh localized scan (input/processing delay); map held";}
@@ -180,7 +204,9 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                     latest.rejected_scans=report.rejected;
                     auto diagnostic=latest;
                     diagnostic.reason+="; duplicate_imu_samples="+std::to_string(report.duplicate_imu_samples)+
-                        "; reinitializations="+std::to_string(recovery_count);
+                        "; reinitializations="+std::to_string(recovery_count)+
+                        "; clock_epoch_recoveries="+std::to_string(clock_epoch_recoveries)+
+                        "; stale_epoch_messages="+std::to_string(stale_epoch_messages);
                     if(!latest.pose_valid && !recovery_reason.empty())
                         diagnostic.reason+="; previous_loss="+recovery_reason;
                     telemetry.publish(std::move(diagnostic));heartbeat=now+std::chrono::seconds(1);

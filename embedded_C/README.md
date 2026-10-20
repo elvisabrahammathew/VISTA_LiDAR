@@ -3,6 +3,22 @@
 This directory is the C++17 counterpart of the Rust project in `../embedded`.
 The Rust source remains unchanged and can be kept as a behavioral reference.
 
+## Current map display (October 2026)
+
+The two 3D panels now display **Room Map :8766** and **geometric Gaussian Map
+:8767**. Live sensor 3D publishing on :8765 is retired, but internal sensor
+processing and all LiDAR/IMU health metrics remain. Gaussian runs in an independent
+CPU worker from full confirmed map checkpoints, with changed-tile/neighbor updates
+and disk-backed output. No camera, clustering, detection or tracking is added.
+See the [Gaussian mapping guide](4_Applications/mapping/gaussian_map/README.md).
+
+Update the existing `vista-lidarpointcloud-panel` from
+`dashboard/plugins/lidarpointcloud/dist` to **1.2.0**, restart Grafana, hard-refresh
+the browser and import **V5** (`dashboard/VISTA_Live_Dashboard_V5_Gaussian_Map.json`)
+over the existing UID `vistalive`. V4 remains available as the previous file. `vistalive` and
+health telemetry are unchanged. This update requirement supersedes older
+schema-only upgrade notes below.
+
 ## Architecture
 
 Worker Health uses the tag-free Grafana Live channel
@@ -26,7 +42,7 @@ LiDAR liveness while the producer continues running.
 The dashboard regression test uses the plugin's existing Grafana development
 dependencies: run `node dashboard/unittest/worker_health_test.cjs` from the repo
 root after installing those dependencies. It checks exact column order and the
-latest values for 1, 9, 11, 12 and 13 workers, including multiple input frames.
+latest values for 1, 9, 11, 12, 13 and 14 workers, including multiple input frames.
 
 - `1_Platform`: shared MessageBus, bounded broadcast rings, 64-bit topic
   WaitSets, worker threads, and native priority mapping.
@@ -38,7 +54,7 @@ latest values for 1, 9, 11, 12 and 13 workers, including multiple input frames.
 
 `main.cpp` explicitly chooses and starts the independent Read, Decode,
 Preprocessing, RAW Logger, PCD Logger, System Monitor, Grafana Bridge, and
-Point-cloud WebSocket, Ground Processing, Room Mapping, and Room-map WebSocket
+Ground Processing, Room Mapping, Room-map WebSocket, Gaussian Mapping and Gaussian-map WebSocket
 workers, independent sensor-frame Live Preprocessing, plus optional LiDAR-inertial odometry for moving mapping. Each worker registers its own
 publisher/subscriber endpoints on the shared MessageBus. RAW and PCD logger
 workers write to filenames generated from the local system start time. Capture
@@ -61,13 +77,21 @@ See [the LIO guide](4_Applications/mapping/lio/README.md) for the common host
 monotonic clock, single IMU topic, limits, licensing and hardware validation requirements.
 `LioEnabled: 0` retains the fixed-mount flow. No detection/tracking is added.
 
+Optional `LioRobustImuEnabled` and `LioStationaryUpdateEnabled` default to 1.
+They add bounded per-axis outlier downweighting and jointly qualified velocity
+updates within Point-LIO, reusing its existing LiDAR correspondences. No new
+worker or second ICP is introduced. Local odometry-map insertion can be gated
+under this layer, but accepted full-resolution RoomMap output is not decimated.
+See the LIO guide for vibration qualification, rollback/epoch safety and limits;
+these layers do not guarantee elimination of stationary or moving drift.
+
 Preprocessing publishes `pointcloud/cleaned` in world coordinates after finite/range
 filtering, mounting (fixed mode only), ROI, and voxel downsampling. These are retained measured
 points, not centroid-synthesized rays. Each cleaned frame carries the world
 sensor origin; mounting remains active with GroundMode none. Ground Processing
 consumes cleaned points and publishes processed points/ground diagnostics. The
-PCD logger uses processed world points; mapping keeps the floor. The live panel
-instead consumes `pointcloud/cleaned_sensor` from an independent worker, with
+PCD logger uses processed world points; mapping keeps the floor. Health telemetry
+consumes `pointcloud/cleaned_sensor` from an independent worker, with
 finite/range/voxel filtering but NO mount transform, ground removal or world ROI.
 It continues when LIO is INITIALIZING, WAITING IMU, DEGRADED or LOST. Grafana's
 LiDAR online/count/rate telemetry describes this live branch, not pose validity.
@@ -78,8 +102,14 @@ No detection/tracking worker is added in this change.
 The IMU topic retains up to 4096 samples (~8 s at 500 Hz) and synchronization/
 deskew retain 0.5 s of overlap history. Buffers remain bounded; this does not
 guarantee real-time performance under sustained overload. An uncovered IMU
-propagation interval after LIO starts latches LOST and requires restart, rather
-than silently reseeding the map origin. A stale accepted result is DEGRADED,
+propagation interval after LIO starts enters LOST and retries initialization
+after five host seconds, rather than silently reseeding the map origin. A sensor
+timestamp rewind over 500 ms starts an explicit new clock epoch and immediately
+resets decoder scan assembly and LIO temporal state together. Queued old-epoch
+data is rejected; the accepted anchor/local map is retained, and map publication
+requires fresh initialization and three qualifying local matches. Host-clock
+faults remain latched. This neither restarts Unitree nor relaxes IMU quality gates.
+A stale accepted result is DEGRADED,
 not automatically classified as missing IMU. Original fault reasons are retained.
 Only the Point-LIO numerical target uses optimized code in Visual Studio Debug
 (debug symbols remain, variables may be optimized out). Other VISTA workers
@@ -225,17 +255,20 @@ the sensor mounting/world frame when reusing it.
 
 ### Grafana master switch and dashboard
 
-GrafanaEnabled controls the bridge and BOTH WebSocket enabled flags. True
-starts Grafana Bridge, live WebSocket (8765), and map WebSocket (8766); false
+GrafanaEnabled controls the bridge and map WebSocket enabled flags. True
+starts Grafana Bridge, Room Map (8766), and Gaussian Map (8767, when enabled); false
 starts none of those outputs without disabling capture/mapping/file storage.
 WebSocket enabled keys no longer appear in the TXT. Legacy enabled keys are
 accepted but cannot override GrafanaEnabled, regardless of TXT line order.
-Address, port, point/client limits, and retry settings are still configurable.
+Room Map address, port, point/client limits and retry settings remain configurable.
+Gaussian Map has its own bind address, port and point budget; clients/retry/cadence
+are inherited from Room Map. Legacy PointCloudWebSocket keys parse but never
+enable the retired live-sensor socket.
 The ports must differ whenever Grafana output is enabled, including map-disabled
 mode. Room-map WebSocket opens even when mapping is disabled/has a load error,
 and receives empty snapshots; the map-state stat explains why data is absent.
 
-Import ../dashboard/VISTA_Live_Dashboard_V4_Free_Space.json and overwrite UID
+Import ../dashboard/VISTA_Live_Dashboard_V5_Gaussian_Map.json and overwrite UID
 vistalive. It keeps both 3D panels, numeric map states (EMPTY, BUILDING, FROZEN,
 LOADED / READ ONLY, DISABLED, LOAD ERROR, STORAGE ERROR), and ray/cache diagnostics.
 Both map network/panel budgets default to 100000 points per camera view.
@@ -495,13 +528,14 @@ GrafanaPublishIntervalMilliseconds: 1000
 GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
 
-# 3D point-cloud WebSocket for the lidarpointcloud Grafana panel
-PointCloudWebSocketBindAddress: 127.0.0.1
-PointCloudWebSocketPort: 8765
-PointCloudWebSocketMaxPoints: 100000
-PointCloudWebSocketMaxClients: 4
-PointCloudWebSocketPublishIntervalMilliseconds: 100
-PointCloudWebSocketRetryIntervalSeconds: 2
+# Map output; keep the RoomMap configuration block in DeviceConfig.txt too
+RoomMapWebSocketBindAddress: 127.0.0.1
+RoomMapWebSocketPort: 8766
+RoomMapWebSocketMaxPoints: 100000
+GaussianMapEnabled: 1
+GaussianMapWebSocketBindAddress: 127.0.0.1
+GaussianMapWebSocketPort: 8767
+GaussianMapWebSocketMaxPoints: 100000
 ```
 
 Use `Lidar: realsense-l515` for the L515. `UsbSerial` is optional: leave its
@@ -661,16 +695,15 @@ A Grafana outage does not stop LiDAR capture: the
 worker reports the first failure, keeps draining its topic queues, and retries
 using `GrafanaRetryIntervalSeconds`.
 
-The full XYZ/intensity cloud is intentionally sent through the separate
-`pointcloud-websocket` worker instead of the HTTP metrics bridge. It subscribes
-to `pointcloud/cleaned_sensor` (sensor coordinates, floor retained), samples oversized frames to
-`PointCloudWebSocketMaxPoints`, combines packetized spinning-LiDAR messages
-over `PointCloudWebSocketPublishIntervalMilliseconds`, encodes the
-little-endian `LPC1` format, and broadcasts it to the `lidarpointcloud` panel
-at:
+Map geometry is sent through separate sockets, not the HTTP metrics bridge.
+Room Map uses LPC1/octree LOD. Gaussian Map uses GSP1 covariance/opacity records
+and bounded regional views. The production application no longer starts
+`pointcloud-websocket` for live sensor frames. The retained LPC1 encoder/worker
+API is only for compatibility and tests. Current panel addresses are:
 
 ```text
-ws://<PointCloudWebSocketBindAddress>:<PointCloudWebSocketPort>
+ws://<RoomMapWebSocketBindAddress>:<RoomMapWebSocketPort>
+ws://<GaussianMapWebSocketBindAddress>:<GaussianMapWebSocketPort>
 ```
 
 With the default `127.0.0.1` binding, Grafana and the browser must run on the
@@ -686,7 +719,7 @@ On Linux it also reads compatible thermal, hwmon power, and fan entries from
 APIs provide CPU and memory, but not portable board power or temperature, so
 the same availability rule applies there.
 
-Import `../VISTA_Live_Dashboard.json` from Grafana's **Dashboards > New > Import**
+Import `../dashboard/VISTA_Live_Dashboard_V5_Gaussian_Map.json` from Grafana's **Dashboards > New > Import**
 screen. Its Namespace variable defaults to `vista` and must match
 `GrafanaNamespace` in `DeviceConfig.txt`. The dashboard uses Grafana's built-in
-Live Measurements data source, so no panel or data-source plugin is required.
+VISTA Live companion data source and the existing lidarpointcloud panel plugin.

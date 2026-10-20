@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 - 2026-10-20
+
+- Current dashboard import is V5_Gaussian_Map; V4 is kept as a previous file.
+
+- GSP1 world covariance/opacity decoding and anisotropic Gaussian ellipse rendering.
+- Back-to-front blending and bounded map views; empty replacements remove ghosts.
+- V4 replaces Live Point Cloud 3D with Gaussian Map; LiDAR/IMU health is unchanged.
+- Fit the geometry instead of the decorative grid, allowing useful room-scale zoom.
+
 ## 1.1.0 - 2026-10-05
 
 - Camera-dependent out-of-core room-map LOD over the existing WebSocket.

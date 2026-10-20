@@ -16,6 +16,7 @@ const readMagic = (view: DataView): string => {
 export const decodePointCloudPacket = (buffer: ArrayBuffer): PointCloudFrame => {
   const view = new DataView(buffer);
   const magic = readMagic(view);
+  if (magic === 'GSP1') { return decodeGaussian(view); }
 
   if (magic === 'LPC1') {
     return decodeLpc1(view);
@@ -25,6 +26,33 @@ export const decodePointCloudPacket = (buffer: ArrayBuffer): PointCloudFrame => 
   }
 
   throw new Error(`Unsupported point-cloud packet magic: ${magic || '<empty>'}`);
+};
+
+/** GSP1: 32-byte header, 44-byte XYZ/intensity/covariance6/opacity records. */
+const decodeGaussian = (view: DataView): PointCloudFrame => {
+  if (view.byteLength < 32 || view.getUint32(4, true) !== 32 || view.getUint32(12, true) !== 44) {
+    throw new Error('Invalid GSP1 header');
+  }
+  const count = view.getUint32(8, true);
+  if (count > 2_000_000 || view.byteLength !== 32 + count * 44) { throw new Error('Invalid GSP1 payload length'); }
+  const positions = new Float32Array(count * 3), intensities = new Float32Array(count);
+  const covariances = new Float32Array(count * 6), opacities = new Float32Array(count);
+  for (let i = 0; i < count; ++i) {
+    const offset = 32 + i * 44;
+    for (let j = 0; j < 11; ++j) {
+      if (!Number.isFinite(view.getFloat32(offset + 4 * j, true))) { throw new Error('Nonfinite GSP1 attribute'); }
+    }
+    for (let j = 0; j < 3; ++j) { positions[3 * i + j] = view.getFloat32(offset + 4 * j, true); }
+    intensities[i] = view.getFloat32(offset + 12, true);
+    for (let j = 0; j < 6; ++j) { covariances[6 * i + j] = view.getFloat32(offset + 16 + 4 * j, true); }
+    opacities[i] = view.getFloat32(offset + 40, true);
+    const [xx, xy, xz, yy, yz, zz] = covariances.subarray(i * 6, i * 6 + 6);
+    const determinant = xx * (yy * zz - yz * yz) - xy * (xy * zz - yz * xz) + xz * (xy * yz - yy * xz);
+    if (xx <= 0 || xx * yy - xy * xy <= 0 || determinant <= 0 || opacities[i] < 0 || opacities[i] > 1 ||
+        intensities[i] < 0 || intensities[i] > 1) { throw new Error('Invalid GSP1 covariance/opacity/intensity'); }
+  }
+  return { positions, intensities, covariances, opacities, pointCount: count,
+    frameId: view.getBigUint64(16, true), timestampNs: view.getBigUint64(24, true), protocol: 'GSP1' };
 };
 
 /**

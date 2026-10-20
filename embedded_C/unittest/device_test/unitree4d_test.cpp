@@ -163,6 +163,16 @@ VISTA_TEST(unitree_decodes_imu_packet) {
     VISTA_CHECK_NEAR(sample.linear_acceleration_x_m_s2, 9.7F, 1.0e-6F);
 }
 
+VISTA_TEST(unitree_decoder_clock_epoch_discards_partial_scan_only) {
+    vista::devices::UnitreeL2Decoder decoder(2);
+    VISTA_CHECK(decoder.decode_packet(one_meter_unitree_packet()).points.empty());
+    decoder.discard_pending_scan();
+    VISTA_CHECK(decoder.decode_packet(one_meter_unitree_packet()).points.empty());
+    auto cloud=decoder.decode_packet(one_meter_unitree_packet());
+    VISTA_CHECK(cloud.points.size()==2 && cloud.points[0].ring==0 && cloud.points[1].ring==1);
+    VISTA_CHECK(decoder.decode_imu_packet(unitree_imu_packet()));
+}
+
 VISTA_TEST(unitree_decoder_routes_imu_separately_from_pointcloud) {
     vista::devices::UnitreeL2Decoder decoder(2);
     const auto imu = decoder.decode_imu_packet(unitree_imu_packet());

@@ -43,6 +43,8 @@ public:
     std::size_t size() const;
     std::size_t prune_cached(std::int64_t window, std::int64_t age);
     void flush();
+    /// Enable before the first integration/import; disabled has no snapshot I/O.
+    void enable_surface_snapshots(bool enabled);
     /// Imported references use streaming point pages, preserving duplicate points.
     void set_reference();
     void append_reference(const models::RoomMapPoint&);

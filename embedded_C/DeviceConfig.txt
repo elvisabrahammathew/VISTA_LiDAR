@@ -38,6 +38,10 @@ GroundMinInlierRatio(lidar): 0.10
 # Point-LIO (Unitree IMU-as-output); Mount is the INITIAL LiDAR world pose
 # Keep stationary at startup. IMU topic is lidar/imu; timing uses host monotonic clock.
 LioEnabled: 1
+# Causal IMU outlier downweighting; no sample/timestamp deletion.
+LioRobustImuEnabled: 1
+# Joint-rest velocity update and local-map insertion gate; no extra matcher.
+LioStationaryUpdateEnabled: 1
 LioLidarToImuTranslationX: 0.007698
 LioLidarToImuTranslationY: 0.014655
 LioLidarToImuTranslationZ: -0.00667
@@ -78,7 +82,7 @@ LioSynchronizationTimeoutMilliseconds: 500
 # Supported Radar: none
 Radar: None
 
-# GrafanaEnabled controls Grafana Live and both point-cloud WebSockets
+# GrafanaEnabled controls health telemetry and Room Map/Gaussian Map WebSockets
 GrafanaEnabled: true
 GrafanaHost: 127.0.0.1
 GrafanaPort: 3000
@@ -87,13 +91,7 @@ GrafanaPublishIntervalMilliseconds: 2000
 GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
 
-# 3D point-cloud WebSocket for the lidarpointcloud Grafana panel
-PointCloudWebSocketBindAddress: 127.0.0.1
-PointCloudWebSocketPort: 8765
-PointCloudWebSocketMaxPoints: 100000
-PointCloudWebSocketMaxClients: 4
-PointCloudWebSocketPublishIntervalMilliseconds: 100
-PointCloudWebSocketRetryIntervalSeconds: 2
+# Live sensor 3D publishing is disabled; LiDAR/IMU health remains available.
 
 # Room map keeps the floor; freeze after active acquisition seconds (0 = continuous)
 RoomMapEnabled: 1
@@ -117,3 +115,11 @@ RoomMapWebSocketPort: 8766
 RoomMapWebSocketMaxPoints: 100000
 RoomMapWebSocketMaxClients: 4
 RoomMapWebSocketRetryIntervalSeconds: 2
+
+# CPU geometric/intensity Gaussian surfaces from confirmed Room Map updates.
+# Shares RoomMapPublishIntervalMilliseconds, MaxClients and RetryIntervalSeconds.
+# No camera training/clustering; 0 disables this optional mapping branch.
+GaussianMapEnabled: 1
+GaussianMapWebSocketBindAddress: 127.0.0.1
+GaussianMapWebSocketPort: 8767
+GaussianMapWebSocketMaxPoints: 100000

@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <array>
 #include <memory>
+#include <map>
+#include <functional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -77,11 +80,26 @@ struct RoomMapViewRequest {
 };
 /// Workers share a disk reader, NOT a full-map copy. Disk queries are serialized
 /// with page replacement, but never hold the live accumulator update mutex.
+using RoomMapRegionKey = std::array<std::int64_t,3>;
+/// Immutable, full confirmed geometry, not the renderer's sampled LOD preview.
+class RoomMapRegion {
+public:
+    virtual ~RoomMapRegion() = default;
+    virtual void read(const std::function<void(const RoomMapPoint&)>&) const = 0;
+    std::uint64_t version{}, point_count{};
+};
+struct RoomMapSurfaceSnapshot {
+    float voxel_size{}, tile_size{};
+    std::uint64_t geometry_revision{};
+    std::string error; // Optional derived-cache failure; never changes RoomMapState.
+    std::map<RoomMapRegionKey,std::shared_ptr<const RoomMapRegion>> regions;
+};
 class RoomMapViewSource {
 public:
     virtual ~RoomMapViewSource() = default;
     virtual RoomMapFrame select_view(const RoomMapViewRequest&) const = 0;
     virtual std::array<double,6> bounds() const = 0;
+    virtual std::shared_ptr<const RoomMapSurfaceSnapshot> surface_snapshot() const { return {}; }
 };
 struct RoomMapViewMessage {
     std::shared_ptr<const RoomMapViewSource> source;

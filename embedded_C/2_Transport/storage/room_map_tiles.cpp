@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include <unordered_set>
+#include <cstring>
 
 namespace vista::transport {
 std::size_t MapVoxelHash::operator()(const MapVoxelKey& key) const noexcept {
@@ -85,6 +86,25 @@ struct MeasureIo {
 
 class RoomMapTileStore::Impl {
 public:
+    struct Region final : models::RoomMapRegion {
+        vista::fs::path file;
+        std::size_t threshold{};
+        std::uint64_t digest{}, digest2{};
+        ~Region() override { std::error_code ignored; vista::fs::remove(file,ignored); }
+        void read(const std::function<void(const models::RoomMapPoint&)>& visit) const override {
+            vista::io::ifstream in(file,std::ios::binary);
+            if(get<std::uint32_t>(in)!=0x31564d52U) throw std::runtime_error("invalid immutable map region");
+            const auto count=get<std::uint64_t>(in);
+            for(std::uint64_t i=0;i<count;++i) {
+                const auto cell=get_cell(in);
+                if(cell.second.observations>=threshold) visit(cell.second.point);
+            }
+        }
+    };
+    bool capture_surfaces{};
+    std::string surface_error;
+    std::uint64_t geometry_revision{};
+    std::map<models::RoomMapRegionKey,std::shared_ptr<const Region>> regions;
     struct Tile {
         MapVoxelKey key;
         std::unordered_map<MapVoxelKey,MapVoxelCell,MapVoxelHash> cells;
@@ -206,11 +226,20 @@ public:
             vista::io::ifstream in(file,std::ios::binary);(void)get<std::uint32_t>(in);old_count=get<std::uint64_t>(in);
         }
         const auto count=reference_mode?old_count+tile.reference.size():tile.cells.size();
-        Node summary=leaf;std::uint64_t observed{};
+        Node summary=leaf;std::uint64_t observed{},digest{},digest2{};
         {vista::io::ofstream out(temporary,std::ios::binary|std::ios::trunc);
          put(out,std::uint32_t{0x31564d52U});put(out,static_cast<std::uint64_t>(count));
          const auto record=[&](const MapVoxelKey& k,const MapVoxelCell& c) {
-             put_cell(out,k,c);if(c.observations>=confirmation) {++summary.count;sample(summary.points,c.point,++observed,lod_limit);}
+             put_cell(out,k,c);if(c.observations>=confirmation) {
+                 ++summary.count;sample(summary.points,c.point,++observed,lod_limit);
+                 if(capture_surfaces) {
+                     std::uint32_t x{},y{},z{};
+                     std::memcpy(&x,&c.point.x,4);std::memcpy(&y,&c.point.y,4);std::memcpy(&z,&c.point.z,4);
+                     const auto h=mix(x)^mix(static_cast<std::uint64_t>(y)+0x12345678ULL)^
+                         mix(static_cast<std::uint64_t>(z)+0x98765432ULL)^mix(c.point.intensity);
+                     digest+=h;digest2+=mix(h);
+                 }
+             }
          };
          if(reference_mode) {
              if(tile.on_disk) read_cells(file,record);
@@ -218,6 +247,29 @@ public:
          } else for(const auto& c:tile.cells) record(c.first,c.second);
          out.flush();if(!out) throw std::runtime_error("cannot flush room-map voxel page");}
         atomic_replace_map_file(temporary,file);
+        if(capture_surfaces) try {
+            const models::RoomMapRegionKey key{tile.key.x,tile.key.y,tile.key.z};
+            const auto old=regions.find(key);
+            if(!summary.count) {
+                if(old!=regions.end()) {regions.erase(old);++geometry_revision;}
+            } else if(old==regions.end() || old->second->point_count!=summary.count ||
+                      old->second->digest!=digest || old->second->digest2!=digest2) {
+                auto region=std::make_shared<Region>();
+                region->version=++geometry_revision;region->point_count=summary.count;
+                region->digest=digest;region->digest2=digest2;region->threshold=confirmation;
+                region->file=leaf.path/("surface-"+std::to_string(region->version)+".bin");
+                // Atomic page replacement leaves hard-linked old revisions intact.
+                // Filesystems without hard links use an immutable copy instead.
+                std::error_code error;vista::fs::create_hard_link(file,region->file,error);
+                if(error) vista::fs::copy_file(file,region->file);
+                regions.insert_or_assign(key,std::move(region));
+            }
+        } catch(const std::exception& error) {
+            // Optional derived snapshots must not turn a successful map-page
+            // checkpoint into a mapper failure. Do not expose a partial catalog.
+            surface_error=std::string("Gaussian source cache unavailable; restart required: ")+error.what();
+            regions.clear();capture_surfaces=false;
+        }
         ++tile_writes;
         tile_write_ns.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now()-write_started).count()),std::memory_order_relaxed);
@@ -440,21 +492,33 @@ models::RoomMapFrame RoomMapTileStore::Impl::select_disk_view(const models::Room
 }
 std::shared_ptr<const models::RoomMapViewSource> RoomMapTileStore::view_source(std::uint64_t timestamp_ns) {
     flush();
+    std::shared_ptr<models::RoomMapSurfaceSnapshot> surface;
+    if(impl_->capture_surfaces || !impl_->surface_error.empty()) {
+        surface=std::make_shared<models::RoomMapSurfaceSnapshot>();
+        surface->voxel_size=impl_->voxel_size;surface->tile_size=impl_->voxel_size*static_cast<float>(impl_->edge);
+        surface->geometry_revision=impl_->geometry_revision;
+        surface->error=impl_->surface_error;
+        for(const auto& region:impl_->regions) surface->regions.emplace(region.first,region.second);
+    }
     class DiskView final : public models::RoomMapViewSource {
     public:
-        DiskView(std::shared_ptr<Impl> storage,std::array<double,6> box,std::uint64_t stamp)
-            :storage_(std::move(storage)),box_(box),stamp_(stamp) {}
+        DiskView(std::shared_ptr<Impl> storage,std::array<double,6> box,std::uint64_t stamp,
+                 std::shared_ptr<const models::RoomMapSurfaceSnapshot> surface)
+            :storage_(std::move(storage)),box_(box),stamp_(stamp),surface_(std::move(surface)) {}
         models::RoomMapFrame select_view(const models::RoomMapViewRequest& request) const override {
             auto cloud=storage_->select_disk_view(request);cloud.timestamp_ns=stamp_;return cloud;
         }
         std::array<double,6> bounds() const override {return box_;}
+        std::shared_ptr<const models::RoomMapSurfaceSnapshot> surface_snapshot() const override {return surface_;}
     private:
         std::shared_ptr<Impl> storage_;
         const std::array<double,6> box_;
         const std::uint64_t stamp_;
+        std::shared_ptr<const models::RoomMapSurfaceSnapshot> surface_;
     };
-    return std::make_shared<DiskView>(impl_,bounds(),timestamp_ns);
+    return std::make_shared<DiskView>(impl_,bounds(),timestamp_ns,std::move(surface));
 }
+void RoomMapTileStore::enable_surface_snapshots(bool enabled) {impl_->capture_surfaces=enabled;}
 RoomMapTileMetrics RoomMapTileStore::metrics() const {
     return {impl_->cache_misses.load(),impl_->tile_reads.load(),impl_->tile_writes.load(),
         impl_->lod_node_writes.load(),impl_->view_queries.load(),

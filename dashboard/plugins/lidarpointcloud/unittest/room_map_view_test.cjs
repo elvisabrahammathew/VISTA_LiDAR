@@ -20,9 +20,48 @@ const loadTypeScript = (relative) => {
 const moduleParent = module;
 const { decodeRoomMapMetadata, makeRoomMapViewRequest } = loadTypeScript('src/room_map_view.ts');
 const { decodePointCloudPacket } = loadTypeScript('src/protocol.ts');
+const { GaussianRenderer } = loadTypeScript('src/gaussian_renderer.ts');
 let passed = 0;
 const test = (name, run) => { run(); ++passed; console.log(`[PASS] ${name}`); };
 const metadata = { type: 'roommap', totalPoints: 300000, pointBudget: 250000, state: 2, bounds: [-1,-2,-3,4,5,6] };
+const gaussianPacket = () => {
+  const bytes=new ArrayBuffer(76),v=new DataView(bytes);
+  new Uint8Array(bytes).set([71,83,80,49]);
+  v.setUint32(4,32,true);v.setUint32(8,1,true);v.setUint32(12,44,true);
+  v.setBigUint64(16,42n,true);v.setBigUint64(24,123n,true);
+  [1,2,3,.5,.003025,0,0,.003025,0,.000064,.85].forEach((x,i)=>v.setFloat32(32+4*i,x,true));
+  return bytes;
+};
+test('GSP1 carries world covariance, opacity, intensity and coherent revision',()=>{
+  const frame=decodePointCloudPacket(gaussianPacket());
+  assert.equal(frame.protocol,'GSP1');assert.equal(frame.frameId,42n);
+  assert.deepEqual(Array.from(frame.positions),[1,2,3]);
+  assert(frame.covariances[0]>frame.covariances[5]*40);
+  assert(Math.abs(frame.opacities[0]-.85)<1e-6);
+  const empty=gaussianPacket().slice(0,32);new DataView(empty).setUint32(8,0,true);
+  assert.equal(decodePointCloudPacket(empty).pointCount,0);
+});
+test('GSP1 rejects malformed lengths, nonfinite data and non-positive covariance',()=>{
+  assert.throws(()=>decodePointCloudPacket(gaussianPacket().slice(0,75)));
+  for(const [offset,value] of [[32,NaN],[48,-1],[72,2],[44,2],[52,1]]) {
+    const bytes=gaussianPacket();new DataView(bytes).setFloat32(offset,value,true);
+    assert.throws(()=>decodePointCloudPacket(bytes));
+  }
+});
+test('Gaussian renderer uses covariance ellipses, sorted alpha and clears empty replacements',()=>{
+  const renderer=new GaussianRenderer();
+  renderer.set(new Float32Array([0,0,-1,0,0,-3]),new Float32Array(12).fill(.001),
+    new Float32Array([1,0,0,0,1,0]),new Float32Array([.8,.9]));
+  const camera=new THREE.PerspectiveCamera(55,1,.01,100);
+  renderer.update(camera,600,600,0);
+  assert.equal(renderer.geometry.instanceCount,2);
+  assert.equal(renderer.geometry.getAttribute('center').getZ(0),-3);
+  assert.equal(renderer.material.depthWrite,false);
+  assert(renderer.material.vertexShader.includes('C*jx'));
+  assert(renderer.material.fragmentShader.includes('exp(-0.5*radius2)'));
+  renderer.set(new Float32Array(0),new Float32Array(0),new Float32Array(0),new Float32Array(0));
+  assert.equal(renderer.geometry.instanceCount,0);renderer.dispose();
+});
 test('total stored points may exceed render budget', () => {
   const result = decodeRoomMapMetadata(JSON.stringify(metadata));
   assert.equal(result.totalPoints, 300000);

@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include "2_Transport/messaging/websocket_server.hpp"
 #include "models/topics.hpp"
+#include "4_Applications/mapping/gaussian_map/gaussian_map.hpp"
 
 namespace vista::application {
 models::RoomMapViewRequest parse_room_map_view_request(const std::string& text,std::size_t budget) {
@@ -39,7 +40,8 @@ platform::WorkerHandle spawn_room_map_websocket(platform::MessageBus& bus,
     platform::ThreadConfig thread,platform::StopToken stop,PointCloudWebSocketConfig config,
     PointCloudWebSocketCompletion complete) {
     validate_pointcloud_websocket_config(config);
-    auto subscriber=bus.subscribe<models::RoomMapViewMessage>(models::topics::room_map_view,thread.name);
+    auto subscriber=bus.subscribe<models::RoomMapViewMessage>(
+        config.gaussian_map?models::topics::gaussian_map_view:models::topics::room_map_view,thread.name);
     return platform::spawn_worker(std::move(thread),[stop,config=std::move(config),
         subscriber=std::move(subscriber),complete=std::move(complete)]() mutable {
         try {
@@ -71,7 +73,7 @@ platform::WorkerHandle spawn_room_map_websocket(platform::MessageBus& bus,
                             config.bind_address,config.port,config.maximum_clients,
                             std::chrono::milliseconds(1000),std::chrono::milliseconds(250)}));
                         views.clear();
-                        std::cout<<"Room-map LOD WebSocket listening at ws://"<<config.bind_address<<':'<<config.port<<'\n';
+                        std::cout<<(config.gaussian_map?"Gaussian map":"Room-map LOD")<<" WebSocket listening at ws://"<<config.bind_address<<':'<<config.port<<'\n';
                     } catch(const std::exception& error) {
                         ++report.server_failures;retry=now+config.retry_interval;
                         std::cerr<<"Room-map WebSocket listen failed: "<<error.what()<<'\n';
@@ -111,14 +113,23 @@ platform::WorkerHandle spawn_room_map_websocket(platform::MessageBus& bus,
                         // delay before showing it. Only same-map camera requests
                         // are throttled (using that same configuration value).
                         models::RoomMapFrame cloud;
+                        std::vector<models::GaussianMapPoint> splats;
                         std::array<double,6> bounds{-1,-1,-1,1,1,1};
                         auto state=latest->state;
                         try {
-                            if(latest->source) {bounds=latest->source->bounds();cloud=latest->source->select_view(view.request);}
+                            if(latest->source) {
+                                bounds=latest->source->bounds();
+                                if(config.gaussian_map) {
+                                    const auto source=std::dynamic_pointer_cast<const models::GaussianMapViewSource>(latest->source);
+                                    if(!source) throw std::runtime_error("invalid Gaussian map source");
+                                    splats=source->select_splats(view.request);
+                                } else cloud=latest->source->select_view(view.request);
+                            }
                         } catch(const std::exception& error) {
                             // Optional rendering/storage failures must not stop sensor workers.
                             ++report.server_failures;state=models::RoomMapState::storage_error;
                             cloud.points.clear();std::cerr<<"Room-map LOD query failed: "<<error.what()<<'\n';
+                            splats.clear();
                         }
                         std::ostringstream meta;meta.imbue(std::locale::classic());meta.precision(15);
                         meta<<"{\"type\":\"roommap\",\"revision\":"<<latest->revision
@@ -128,9 +139,11 @@ platform::WorkerHandle spawn_room_map_websocket(platform::MessageBus& bus,
                         cloud.timestamp_ns=latest->timestamp_ns;
                         models::RoomMapMessage frame(latest->revision,
                             latest->timestamp_ns,std::move(cloud));
-                        auto packet=encode_lpc1_pointcloud(frame,view.request.point_budget);
+                        auto packet=config.gaussian_map?encode_gaussian_map(splats,latest->revision,latest->timestamp_ns):
+                            encode_lpc1_pointcloud(frame,view.request.point_budget);
                         if(server->send_text(entry.first,meta.str()) && server->send_binary(entry.first,packet.data(),packet.size())) {
-                            ++report.broadcast_frames;++report.client_deliveries;report.encoded_points+=frame.payload.points.size();
+                            ++report.broadcast_frames;++report.client_deliveries;
+                            report.encoded_points+=config.gaussian_map?splats.size():frame.payload.points.size();
                             view.delivered=true;view.sent_revision=latest->revision;view.sent_state=latest->state;
                             view.sent_signature=view.requested_signature;
                         }

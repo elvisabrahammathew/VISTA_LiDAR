@@ -18,6 +18,15 @@ Radar: None
 
 }  // namespace
 
+VISTA_TEST(config_lio_lightweight_robustness_switches_are_independent_and_default_on) {
+    auto defaults=vista::parse_device_config_text(quanergy_config).lio;
+    VISTA_CHECK(defaults.robust_imu_enabled && defaults.stationary_update_enabled);
+    auto c=vista::parse_device_config_text(std::string(quanergy_config)+"LioRobustImuEnabled: 0\nLioStationaryUpdateEnabled: 1\n").lio;
+    VISTA_CHECK(!c.robust_imu_enabled && c.stationary_update_enabled);
+    VISTA_CHECK_THROWS(vista::parse_device_config_text(std::string(quanergy_config)+"LioRobustImuEnabled: invalid\n"));
+    VISTA_CHECK_THROWS(vista::parse_device_config_text(std::string(quanergy_config)+"LioStationaryUpdateEnabled: invalid\n"));
+}
+
 VISTA_TEST(config_parses_upstream_imu_covariances_and_preserves_old_file_defaults) {
     const auto defaults=vista::parse_device_config_text(quanergy_config).lio;
     VISTA_CHECK_NEAR(defaults.imu_acceleration_covariance,.1,1e-12);
@@ -105,7 +114,7 @@ RoomMapWebSocketPort: 8766
 VISTA_TEST(config_rejects_invalid_mapping_and_colliding_websocket_ports) {
     VISTA_CHECK_THROWS(vista::parse_device_config_text(std::string(quanergy_config)+"\nRoomMapVoxelSizeMeters: 0\n"));
     VISTA_CHECK_THROWS(vista::parse_device_config_text(std::string(quanergy_config)+
-        "\nGrafanaEnabled: true\nRoomMapWebSocketPort: 8765\n"));
+        "\nGrafanaEnabled: true\nRoomMapWebSocketPort: 8767\n"));
 }
 
 VISTA_TEST(config_rejects_removed_room_map_save_toggle) {
@@ -127,9 +136,9 @@ VISTA_TEST(config_rejects_removed_total_map_limit_and_accepts_ram_lod_settings) 
 VISTA_TEST(config_grafana_master_controls_both_websockets_regardless_of_legacy_keys) {
     const auto enabled=vista::parse_device_config_text(std::string(quanergy_config)+
         "\nPointCloudWebSocketEnabled: 0\nRoomMapWebSocketEnabled: 0\nGrafanaEnabled: true\nRoomMapEnabled: 0\n");
-    VISTA_CHECK(enabled.pointcloud_websocket.enabled && enabled.room_map_websocket.enabled);
+    VISTA_CHECK(!enabled.pointcloud_websocket.enabled && enabled.room_map_websocket.enabled);
     const auto runtime=enabled.runtime_config();
-    VISTA_CHECK(runtime.threads.grafana_bridge.enabled && runtime.threads.pointcloud_websocket.enabled);
+    VISTA_CHECK(runtime.threads.grafana_bridge.enabled && !runtime.threads.pointcloud_websocket.enabled);
     VISTA_CHECK(runtime.threads.room_map_websocket.enabled); // Opens even without a map.
     const auto disabled=vista::parse_device_config_text(std::string(quanergy_config)+
         "\nGrafanaEnabled: false\nPointCloudWebSocketEnabled: 1\nRoomMapWebSocketEnabled: 1\nRoomMapEnabled: 1\n");
@@ -462,7 +471,7 @@ PointCloudWebSocketPublishIntervalMilliseconds: 125
 PointCloudWebSocketRetryIntervalSeconds: 4
 )");
 
-    VISTA_CHECK(config.pointcloud_websocket.enabled);
+    VISTA_CHECK(!config.pointcloud_websocket.enabled); // Legacy values accepted, live 3D retired.
     VISTA_CHECK(config.pointcloud_websocket.bind_address == "0.0.0.0");
     VISTA_CHECK(config.pointcloud_websocket.port == 9876);
     VISTA_CHECK(config.pointcloud_websocket.maximum_points == 75'000);
@@ -473,7 +482,7 @@ PointCloudWebSocketRetryIntervalSeconds: 4
     VISTA_CHECK(
         config.pointcloud_websocket.retry_interval ==
         std::chrono::seconds(4));
-    VISTA_CHECK(config.runtime_config().threads.pointcloud_websocket.enabled);
+    VISTA_CHECK(!config.runtime_config().threads.pointcloud_websocket.enabled);
 }
 
 VISTA_TEST(config_file_parses_grafana_live_settings) {

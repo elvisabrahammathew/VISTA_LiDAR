@@ -20,8 +20,8 @@ export const plugin = new PanelPlugin<LidarPointCloudOptions>(LidarPointCloudPan
       .addTextInput({
         path: 'websocketUrl',
         name: 'WebSocket URL',
-        description: 'Dedicated LPC1/LDR1 binary point-cloud stream.',
-        defaultValue: 'ws://127.0.0.1:8765',
+        description: 'Room Map LPC1 or geometric Gaussian Map GSP1 stream.',
+        defaultValue: 'ws://127.0.0.1:8766',
       })
       .addNumberInput({
         path: 'reconnectDelayMs',
@@ -32,7 +32,7 @@ export const plugin = new PanelPlugin<LidarPointCloudOptions>(LidarPointCloudPan
       .addNumberInput({
         path: 'maxPoints',
         name: 'Maximum displayed points',
-        description: 'Room maps request camera-dependent LOD within this budget. Live frames are sampled. Stored maps are not capped.',
+        description: 'Camera-dependent Room Map / Gaussian Map view budget. Stored maps are not capped.',
         defaultValue: 100000,
         settings: { min: 1000, max: 2000000, step: 1000 },
       })

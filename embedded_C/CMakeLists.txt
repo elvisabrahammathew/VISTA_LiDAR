@@ -84,6 +84,7 @@ set(VISTA_CORE_SOURCES
     4_Applications/logger/logger.cpp
     4_Applications/mapping/room_map/room_map.cpp
     4_Applications/mapping/room_map/room_map_websocket.cpp
+    4_Applications/mapping/gaussian_map/gaussian_map.cpp
     4_Applications/mapping/lio/lio.cpp
     4_Applications/mapping/lio/lio_adapter.cpp
     4_Applications/monitoring/system_monitor.cpp
@@ -260,6 +261,7 @@ if(VISTA_BUILD_TESTS)
         unittest/model_messages_test.cpp
         unittest/application_test/logger_test.cpp
         unittest/application_test/room_map_test.cpp
+        unittest/application_test/gaussian_map_test.cpp
         unittest/application_test/lio_test.cpp
         unittest/application_test/grafana_bridge_test.cpp
         unittest/application_test/pointcloud_processing_test.cpp

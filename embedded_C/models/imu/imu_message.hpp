@@ -35,16 +35,21 @@ struct ImuMessage {
     ImuFrame payload;
     std::uint64_t received_monotonic_ns{};
     std::optional<std::uint64_t> measurement_timestamp_ns;
+    // Shared by integrated streams; external producers own their own epochs.
+    std::uint64_t measurement_clock_epoch{};
+    std::uint64_t measurement_epoch_started_ns{};
 
     ImuMessage(std::string id, std::uint64_t message_sequence,
                std::optional<std::uint64_t> sensor_timestamp,
                std::uint64_t received_timestamp, ImuFrame value,
                std::uint64_t received_monotonic = 0,
-               std::optional<std::uint64_t> measurement_timestamp = std::nullopt)
+               std::optional<std::uint64_t> measurement_timestamp = std::nullopt,
+               std::uint64_t clock_epoch = 0, std::uint64_t epoch_started_ns = 0)
         : source_id(std::move(id)), sequence(message_sequence),
           sensor_timestamp_ns(sensor_timestamp), received_timestamp_ns(received_timestamp),
           payload(std::move(value)), received_monotonic_ns(received_monotonic),
-          measurement_timestamp_ns(measurement_timestamp) {}
+          measurement_timestamp_ns(measurement_timestamp),
+          measurement_clock_epoch(clock_epoch), measurement_epoch_started_ns(epoch_started_ns) {}
 };
 
 }  // namespace vista::models

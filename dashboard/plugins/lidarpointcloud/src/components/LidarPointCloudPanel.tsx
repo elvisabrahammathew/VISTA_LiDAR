@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { decodePointCloudPacket } from '../protocol';
 import { decodeRoomMapMetadata, makeRoomMapViewRequest, RoomMapMetadata } from '../room_map_view';
 import { GroundStatus, LidarPointCloudOptions, PointCloudFrame } from '../types';
+import { GaussianRenderer } from '../gaussian_renderer';
 
 type Props = PanelProps<LidarPointCloudOptions>;
 
@@ -12,7 +13,6 @@ type Props = PanelProps<LidarPointCloudOptions>;
 // Sixty divisions keep every visible grid square equal to one square metre.
 const GROUND_GRID_SIZE_METERS = 60;
 const GROUND_GRID_DIVISIONS = 60;
-const GROUND_GRID_MINIMUM_CAMERA_RADIUS = GROUND_GRID_SIZE_METERS / 2;
 
 interface SceneState {
   renderer: THREE.WebGLRenderer;
@@ -33,6 +33,7 @@ interface SceneState {
   fitted: boolean;
   roomMapBounds?: THREE.Box3;
   animationId: number;
+  gaussian: GaussianRenderer;
 }
 
 interface StatusState {
@@ -92,6 +93,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       vertexColors: true,
     });
     scene.add(new THREE.Points(geometry, material));
+    const gaussian = new GaussianRenderer();scene.add(gaussian.mesh);
 
     const grid = new THREE.GridHelper(
       GROUND_GRID_SIZE_METERS,
@@ -133,6 +135,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       groundNormal,
       fitted: false,
       animationId: 0,
+      gaussian,
     };
     sceneRef.current = state;
 
@@ -144,6 +147,8 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       liveState.controls.autoRotate = Boolean(optionsRef.current.autoRotate);
       liveState.controls.autoRotateSpeed = 0.8;
       liveState.controls.update();
+      const size=liveState.renderer.getDrawingBufferSize(new THREE.Vector2());
+      liveState.gaussian.update(liveState.camera,size.x,size.y,performance.now());
       liveState.renderer.render(liveState.scene, liveState.camera);
       liveState.animationId = window.requestAnimationFrame(animate);
     };
@@ -154,6 +159,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       state.controls.dispose();
       state.geometry.dispose();
       state.material.dispose();
+      state.gaussian.dispose();
       state.groundPlane.geometry.dispose();
       state.groundPlane.material.dispose();
       state.groundNormal.line.geometry.dispose();
@@ -437,6 +443,7 @@ const displayFrame = (
     state.pointCount = 0;
     state.inputPointCount = 0;
     state.geometry.setDrawRange(0, 0);
+    state.gaussian.set(new Float32Array(0),new Float32Array(0),new Float32Array(0),new Float32Array(0));
     state.geometry.boundingBox = null;
     state.geometry.boundingSphere = null;
     if (!state.roomMapBounds) { state.fitted = false; }
@@ -509,6 +516,16 @@ const displayFrame = (
   state.pointCount = outputPoint;
   state.inputPointCount = frame.pointCount;
   state.geometry.setDrawRange(0, outputPoint);
+  if (frame.covariances && frame.opacities) {
+    const covariance=new Float32Array(outputPoint*6),opacity=new Float32Array(outputPoint);
+    for(let input=0,output=0;input<frame.pointCount;input+=step,++output) {
+      covariance.set(frame.covariances.subarray(input*6,input*6+6),output*6);opacity[output]=frame.opacities[input];
+    }
+    state.gaussian.set(state.positions.slice(0,outputPoint*3),covariance,state.colors.slice(0,outputPoint*3),opacity);
+    state.geometry.setDrawRange(0,0);
+  } else {
+    state.gaussian.set(new Float32Array(0),new Float32Array(0),new Float32Array(0),new Float32Array(0));
+  }
   const positionAttribute = state.geometry.getAttribute('position') as THREE.BufferAttribute;
   const colorAttribute = state.geometry.getAttribute('color') as THREE.BufferAttribute;
   positionAttribute.needsUpdate = true;
@@ -591,9 +608,8 @@ const fitCameraToCloud = (state: SceneState): void => {
 const fitCameraToBounds = (state: SceneState, bounds: THREE.Box3): void => {
   const center = bounds.getCenter(new THREE.Vector3());
   const size = bounds.getSize(new THREE.Vector3());
-  // Never zoom closer than the configured ground grid. Small point clouds
-  // therefore remain positioned inside the same stable 60 m x 60 m context.
-  const radius = Math.max(size.length() * 0.5, GROUND_GRID_MINIMUM_CAMERA_RADIUS);
+  // Fit geometry, not the decorative grid; small rooms remain zoomable.
+  const radius = Math.max(size.length() * 0.5, 0.5);
   state.controls.target.copy(center);
   state.camera.near = Math.max(radius / 1000, 0.001);
   state.camera.far = Math.max(radius * 100, 100);

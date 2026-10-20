@@ -47,6 +47,7 @@ private:
 class UnitreeL2Decoder final : public ILidarDecoder {
 public:
     explicit UnitreeL2Decoder(std::size_t cloud_scan_count = 18);
+    void discard_pending_scan() override;
     std::optional<models::ImuFrame> decode_imu_packet(
         const RawPacket& packet) override;
     models::PointCloudFrame decode_packet(const RawPacket& packet) override;

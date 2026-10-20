@@ -76,7 +76,7 @@ int main() {
             std::cout << "disabled\n";
         }
         std::cout << "Point-cloud WebSocket: ";
-        if (config.grafana.enabled) {
+        if (config.pointcloud_websocket.enabled) {
             std::cout << "ws://" << config.pointcloud_websocket.bind_address
                       << ':' << config.pointcloud_websocket.port
                       << " (maximum "
@@ -98,6 +98,9 @@ int main() {
         if (config.grafana.enabled)
             std::cout << "Room-map WebSocket: ws://" << config.room_map_websocket.bind_address
                       << ':' << config.room_map_websocket.port << '\n';
+        if(config.grafana.enabled && config.gaussian_map.enabled)
+            std::cout<<"Gaussian-map WebSocket: ws://"<<config.gaussian_map_websocket.bind_address
+                <<':'<<config.gaussian_map_websocket.port<<" (geometric intensity surfaces)\n";
 
         const auto started = std::chrono::steady_clock::now();
         std::cout << "Mapping pose: " << (config.lio.enabled ? vista::application::LioEngine::backend_name() : "fixed mount") << '\n';
@@ -130,6 +133,7 @@ int main() {
         // Map snapshots are much larger than individual sensor packets; retain only two.
         bus.configure_topic(vista::models::topics::room_map, 2);
         bus.configure_topic(vista::models::topics::room_map_view, 2);
+        bus.configure_topic(vista::models::topics::gaussian_map_view,2);
         bus.configure_topic(vista::models::topics::room_map_status, runtime.queues.telemetry_capacity);
         bus.configure_topic(
             vista::models::topics::ground_status,
@@ -191,6 +195,9 @@ int main() {
         bool ground_started = false;
         bool room_map_started = false;
         bool room_map_websocket_started = false;
+        auto gaussian_result=std::make_shared<vista::platform::WorkerResult<vista::application::GaussianMapReport>>();
+        auto gaussian_socket_result=std::make_shared<vista::platform::WorkerResult<vista::application::PointCloudWebSocketReport>>();
+        bool gaussian_started=false,gaussian_socket_started=false;
 
         try {
             // The user controls worker creation and startup order in main.
@@ -228,6 +235,23 @@ int main() {
                 room_map_websocket_started = true;
             }
 
+            if(runtime.threads.gaussian_map_websocket.enabled && config.grafana.enabled) {
+                vista::platform::add_worker(workers,vista::application::spawn_pointcloud_websocket(
+                    bus,runtime.threads.gaussian_map_websocket.thread,stop,config.gaussian_map_websocket,
+                    vista::platform::completion_for(gaussian_socket_result)));
+                gaussian_socket_started=true;
+            }
+            if(runtime.threads.gaussian_mapping.enabled) {
+                auto gaussian_config=config.gaussian_map;
+                if(!config.room_map.storage_directory.empty()) {
+                    gaussian_config.storage_directory=config.room_map.storage_directory;
+                    gaussian_config.storage_directory+=".gaussian";
+                }
+                vista::platform::add_worker(workers,vista::application::spawn_gaussian_map_worker(
+                    bus,runtime.threads.gaussian_mapping.thread,stop,gaussian_config,
+                    vista::platform::completion_for(gaussian_result)));
+                gaussian_started=true;
+            }
             if (runtime.threads.room_mapping.enabled) {
                 vista::platform::add_worker(workers, vista::application::spawn_room_map_worker(
                     bus, runtime.threads.room_mapping.thread, stop, config.room_map,
@@ -399,6 +423,8 @@ int main() {
                                              room_map_websocket_result, room_map_websocket_started);
         vista::platform::collect_worker_error(failures,runtime.threads.localization.thread.name,lio_result,lio_started);
         vista::platform::collect_worker_error(failures,runtime.threads.live_preprocessing.thread.name,live_result,live_started);
+        vista::platform::collect_worker_error(failures,runtime.threads.gaussian_mapping.thread.name,gaussian_result,gaussian_started);
+        vista::platform::collect_worker_error(failures,runtime.threads.gaussian_map_websocket.thread.name,gaussian_socket_result,gaussian_socket_started);
         vista::platform::throw_if_worker_failures(failures);
 
         const auto packet_count =

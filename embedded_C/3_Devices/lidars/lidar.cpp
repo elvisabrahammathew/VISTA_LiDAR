@@ -131,18 +131,27 @@ LidarWorkerReport run_lidar_decoder(
     platform::MeasurementClock measurement_clock;
     std::shared_ptr<const LidarRawMessage> message;
     while (subscriber.receive(message) == platform::ReceiveStatus::message) {
-        if (auto imu = decoder_slot->decode_imu_packet(message->payload)) {
+        auto imu = decoder_slot->decode_imu_packet(message->payload);
+        const auto previous_epoch = measurement_clock.epoch();
+        // Inspect every timestamped RAW packet, BEFORE adding another scan row.
+        // A clock reset must not create a cloud spanning two device epochs.
+        const auto measurement_time = measurement_clock.align(
+            imu && imu->timestamp_ns ? std::optional<std::uint64_t>(imu->timestamp_ns)
+                                    : message->sensor_timestamp_ns,
+            message->received_monotonic_ns);
+        if (measurement_clock.epoch() != previous_epoch) {
+            decoder_slot->discard_pending_scan();
+        }
+        if (imu) {
             // Same clock adapter for both integrated streams, evaluated with the
             // original RAW receipt time. Queue/decode delays never enter LIO dt.
-            const auto measurement_time = measurement_clock.align(
-                imu->timestamp_ns ? std::optional<std::uint64_t>(imu->timestamp_ns) : std::nullopt,
-                message->received_monotonic_ns);
             imu_publisher.publish(models::ImuMessage(
                 message->lidar_id,
                 message->sequence,
                 message->sensor_timestamp_ns,
                 message->received_timestamp_ns,
-                std::move(*imu), message->received_monotonic_ns, measurement_time));
+                std::move(*imu), message->received_monotonic_ns, measurement_time,
+                measurement_clock.epoch(), measurement_clock.epoch_started_ns()));
             ++report.message_count;
             continue;
         }
@@ -153,14 +162,13 @@ LidarWorkerReport run_lidar_decoder(
         }
         // Raw packet time is the last packet's acquisition reference, NOT the
         // start/end of an aggregated scan. Retain per-point deltas from it.
-        const auto measurement_time = measurement_clock.align(
-            message->sensor_timestamp_ns, message->received_monotonic_ns);
         pointcloud_publisher.publish(LidarPointCloudMessage(
             message->lidar_id,
             message->sequence,
             message->sensor_timestamp_ns,
             message->received_timestamp_ns,
-            std::move(frame), message->received_monotonic_ns, measurement_time));
+            std::move(frame), message->received_monotonic_ns, measurement_time,
+            measurement_clock.epoch(), measurement_clock.epoch_started_ns()));
         ++report.message_count;
     }
     report.dropped_message_count = subscriber.dropped_messages();
@@ -299,6 +307,11 @@ void LidarDecoderSlot::replace(std::unique_ptr<ILidarDecoder> decoder) {
     }
     std::lock_guard<std::mutex> lock(mutex_);
     decoder_ = std::shared_ptr<ILidarDecoder>(std::move(decoder));
+}
+
+void LidarDecoderSlot::discard_pending_scan() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (decoder_) decoder_->discard_pending_scan();
 }
 
 std::optional<models::ImuFrame> LidarDecoderSlot::decode_imu_packet(

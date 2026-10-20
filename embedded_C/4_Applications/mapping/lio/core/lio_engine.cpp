@@ -3,6 +3,7 @@
 // upstream Estimator.{h,cpp}/IKFoM. Derived code: upstream GPL-2.0; see README.
 #include "4_Applications/mapping/lio/lio.hpp"
 #include "4_Applications/mapping/lio/core/imu_model.hpp"
+#include "4_Applications/mapping/lio/core/imu_robustness.hpp"
 #include "4_Applications/mapping/lio/core/portable_types.hpp"
 #include <point_lio_models.hpp>
 #include <ikd_Tree.h>
@@ -40,7 +41,9 @@ Cell cell(const Vec& p,double v){return {static_cast<std::int64_t>(std::floor(p.
 struct Knot {double t;Vec p,v,a,w;Mat r;};
 struct ImuWindow {
     std::deque<TimedImu> samples;Vec acceleration{Vec::Zero()},gyro{Vec::Zero()};double acceleration_rms{},gyro_rms{},duration{};
-    void add(const LioScan& scan,std::size_t required){
+    Vec acceleration_variance{Vec::Zero()},gyro_variance{Vec::Zero()};
+    double block_acceleration_change{},block_gyro_change{};bool blocks_ready{};
+    void add(const LioScan& scan,std::size_t required,bool blocks_enabled){
         for(const auto& s:scan.imu){
             if(s.time_s>scan.end_s || (!samples.empty() && s.time_s<=samples.back().time_s))continue;
             samples.push_back(s);
@@ -48,13 +51,39 @@ struct ImuWindow {
             while(samples.size()>100'000)samples.pop_front();
         }
         acceleration.setZero();gyro.setZero();acceleration_rms=gyro_rms=duration=0;
+        acceleration_variance.setZero();gyro_variance.setZero();
+        block_acceleration_change=block_gyro_change=0;blocks_ready=false;
         if(samples.empty())return;
         for(const auto& s:samples){acceleration+=vector(s.acceleration);gyro+=vector(s.angular_velocity);}
         acceleration/=static_cast<double>(samples.size());gyro/=static_cast<double>(samples.size());
-        for(const auto& s:samples){acceleration_rms+=(vector(s.acceleration)-acceleration).squaredNorm();gyro_rms+=(vector(s.angular_velocity)-gyro).squaredNorm();}
-        acceleration_rms=std::sqrt(acceleration_rms/samples.size());gyro_rms=std::sqrt(gyro_rms/samples.size());duration=samples.back().time_s-samples.front().time_s;
+        for(const auto& s:samples){acceleration_variance+=(vector(s.acceleration)-acceleration).cwiseAbs2();gyro_variance+=(vector(s.angular_velocity)-gyro).cwiseAbs2();}
+        acceleration_variance/=static_cast<double>(samples.size());gyro_variance/=static_cast<double>(samples.size());
+        acceleration_rms=std::sqrt(acceleration_variance.sum());gyro_rms=std::sqrt(gyro_variance.sum());duration=samples.back().time_s-samples.front().time_s;
+        if(!blocks_enabled)return;
+        struct Block {Vec acc{Vec::Zero()},gyr{Vec::Zero()};std::size_t n{};};
+        std::array<Block,5> blocks;const double left=samples.back().time_s-.75;
+        Vec recent_acc=Vec::Zero(),recent_gyr=Vec::Zero();std::size_t recent_count=0;
+        for(const auto& s:samples)if(s.time_s>=left){
+            auto& b=blocks[std::min<std::size_t>(4,static_cast<std::size_t>(std::max(0.0,(s.time_s-left)/.15)))];
+            b.acc+=vector(s.acceleration);b.gyr+=vector(s.angular_velocity);++b.n;
+            recent_acc+=vector(s.acceleration);recent_gyr+=vector(s.angular_velocity);++recent_count;
+        }
+        if(recent_count){recent_acc/=static_cast<double>(recent_count);recent_gyr/=static_cast<double>(recent_count);blocks_ready=true;
+            for(const auto& b:blocks){if(b.n<3){blocks_ready=false;continue;}
+                block_acceleration_change=std::max(block_acceleration_change,(b.acc/static_cast<double>(b.n)-recent_acc).norm());
+                block_gyro_change=std::max(block_gyro_change,(b.gyr/static_cast<double>(b.n)-recent_gyr).norm());
+            }
+        }
     }
     bool stable(double scale) const{return duration>=.5-1e-8 && acceleration.norm()*scale>=7 && acceleration.norm()*scale<=12.5 && gyro.norm()<.15 && acceleration_rms*scale<.35 && gyro_rms<.025;}
+    bool stable_with_vibration(double scale) const{
+        // Broadband motor vibration may raise raw RMS without changing the mean.
+        // Require five independently populated, consistent blocks, not smoothing
+        // away all evidence or simply raising the original RMS threshold.
+        return duration>=.70 && blocks_ready && acceleration.norm()*scale>=8.5 && acceleration.norm()*scale<=11.5 &&
+            gyro.norm()<.03 && acceleration_rms*scale<.8 && gyro_rms<.05 &&
+            block_acceleration_change*scale<.20 && block_gyro_change<.01;
+    }
 };
 }
 
@@ -69,11 +98,13 @@ public:
         filter.change_x(s);initial_anchor=s;configure_covariances();
     }
     std::optional<double> propagation_time_s() const{return initialized?std::optional<double>(filter_time):std::nullopt;}
-    LioEngineStatistics statistics() const{return counts;}
+    LioEngineStatistics statistics() const{auto s=counts;s.velocity_norm_m_s=filter.get_x().vel.norm();return s;}
     models::LocalizationStatus restart_initialization(){
         auto anchor=last_accepted.value_or(initial_anchor);anchor.vel.setZero();anchor.omg.setZero();anchor.acc.setZero();anchor.bg.setZero();anchor.ba.setZero();
         filter.change_x(anchor);configure_covariances();initialized=fatal=false;fatal_reason.clear();first_rejection.reset();imu_window=ImuWindow{};
         filter_time=cov_time=last_imu_update=0;history.clear();recovery_streak=0;recovering=last_accepted.has_value();
+        robustifier=lio_detail::ImuRobustifier{};imu_r_scales={1,1,1,1,1,1};rest_anchor.reset();rest_window.clear();rest_gate="warming";
+        if(last_accepted)local_map_seed_time=-std::numeric_limits<double>::infinity();
         if(!last_accepted){tree.reset();local_points.clear();map_cells.clear();}
         return diagnostic(models::LocalizationState::initializing,"automatic IMU reinitialization; keep stationary; retained world map requires Point-LIO match");
     }
@@ -87,9 +118,16 @@ public:
             if(i && (m.time_s<=scan.imu[i-1].time_s || m.time_s-scan.imu[i-1].time_s>config.maximum_imu_gap_s))return reject("IMU gap/out-of-order");
         }
         if(scan.imu.front().time_s>scan.begin_s+1e-8 || scan.imu.back().time_s<scan.end_s-1e-8)return reject("incomplete temporal coverage");
-        imu_window.add(scan,config.initialization_samples);
+        // A large startup sample target must not turn into a long, stale noise
+        // window (and repeated CPU work) during normal operation.
+        if(!initialized || config.robust_imu_enabled || config.stationary_update_enabled)
+            imu_window.add(scan,initialized?0:config.initialization_samples,
+                config.robust_imu_enabled || config.stationary_update_enabled);
         if(!initialized){
-            if(imu_window.samples.size()>=config.initialization_samples && imu_window.stable(9.81/config.imu_acceleration_norm)){
+            const bool quiet_start=imu_window.stable(9.81/config.imu_acceleration_norm);
+            const bool vibration_start=config.robust_imu_enabled && imu_window.stable_with_vibration(9.81/config.imu_acceleration_norm);
+            if(imu_window.samples.size()>=config.initialization_samples &&
+               (quiet_start || vibration_start)){
                 auto s=filter.get_x();s.bg=imu_window.gyro;s.omg.setZero();s.vel.setZero();s.ba.setZero();
                 // Keep Mount as initial pose; initialize gravity in that world
                 // frame. Normalize measurements by explicit acc_norm, as upstream.
@@ -100,7 +138,9 @@ public:
             std::ostringstream r;r.imbue(std::locale::classic());r<<std::fixed<<std::setprecision(3)
                 <<(initialized?"IMU initialized; accumulating Point-LIO local map":"IMU initialization; keep stationary")
                 <<"; samples="<<imu_window.samples.size()<<"/"<<config.initialization_samples<<"; duration_s="<<imu_window.duration
-                <<"/0.5; accel_norm="<<imu_window.acceleration.norm()<<"; accel_rms="<<imu_window.acceleration_rms<<"/0.35; gyro_norm="<<imu_window.gyro.norm()<<"/0.15; gyro_rms="<<imu_window.gyro_rms<<"/0.025";
+                <<"/0.5; accel_norm="<<imu_window.acceleration.norm()<<"; accel_rms="<<imu_window.acceleration_rms<<"/0.35; gyro_norm="<<imu_window.gyro.norm()<<"/0.15; gyro_rms="<<imu_window.gyro_rms<<"/0.025"
+                <<"; block_accel_change="<<imu_window.block_acceleration_change<<"; block_gyro_change="<<imu_window.block_gyro_change
+                <<"; startup_mode="<<(initialized?(quiet_start?"quiet":"vibration-qualified"):"waiting");
             return {diagnostic(models::LocalizationState::initializing,r.str()),std::nullopt};
         }
         if(scan.end_s<=filter_time || scan.imu.front().time_s>filter_time+1e-8 || scan.end_s-filter_time>2){
@@ -124,9 +164,11 @@ public:
         }else for(auto i:choices)selected[i]=true;
         if(choices.size()<100)return reject("insufficient scan geometry");
         const State saved_state=filter.get_x();auto saved_cov=filter.get_P();const auto saved_history=history;
+        const auto saved_robustifier=robustifier;const auto saved_r_scales=imu_r_scales;
         const double saved_time=filter_time,saved_cov_time=cov_time,saved_imu_time=last_imu_update;
         models::PointCloudFrame world=scan.cloud;world.points.clear();world.points.reserve(order.size());
-        Points additions;matches=examined=0;residual_sum=0;normal_information.setZero();pose_information.setZero();
+        Points additions;matches=examined=0;residual_sum=0;normal_information.setZero();pose_information.setZero();rest_gradient.setZero();
+        if(rest_anchor)rest_rotation=rest_anchor->rot.normalized().toRotationMatrix();
         std::size_t imu_cursor=0;while(imu_cursor<scan.imu.size() && scan.imu[imu_cursor].time_s<=last_imu_update+1e-10)++imu_cursor;
         for(std::size_t begin=0;begin<order.size();){
             std::size_t end=begin+1;const double t=times[order[begin]];
@@ -155,6 +197,7 @@ public:
         advance(scan.end_s,scan.imu,imu_cursor);remember();prune_history();
         if(!finite_state()){
             auto s=saved_state;filter.change_x(s);filter.change_P(saved_cov);history=saved_history;filter_time=saved_time;cov_time=saved_cov_time;last_imu_update=saved_imu_time;
+            robustifier=saved_robustifier;imu_r_scales=saved_r_scales;
             return reject("non-finite Point-LIO state",true);
         }
         if(!tree){
@@ -176,9 +219,11 @@ public:
         else if(filter.get_P().block<3,3>(0,0).trace()>10)failure="position covariance above limit";
         else if((corrected.pos-reference.pos).norm()>config.maximum_translation_step_m || angle_deg(reference,corrected)>config.maximum_rotation_step_deg)failure="pose jump rejected";
         if(!failure.empty()){
+            rest_window.clear();rest_anchor.reset();
             // Discard all tentative LiDAR corrections from this scan. Continue
             // only IMU-as-output propagation; an invalid pose never reaches map.
             auto s=saved_state;filter.change_x(s);filter.change_P(saved_cov);history=saved_history;filter_time=saved_time;cov_time=saved_cov_time;last_imu_update=saved_imu_time;
+            robustifier=saved_robustifier;imu_r_scales=saved_r_scales;
             std::size_t cursor=0;while(cursor<scan.imu.size() && scan.imu[cursor].time_s<=last_imu_update+1e-10)++cursor;
             advance(scan.end_s,scan.imu,cursor);remember();prune_history();
             std::ostringstream r;r.imbue(std::locale::classic());r<<failure<<"; matches="<<matches<<"/"<<examined<<"; ratio="<<ratio<<"; residual_m="<<residual<<"; normal_eigen_min="<<normal_min<<"; pose_eigen_min="<<pose_min;
@@ -187,13 +232,89 @@ public:
         // A rejected established pose needs several consistent scans against an
         // unchanged trusted map, not one passing frame that reseeds the world.
         if(recovering && ++recovery_streak<3)return {diagnostic(models::LocalizationState::degraded,"Point-LIO recovery confirmation "+std::to_string(recovery_streak)+"/3; map held"),std::nullopt};
-        recovering=false;recovery_streak=0;first_rejection.reset();last_accepted=corrected;refresh_map(additions,false);
+        recovering=false;recovery_streak=0;first_rejection.reset();
+        bool stationary=false;
+        if(config.stationary_update_enabled){
+            const Eigen::Matrix<double,6,1> projected=poses.eigenvectors().transpose()*rest_gradient;
+            const Eigen::Matrix<double,6,1> rest_motion=poses.eigenvectors()*projected.cwiseQuotient(poses.eigenvalues());
+            stationary=update_stationary(corrected,rest_motion);
+        }
+        last_accepted=filter.get_x();
+        // Do not feed stationary registration noise back into its own reference.
+        // Persistent RoomMap still receives every accepted full-resolution cloud.
+        if(!stationary && needs_local_map_update(corrected))refresh_map(additions,false);
         const Vec origin=corrected.pos+corrected.rot.normalized()*corrected.offset_T_L_I;
         world.sensor_origin_world_m=std::array<float,3>{static_cast<float>(origin.x()),static_cast<float>(origin.y()),static_cast<float>(origin.z())};
         auto status=diagnostic(models::LocalizationState::tracking,"Point-LIO LiDAR-corrected pose; IMU-as-output; point-time updates");status.pose_valid=true;
+        status.reason+="; imu_downweighted_axes="+std::to_string(counts.downweighted_imu_axes)+
+            "; zupt_updates="+std::to_string(counts.stationary_updates)+"; rest_confirmed="+(stationary?"1":"0")+
+            "; rest_gate="+rest_gate+"; rest_lidar_m="+std::to_string(rest_lidar_m)+"; rest_imu_error="+std::to_string(rest_imu_error);
         return {std::move(status),std::move(world)};
     }
 private:
+    bool needs_local_map_update(const State& pose) const {
+        if(!config.stationary_update_enabled || current_time-local_map_seed_time<1.5)return true;
+        // A cheap insertion/keyframe gate, not another registration. Keep the
+        // warmed odometry reference stable under sub-voxel pose jitter. RoomMap
+        // still receives ALL accepted points, independently of this local cache.
+        return (pose.pos-last_insertion_position).norm()>=.05 ||
+            Eigen::AngleAxisd(last_insertion_rotation.transpose()*pose.rot.normalized().toRotationMatrix()).angle()>=.5*pi/180;
+    }
+    bool update_stationary(const State& corrected,const Eigen::Matrix<double,6,1>& lidar_motion){
+        if(!config.stationary_update_enabled){rest_window.clear();rest_anchor.reset();return false;}
+        if(!rest_anchor){rest_anchor=corrected;rest_window.clear();return false;}
+        const double scale=9.81/config.imu_acceleration_norm;
+        rest_lidar_m=lidar_motion.head<3>().norm();
+        rest_imu_error=(imu_window.acceleration*scale-corrected.acc-corrected.ba).norm();
+        const bool quiet=imu_window.blocks_ready && imu_window.duration>=.70 &&
+            imu_window.acceleration_rms*scale<.8 && imu_window.gyro_rms<.05 &&
+            imu_window.block_acceleration_change*scale<.20 && imu_window.block_gyro_change<.01 &&
+            (imu_window.gyro-corrected.bg).norm()<.03 &&
+            (imu_window.acceleration*scale-corrected.acc-corrected.ba).norm()<.25;
+        // One noisy scan must not erase a second of valid rest evidence. Reuse
+        // a bounded window of the EXISTING plane residuals and their Jacobians.
+        // Its slope, not just low IMU variance, rejects constant-velocity motion.
+        if(!lidar_motion.allFinite() || lidar_motion.head<3>().norm()>.10 ||
+           lidar_motion.tail<3>().norm()>2*pi/180 || (corrected.pos-rest_anchor->pos).norm()>.15 ||
+           angle_deg(*rest_anchor,corrected)>3 || corrected.vel.norm()>.3 ||
+           (!rest_window.empty() && current_time-rest_window.back().t>.2)){
+            rest_gate="motion";rest_anchor=corrected;rest_window.clear();return false;
+        }
+        rest_window.push_back({current_time,lidar_motion});
+        while(rest_window.size()>128 || (rest_window.size()>1 && current_time-rest_window.front().t>1.2))rest_window.pop_front();
+        rest_gate="warming";
+        if(rest_window.size()<8 || current_time-rest_window.front().t<1.0)return false;
+        Eigen::Matrix<double,6,1> mean=Eigen::Matrix<double,6,1>::Zero(),slope=mean;
+        double mean_t=0,denominator=0,scatter=0;
+        for(const auto& sample:rest_window){mean+=sample.motion;mean_t+=sample.t;}
+        mean/=static_cast<double>(rest_window.size());mean_t/=static_cast<double>(rest_window.size());
+        for(const auto& sample:rest_window){const double dt=sample.t-mean_t;denominator+=dt*dt;slope+=dt*(sample.motion-mean);scatter+=(sample.motion.head<3>()-mean.head<3>()).squaredNorm();}
+        if(denominator<1e-6)return false;slope/=denominator;
+        const bool static_lidar=slope.head<3>().norm()<.015 && slope.tail<3>().norm()<.02 &&
+            std::sqrt(scatter/rest_window.size())<.025 && mean.head<3>().norm()<.04 &&
+            residual<std::min(.05,config.maximum_residual_m) &&
+            static_cast<double>(matches)/std::max<std::size_t>(1,examined)>=std::max(.25,config.minimum_match_ratio);
+        if(!quiet || !static_lidar || corrected.vel.norm()>.12){rest_gate=!quiet?"imu":!static_lidar?"lidar":"velocity";return false;}
+        // Schmidt-style velocity measurement in this same EKF. Pose and fixed
+        // extrinsic gain rows are zero: do NOT overwrite/lock position, rotate
+        // the map, or make already-produced point-time rays inconsistent.
+        auto prior=filter.get_P().eval();prior=(.5*(prior+prior.transpose())).eval();
+        const Mat innovation=(prior.block<3,3>(12,12)+Mat::Identity()*.0004).eval();
+        const auto factor=innovation.ldlt();
+        rest_gate="covariance";if(factor.info()!=Eigen::Success || !factor.isPositive())return false;
+        if(corrected.vel.dot(factor.solve(corrected.vel))>16.3)return false;
+        Eigen::Matrix<double,30,3> gain=prior.middleCols<3>(12)*factor.solve(Mat::Identity());
+        gain.topRows<12>().setZero();
+        const Eigen::Matrix<double,30,1> delta=-gain*corrected.vel;
+        // Joseph covariance, evaluated as a rank-three update (not another
+        // estimator or a dense 30x30 inverse). No SO3 state is changed here.
+        auto posterior=(prior-gain*prior.middleRows<3>(12)-prior.middleCols<3>(12)*gain.transpose()+gain*innovation*gain.transpose()).eval();
+        posterior=(.5*(posterior+posterior.transpose())).eval();
+        if(!delta.allFinite() || !posterior.allFinite() || posterior.diagonal().minCoeff()<-1e-10)return false;
+        auto updated=corrected;updated.boxplus(delta);
+        filter.change_x(updated);filter.change_P(posterior);remember();
+        ++counts.stationary_updates;rest_gate="applied";return true;
+    }
     void configure_covariances(){
         noise.setZero();auto q=lio_detail::imu_process_noise_diagonal(config);
         for(int i=0;i<30;++i)noise(i,i)=q[static_cast<std::size_t>(i)];
@@ -210,7 +331,14 @@ private:
             const auto& m=imu[cursor++];if(m.time_s<=last_imu_update+1e-10)continue;
             predict_to(m.time_s);double dt=m.time_s-cov_time;
             if(dt>0){filter.predict(dt,noise,input,false,true);cov_time=m.time_s;}
-            latest_imu=m;filter.update_iterated_dyn_share_IMU();++counts.imu_updates;last_imu_update=m.time_s;remember();
+            latest_imu=m;
+            if(config.robust_imu_enabled){
+                lio_detail::ImuRobustifier::Channels values{};
+                for(std::size_t i=0;i<3;++i){values[i]=m.angular_velocity[i];values[i+3]=m.acceleration[i]*9.81/config.imu_acceleration_norm;}
+                imu_r_scales=robustifier.observe(values);
+                for(double scale:imu_r_scales)if(scale>1)++counts.downweighted_imu_axes;
+            }
+            filter.update_iterated_dyn_share_IMU();++counts.imu_updates;last_imu_update=m.time_s;remember();
         }
         predict_to(time);
     }
@@ -232,6 +360,11 @@ private:
         d.z_IMU.tail<3>()=vector(a.latest_imu.acceleration)*9.81/a.config.imu_acceleration_norm-s.acc-s.ba;
         for(int i=0;i<6;++i){const bool gyro=i<3;const auto axis=static_cast<std::size_t>(i%3);
             d.R_IMU[i]=gyro?a.config.imu_gyroscope_covariance:a.config.imu_acceleration_covariance;
+            if(a.config.robust_imu_enabled){
+                const double scale=9.81/a.config.imu_acceleration_norm;
+                const double observed=gyro?a.imu_window.gyro_variance[static_cast<int>(axis)]:a.imu_window.acceleration_variance[static_cast<int>(axis)]*scale*scale;
+                d.R_IMU[i]=std::max(d.R_IMU[i],std::min(gyro?.25:4.0,observed))*a.imu_r_scales[static_cast<std::size_t>(i)];
+            }
             const double value=gyro?a.latest_imu.angular_velocity[axis]:a.latest_imu.acceleration[axis];
             const double limit=gyro?a.config.imu_gyroscope_saturation:a.config.imu_acceleration_saturation;
             d.satu_check[i]=std::abs(value)>=.99*limit;if(d.satu_check[i]){d.z_IMU[i]=0;++a.counts.saturated_imu_axes;}
@@ -257,9 +390,16 @@ private:
         d.M_Noise=config.lidar_measurement_covariance;d.h_x=Eigen::MatrixXd::Zero(1,12);d.h_x.block<1,3>(0,0)=normal.transpose();d.h_x.block<1,3>(0,3)=a.transpose();
         d.z.resize(1);d.z[0]=-error;++matches;residual_sum+=std::abs(error);normal_information+=normal*normal.transpose();
         const Eigen::Matrix<double,1,6> row=d.h_x.leftCols<6>();pose_information+=row.transpose()*row;
+        if(config.stationary_update_enabled && rest_anchor){
+            // Reuse this correspondence/plane: no second KD search or ICP.
+            const Vec anchored=rest_anchor->pos+rest_rotation*body;
+            rest_gradient+=row.transpose()*normal.dot(anchored-center);
+        }
     }
     void refresh_map(const Points& points,bool bootstrap){
         const auto& s=filter.get_x();const Vec origin=s.pos+s.rot.normalized()*s.offset_T_L_I;Points additions;
+        last_insertion_position=s.pos;last_insertion_rotation=s.rot.normalized().toRotationMatrix();
+        if(bootstrap)local_map_seed_time=current_time;
         for(const auto& p:points){const Vec v=xyz(p);const auto key=cell(v,config.map_voxel_m);
             if(!v.allFinite() || (v-origin).norm()>config.local_radius_m || map_cells.count(key))continue;
             if(tree){Points nearest;std::vector<float> distance;tree->Nearest_Search(p,1,nearest,distance);if(!distance.empty() && distance[0]<.25*config.map_voxel_m*config.map_voxel_m)continue;}
@@ -279,6 +419,7 @@ private:
         d.position_m={origin.x(),origin.y(),origin.z()};d.orientation_xyzw={q.x(),q.y(),q.z(),q.w()};d.match_ratio=examined?static_cast<double>(matches)/examined:0;d.residual_m=residual;d.position_variance=filter.get_P().block<3,3>(0,0).trace();return d;
     }
     LioOutput reject(std::string reason,bool lost=false){
+        rest_window.clear();
         ++rejected;recovery_streak=0;recovering=last_accepted.has_value();
         if(initialized && std::isfinite(current_time)){if(!first_rejection)first_rejection=current_time;if(current_time-*first_rejection>=2)fatal=true;}
         if(lost || fatal){fatal=true;fatal_reason=reason;}
@@ -286,11 +427,18 @@ private:
     }
     LioConfig config;Filter filter;Filter::processnoisecovariance noise;point_lio_native::input_ikfom input;
     State initial_anchor;std::optional<State> last_accepted;ImuWindow imu_window;TimedImu latest_imu;
+    lio_detail::ImuRobustifier robustifier;std::array<double,6> imu_r_scales{1,1,1,1,1,1};
+    struct RestSample {double t;Eigen::Matrix<double,6,1> motion;};
+    std::optional<State> rest_anchor;std::deque<RestSample> rest_window;
+    std::string rest_gate{"warming"};double rest_lidar_m{},rest_imu_error{};
+    Eigen::Matrix<double,6,1> rest_gradient{Eigen::Matrix<double,6,1>::Zero()};
     std::unique_ptr<Tree> tree;Points local_points;std::unordered_set<Cell,Hash> map_cells;Vec last_map_center{Vec::Zero()},measurement_point{Vec::Zero()};
     std::deque<Knot> history;LioEngineStatistics counts;bool initialized{},fatal{},recovering{};unsigned recovery_streak{};
     double filter_time{},cov_time{},last_imu_update{},current_time{},residual{},residual_sum{};
     std::size_t matches{},examined{};std::uint64_t rejected{};std::optional<double> first_rejection;std::string fatal_reason;
     Mat normal_information{Mat::Zero()};Eigen::Matrix<double,6,6> pose_information{Eigen::Matrix<double,6,6>::Zero()};
+    Mat rest_rotation{Mat::Identity()};
+    Vec last_insertion_position{Vec::Zero()};Mat last_insertion_rotation{Mat::Identity()};double local_map_seed_time{};
     static thread_local Impl* active;
 };
 thread_local LioEngine::Impl* LioEngine::Impl::active=nullptr;
