@@ -230,6 +230,12 @@ AppConfig parse_device_config_text(const std::string& contents) {
                     "Unitree baud rate",
                     std::numeric_limits<std::uint32_t>::max()));
             unitree_baud_rate_seen = true;
+        } else if (key == "initializeonconnect") {
+            config.unitree_initialize_on_connect =
+                parse_zero_one_switch(value, "InitializeOnConnect(unitree-l2)");
+        } else if (key == "workmode") {
+            config.unitree_work_mode = static_cast<std::uint32_t>(
+                parse_unsigned(value, "Unitree work mode", 31));
         } else if (key == "localip") {
             if (value.empty()) {
                 throw std::invalid_argument("LocalIP cannot be empty");
@@ -508,13 +514,25 @@ AppConfig parse_device_config_text(const std::string& contents) {
                 "Unitree L2 requires ConnectionMode in DeviceConfig.txt");
         }
         const auto serial_enabled =
+            config.unitree_initialize_on_connect ||
             config.unitree_connection_mode != devices::UnitreeConnectionMode::udp;
         const auto udp_enabled =
             config.unitree_connection_mode != devices::UnitreeConnectionMode::serial;
         if (serial_enabled &&
             (!unitree_serial_port_seen || !unitree_baud_rate_seen)) {
             throw std::invalid_argument(
-                "Unitree L2 serial/auto mode requires SerialPort and BaudRate");
+                "Unitree L2 serial/auto mode or UART initialization requires "
+                "SerialPort and BaudRate");
+        }
+        if ((config.unitree_work_mode & 8U) == 0) {
+            throw std::invalid_argument(
+                "Unitree WorkMode must select UART (bit 3 = 1)");
+        }
+        if (config.unitree_initialize_on_connect &&
+            (config.unitree_work_mode & 18U) != 0) {
+            throw std::invalid_argument(
+                "Unitree initialization requires 3D and self-start "
+                "(WorkMode bits 1 and 4 = 0)");
         }
         if (udp_enabled &&
             (!sensor_ip_seen || !sensor_port_seen || !unitree_local_ip_seen ||
@@ -634,6 +652,8 @@ devices::LidarConfig AppConfig::lidar_config() const {
             unitree_local_port.value_or(6201),
             unitree_serial_port,
             unitree_baud_rate,
+            unitree_initialize_on_connect,
+            unitree_work_mode,
         };
     }
     return config;

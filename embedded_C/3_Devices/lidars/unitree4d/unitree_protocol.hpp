@@ -19,6 +19,11 @@ inline constexpr std::uint32_t point_packet_type = 102;
 inline constexpr std::uint32_t point_2d_packet_type = 103;
 inline constexpr std::uint32_t imu_packet_type = 104;
 inline constexpr std::uint32_t version_packet_type = 105;
+inline constexpr std::uint32_t acknowledgement_packet_type = 101;
+// SDK2 v2.0.10 setLidarWorkMode() emits 2002; type 107 is readback.
+inline constexpr std::uint32_t work_mode_packet_type = 2002;
+inline constexpr std::uint32_t work_mode_readback_packet_type = 107;
+inline constexpr std::uint32_t user_command_packet_type = 100;
 inline constexpr std::size_t points_per_packet = 300;
 inline constexpr std::size_t default_cloud_scan_count = 18;
 
@@ -33,6 +38,8 @@ std::uint32_t packet_type(const std::vector<std::uint8_t>& frame);
 std::optional<std::uint64_t> packet_timestamp_ns(
     const std::vector<std::uint8_t>& frame);
 void validate_frame(const std::vector<std::uint8_t>& frame);
+std::vector<std::uint8_t> encode_work_mode(std::uint32_t mode);
+std::vector<std::uint8_t> encode_restart();
 
 /// Decodes one 3D range packet; non-point packet types are handled elsewhere.
 std::vector<models::PointXYZIRT> decode_point_packet(

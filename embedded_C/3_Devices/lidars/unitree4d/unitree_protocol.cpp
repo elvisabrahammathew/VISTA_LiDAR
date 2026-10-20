@@ -13,6 +13,27 @@ namespace vista::devices::unitree_protocol {
 namespace {
 
 constexpr std::uint8_t header_magic[]{0x55, 0xAA, 0x05, 0x0A};
+
+void write_u32_le(std::vector<std::uint8_t>& bytes, std::size_t offset,
+                  std::uint32_t value) {
+    for (unsigned i = 0; i < 4; ++i)
+        bytes[offset + i] = static_cast<std::uint8_t>(value >> (8U * i));
+}
+
+std::vector<std::uint8_t> encode_command(
+    std::uint32_t type, const std::vector<std::uint32_t>& payload) {
+    std::vector<std::uint8_t> bytes(frame_header_size + payload.size() * 4 +
+                                  frame_tail_size, 0);
+    std::copy(std::begin(header_magic), std::end(header_magic), bytes.begin());
+    write_u32_le(bytes, 4, type);
+    write_u32_le(bytes, 8, static_cast<std::uint32_t>(bytes.size()));
+    for (std::size_t i = 0; i < payload.size(); ++i)
+        write_u32_le(bytes, frame_header_size + 4 * i, payload[i]);
+    write_u32_le(bytes, bytes.size() - frame_tail_size,
+                 crc32(bytes.data() + frame_header_size, payload.size() * 4));
+    bytes.back() = 0xFF;
+    return bytes;
+}
 constexpr std::size_t data_info_offset = frame_header_size;
 constexpr std::size_t timestamp_seconds_offset = data_info_offset + 8;
 constexpr std::size_t timestamp_nanoseconds_offset = data_info_offset + 12;
@@ -66,6 +87,19 @@ std::uint64_t seconds_to_nanoseconds(double seconds) {
 }
 
 }  // namespace
+
+std::vector<std::uint8_t> encode_work_mode(std::uint32_t mode) {
+    if (mode > 31 || (mode & 8U) == 0)
+        throw std::invalid_argument("Unitree WorkMode requires UART and no reserved bits");
+    if ((mode & 18U) != 0)
+        throw std::invalid_argument("Unitree acquisition requires 3D and self-start (bits 1 and 4 = 0)");
+    return encode_command(work_mode_packet_type, {mode});
+}
+
+std::vector<std::uint8_t> encode_restart() {
+    // Matches SDK2 resetLidar(): USER_CMD_RESET_TYPE=1, cmd_value=1.
+    return encode_command(user_command_packet_type, {1, 1});
+}
 
 std::uint32_t read_u32_le(
     const std::vector<std::uint8_t>& bytes,

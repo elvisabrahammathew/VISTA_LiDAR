@@ -12,6 +12,21 @@
 
 namespace vista::devices {
 
+/// Unitree-only transport seam; also permits hardware-free startup tests.
+class IUnitreeTransport {
+public:
+    virtual ~IUnitreeTransport() = default;
+    virtual std::size_t read(std::uint8_t* output, std::size_t capacity) = 0;
+    virtual void write(const std::vector<std::uint8_t>& bytes) = 0;
+};
+
+struct UnitreeConnectionHooks {
+    std::function<std::unique_ptr<IUnitreeTransport>(
+        UnitreeConnectionMode, const UnitreeL2Config&,
+        std::chrono::milliseconds)> open;
+    std::function<void(std::chrono::milliseconds)> wait;
+};
+
 /// Reads validated Unitree wire frames from serial/USB or Ethernet/UDP.
 class UnitreeL2Reader final : public ILidarReader {
 public:
@@ -23,6 +38,7 @@ public:
     void keep_for_first_read(RawPacket packet);
 
 private:
+    friend struct UnitreeL2;
     std::unique_ptr<Impl> implementation_;
     std::optional<RawPacket> pending_packet_;
 };
@@ -47,6 +63,10 @@ struct UnitreeL2 {
     connect(
         const UnitreeL2Config& config,
         std::chrono::milliseconds connection_timeout);
+    static std::pair<std::unique_ptr<ILidarReader>, std::unique_ptr<ILidarDecoder>>
+    connect(const UnitreeL2Config& config,
+            std::chrono::milliseconds connection_timeout,
+            const UnitreeConnectionHooks& hooks);
 };
 
 }  // namespace vista::devices

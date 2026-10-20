@@ -247,6 +247,42 @@ BaudRate(unitree-l2): 4000000
     VISTA_CHECK(lidar.unitree_l2.has_value());
     VISTA_CHECK(lidar.unitree_l2->sensor_port == 6101);
     VISTA_CHECK(lidar.unitree_l2->local_port == 6201);
+    VISTA_CHECK(lidar.unitree_l2->initialize_on_connect);
+    VISTA_CHECK(lidar.unitree_l2->work_mode == 9);
+    VISTA_CHECK(lidar.unitree_l2->initialization_state != nullptr);
+}
+
+VISTA_TEST(config_unitree_init_settings_and_passive_replay) {
+    const auto config = vista::parse_device_config_text(
+        "Lidar: unitree-l2\nConnectionMode: serial\nSerialPort: COM6\n"
+        "BaudRate: 4000000\nInitializeOnConnect(unitree-l2): 0\nWorkMode(unitree-l2): 8\n");
+    VISTA_CHECK(!config.lidar_config().unitree_l2->initialize_on_connect);
+    VISTA_CHECK(config.lidar_config().unitree_l2->work_mode == 8);
+}
+
+VISTA_TEST(config_unitree_rejects_non_uart_reserved_and_invalid_init_values) {
+    const std::string base = "Lidar: unitree-l2\nConnectionMode: serial\n"
+                             "SerialPort: COM6\nBaudRate: 4000000\n";
+    for (const auto* value : {"0", "1", "11", "25", "32", "41", "-1", "invalid"})
+        VISTA_CHECK_THROWS(vista::parse_device_config_text(base + "WorkMode: " + value + "\n"));
+    VISTA_CHECK_THROWS(vista::parse_device_config_text(base + "InitializeOnConnect: 2\n"));
+}
+
+VISTA_TEST(config_unitree_udp_init_requires_uart_destination_but_passive_udp_does_not) {
+    const std::string base = "Lidar: unitree-l2\nConnectionMode: udp\n"
+        "SensorIP: 192.168.1.62\nSensorPort: 6101\nLocalIP: 192.168.1.2\nLocalPort: 6201\n";
+    VISTA_CHECK_THROWS(vista::parse_device_config_text(base));
+    const auto passive = vista::parse_device_config_text(base + "InitializeOnConnect: 0\n");
+    VISTA_CHECK(!passive.lidar_config().unitree_l2->initialize_on_connect);
+    const auto active = vista::parse_device_config_text(base + "SerialPort: COM6\nBaudRate: 4000000\n");
+    VISTA_CHECK(active.lidar_config().unitree_l2->initialize_on_connect);
+}
+
+VISTA_TEST(config_unitree_init_does_not_change_other_lidar_sources) {
+    const auto config = vista::parse_device_config_text(
+        std::string(quanergy_config) + "InitializeOnConnect(unitree-l2): 1\nWorkMode(unitree-l2): 9\n");
+    VISTA_CHECK(!config.lidar_config().unitree_l2.has_value());
+    VISTA_CHECK(config.lidar_config().lidar_type == vista::devices::LidarType::quanergy_m8);
 }
 
 VISTA_TEST(config_file_parses_mounting_ground_and_imu_settings) {

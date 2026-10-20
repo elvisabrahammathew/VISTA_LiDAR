@@ -8,8 +8,13 @@ SensorPort(quanergy-m8, unitree-l2): 4141
 ConnectionMode(unitree-l2): auto
 LocalIP(unitree-l2): 192.168.1.2
 LocalPort(unitree-l2): 6201
-SerialPort(unitree-l2): COM6
+SerialPort(unitree-l2): COM3
 BaudRate(unitree-l2): 4000000
+# Hardware init once per application session; set 0 for passive RAW/COM replay.
+InitializeOnConnect(unitree-l2): 1
+# WorkMode bits: 0 NEGA=1/Normal=0; 1 2D=1/3D=0; 2 IMU off=1/on=0;
+# 3 UART=1/ENET=0 (UART required here); 4 standby=1/self-start=0; 5..31 reserved=0.
+WorkMode(unitree-l2): 9
 UsbSerial(realsensel515): 123456789012
 DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480

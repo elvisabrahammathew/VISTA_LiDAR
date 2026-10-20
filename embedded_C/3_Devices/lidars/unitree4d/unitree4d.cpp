@@ -7,6 +7,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "2_Transport/peripheral/serial/serial.hpp"
 #include "2_Transport/peripheral/udp/udp.hpp"
@@ -19,18 +20,15 @@ namespace {
 constexpr std::array<std::uint8_t, 4> frame_magic{0x55, 0xAA, 0x05, 0x0A};
 constexpr std::size_t read_buffer_size = 65'536;
 
-class IUnitreeTransport {
-public:
-    virtual ~IUnitreeTransport() = default;
-    virtual std::size_t read(std::uint8_t* output, std::size_t capacity) = 0;
-};
-
 class SerialUnitreeTransport final : public IUnitreeTransport {
 public:
     explicit SerialUnitreeTransport(transport::SerialConnection connection)
         : connection_(std::move(connection)) {}
     std::size_t read(std::uint8_t* output, std::size_t capacity) override {
         return connection_.read_some(output, capacity);
+    }
+    void write(const std::vector<std::uint8_t>& bytes) override {
+        connection_.write_all(bytes.data(), bytes.size());
     }
 
 private:
@@ -44,12 +42,28 @@ public:
     std::size_t read(std::uint8_t* output, std::size_t capacity) override {
         return connection_.receive(output, capacity);
     }
+    void write(const std::vector<std::uint8_t>& bytes) override {
+        connection_.send(bytes.data(), bytes.size());
+    }
 
 private:
     transport::UdpConnection connection_;
 };
 
 }  // namespace
+
+struct UnitreeL2InitState {
+    std::mutex mutex;
+    bool mode_accepted{};
+    bool restart_attempted{};
+    bool boot_wait_complete{};
+    std::uint32_t applied_mode{};
+    UnitreeConnectionMode control_mode{UnitreeConnectionMode::serial};
+};
+
+std::shared_ptr<UnitreeL2InitState> make_unitree_l2_init_state() {
+    return std::make_shared<UnitreeL2InitState>();
+}
 
 struct UnitreeL2Reader::Impl {
     Impl(
@@ -59,7 +73,10 @@ struct UnitreeL2Reader::Impl {
           frame_timeout(frame_timeout_value) {}
 
     RawPacket read_frame() {
-        const auto deadline = std::chrono::steady_clock::now() + frame_timeout;
+        return read_frame_until(std::chrono::steady_clock::now() + frame_timeout);
+    }
+
+    RawPacket read_frame_until(std::chrono::steady_clock::time_point deadline) {
         for (;;) {
             if (std::chrono::steady_clock::now() >= deadline) {
                 throw std::runtime_error(
@@ -130,30 +147,22 @@ struct UnitreeL2Reader::Impl {
 
 namespace {
 
-std::unique_ptr<UnitreeL2Reader> make_serial_reader(
-    const UnitreeL2Config& config,
-    std::chrono::milliseconds timeout) {
-    auto connection = transport::SerialConnection::open(
-        config.serial_port, config.baud_rate, timeout);
-    return std::make_unique<UnitreeL2Reader>(
-        std::make_unique<UnitreeL2Reader::Impl>(
-            std::make_unique<SerialUnitreeTransport>(std::move(connection)),
-            timeout));
-}
-
-std::unique_ptr<UnitreeL2Reader> make_udp_reader(
-    const UnitreeL2Config& config,
-    std::chrono::milliseconds timeout) {
-    auto connection = transport::UdpConnection::connect(
-        config.local_ip,
-        config.local_port,
-        config.sensor_ip,
-        config.sensor_port,
-        timeout);
-    return std::make_unique<UnitreeL2Reader>(
-        std::make_unique<UnitreeL2Reader::Impl>(
-            std::make_unique<UdpUnitreeTransport>(std::move(connection)),
-            timeout));
+UnitreeConnectionHooks hardware_hooks() {
+    return {
+        [](UnitreeConnectionMode mode, const UnitreeL2Config& config,
+           std::chrono::milliseconds timeout) -> std::unique_ptr<IUnitreeTransport> {
+            if (mode == UnitreeConnectionMode::serial) {
+                return std::make_unique<SerialUnitreeTransport>(
+                    transport::SerialConnection::open(
+                        config.serial_port, config.baud_rate, timeout));
+            }
+            return std::make_unique<UdpUnitreeTransport>(
+                transport::UdpConnection::connect(
+                    config.local_ip, config.local_port, config.sensor_ip,
+                    config.sensor_port, timeout));
+        },
+        [](std::chrono::milliseconds delay) { std::this_thread::sleep_for(delay); },
+    };
 }
 
 std::unique_ptr<UnitreeL2Reader> probe_reader(
@@ -243,20 +252,132 @@ std::pair<std::unique_ptr<ILidarReader>, std::unique_ptr<ILidarDecoder>>
 UnitreeL2::connect(
     const UnitreeL2Config& config,
     std::chrono::milliseconds connection_timeout) {
+    return connect(config, connection_timeout, hardware_hooks());
+}
+
+std::pair<std::unique_ptr<ILidarReader>, std::unique_ptr<ILidarDecoder>>
+UnitreeL2::connect(
+    const UnitreeL2Config& config,
+    std::chrono::milliseconds connection_timeout,
+    const UnitreeConnectionHooks& hooks) {
+    if (connection_timeout.count() <= 0 || !hooks.open || !hooks.wait)
+        throw std::invalid_argument("invalid Unitree connection timeout/hooks");
+
+    const auto create = [&](UnitreeConnectionMode mode) {
+        auto transport = hooks.open(mode, config, connection_timeout);
+        if (!transport) throw std::runtime_error("Unitree transport could not be opened");
+        return std::make_unique<UnitreeL2Reader>(
+            std::make_unique<UnitreeL2Reader::Impl>(
+                std::move(transport), connection_timeout));
+    };
     std::unique_ptr<UnitreeL2Reader> reader;
-    if (config.connection_mode == UnitreeConnectionMode::serial) {
+    if (config.initialize_on_connect) {
+        const auto command = unitree_protocol::encode_work_mode(config.work_mode);
+        if (config.serial_port.empty() || config.baud_rate == 0 ||
+            !config.initialization_state)
+            throw std::invalid_argument("Unitree UART initialization requires serial configuration/session");
+        auto& state = *config.initialization_state;
+        std::lock_guard<std::mutex> lock(state.mutex);
+        if (state.mode_accepted && state.applied_mode != config.work_mode)
+            throw std::invalid_argument("Unitree WorkMode changed during an initialized session; restart the application");
+
+        const auto configure = [&](UnitreeConnectionMode mode) {
+            auto control = create(mode);
+            control->implementation_->transport->write(command);
+            const auto deadline = std::chrono::steady_clock::now() + connection_timeout;
+            for (;;) {
+                const auto packet = control->implementation_->read_frame_until(deadline);
+                const auto& bytes = packet.bytes();
+                if (unitree_protocol::packet_type(bytes) ==
+                        unitree_protocol::work_mode_readback_packet_type &&
+                    bytes.size() == 28) {
+                    if (unitree_protocol::read_u32_le(bytes, 12) != config.work_mode)
+                        throw std::runtime_error("Unitree WorkMode readback does not match requested mode");
+                    state.mode_accepted = true;
+                    state.applied_mode = config.work_mode;
+                    state.control_mode = mode;
+                    return control;
+                }
+                if (unitree_protocol::packet_type(bytes) !=
+                        unitree_protocol::acknowledgement_packet_type ||
+                    bytes.size() != 40 ||
+                    unitree_protocol::read_u32_le(bytes, 12) !=
+                        unitree_protocol::work_mode_packet_type)
+                    continue;
+                const auto status = unitree_protocol::read_u32_le(bytes, 24);
+                if (status != 1)
+                    throw std::runtime_error("Unitree rejected WorkMode; ACK status " +
+                                             std::to_string(status));
+                state.mode_accepted = true;
+                state.applied_mode = config.work_mode;
+                state.control_mode = mode;
+                return control;
+            }
+        };
+
+        if (!state.mode_accepted) {
+            if (config.connection_mode != UnitreeConnectionMode::automatic) {
+                reader = configure(config.connection_mode);
+            } else {
+                std::string serial_failure;
+                try { reader = configure(UnitreeConnectionMode::serial); }
+                catch (const std::exception& error) { serial_failure = error.what(); }
+                if (!reader) {
+                    try { reader = configure(UnitreeConnectionMode::udp); }
+                    catch (const std::exception& error) {
+                        throw std::runtime_error(
+                            "Unitree L2 initialization failed (no restart sent); serial: " +
+                            serial_failure + "; UDP: " + error.what() +
+                            ". RAW replay requires InitializeOnConnect: 0");
+                    }
+                }
+            }
+        }
+        if (!state.restart_attempted) {
+            if (!reader) reader = create(state.control_mode);
+            // Allow the mode to be persisted before reset, as in SDK2 examples.
+            hooks.wait(std::chrono::milliseconds(1'000));
+            // Even a partial/failed write must not cause an endless reset loop.
+            state.restart_attempted = true;
+            try {
+                reader->implementation_->transport->write(unitree_protocol::encode_restart());
+            } catch (const std::exception& error) {
+                throw std::runtime_error(
+                    std::string("Unitree restart write uncertain; further retries use UART only: ") +
+                    error.what());
+            }
+            std::cout << "Unitree L2 WorkMode " << config.work_mode
+                      << " acknowledged; restart sent once; switching to UART\n";
+        }
+        if (!state.boot_wait_complete) {
+            // Keep the control handle open while the short reset command drains.
+            hooks.wait(std::chrono::milliseconds(2'000));
+            state.boot_wait_complete = true;
+        }
+        reader.reset(); // Discard pre-restart bytes/ACKs and release the COM port.
+        reader = create(UnitreeConnectionMode::serial);
+        const auto deadline = std::chrono::steady_clock::now() + connection_timeout;
+        for (;;) {
+            auto first = reader->implementation_->read_frame_until(deadline);
+            if (unitree_protocol::packet_type(first.bytes()) == unitree_protocol::point_packet_type) {
+                reader->keep_for_first_read(std::move(first));
+                break;
+            }
+        }
+        std::cout << "Unitree L2 transport selected: serial/USB (UART)\n";
+    } else if (config.connection_mode == UnitreeConnectionMode::serial) {
         reader = probe_reader("serial/USB", [&] {
-            return make_serial_reader(config, connection_timeout);
+            return create(UnitreeConnectionMode::serial);
         });
     } else if (config.connection_mode == UnitreeConnectionMode::udp) {
         reader = probe_reader("Ethernet/UDP", [&] {
-            return make_udp_reader(config, connection_timeout);
+            return create(UnitreeConnectionMode::udp);
         });
     } else {
         std::string serial_failure;
         try {
             reader = probe_reader("serial/USB", [&] {
-                return make_serial_reader(config, connection_timeout);
+                return create(UnitreeConnectionMode::serial);
             });
         } catch (const std::exception& error) {
             serial_failure = error.what();
@@ -264,7 +385,7 @@ UnitreeL2::connect(
         if (!reader) {
             try {
                 reader = probe_reader("Ethernet/UDP", [&] {
-                    return make_udp_reader(config, connection_timeout);
+                    return create(UnitreeConnectionMode::udp);
                 });
             } catch (const std::exception& error) {
                 throw std::runtime_error(

@@ -461,6 +461,8 @@ LocalIP(unitree-l2): 192.168.1.2
 LocalPort(unitree-l2): 6201
 SerialPort(unitree-l2): COM3
 BaudRate(unitree-l2): 4000000
+InitializeOnConnect(unitree-l2): 1
+WorkMode(unitree-l2): 9
 UsbSerial(realsensel515): 123456789012
 DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480
@@ -510,10 +512,48 @@ Windows COM port.
 For the Unitree L2, select `Lidar: unitree-l2`, change the shared `SensorIP`
 and `SensorPort` to the L2 UDP endpoint (normally `192.168.1.62:6101`), and
 configure the PC endpoint with `LocalIP` and `LocalPort`. `ConnectionMode` can
-be `serial`, `udp`, or `auto`. Auto mode probes the configured serial port and
-then UDP; the first transport that delivers a complete frame with valid CRC is
-kept. On Linux, change `SerialPort` from the Windows example `COM3` to a path
-such as `/dev/ttyACM0`.
+be `serial`, `udp`, or `auto`. With `InitializeOnConnect: 1` (the default), this
+selects the **initial control transport**, not the final data transport. Auto
+tries serial first, then UDP. VISTA sends `WorkMode`, requires a matching
+successful ACK (or exact type-107 mode readback), waits one second for persistence, sends restart once, waits two
+seconds for boot, closes the control handle and receives 3D data over UART.
+`SerialPort` and `BaudRate` are therefore required even for UDP initialization.
+On Linux, change `SerialPort` from the Windows example `COM3` to a path such as
+`/dev/ttyACM0`. UART must be physically connected; Ethernet cannot carry UART
+data after the switch. The configured UDP local IP must belong to the host.
+
+`WorkMode: 9` selects NEGA, 3D, IMU enabled, UART and self-start at power-on:
+
+| Bit | 0 | 1 |
+| --- | --- | --- |
+| 0 | Normal / standard FOV | NEGA / expanded FOV |
+| 1 | 3D | 2D |
+| 2 | IMU enabled | IMU disabled |
+| 3 | Ethernet | UART (required by this initialization flow) |
+| 4 | Self-start | Standby |
+
+Bits 5--31 are reserved and must remain zero. Gray/display options are not
+encoded by these documented mode bits. The current acquisition flow rejects
+2D and standby initialization (bits 1 and 4 must be zero), since its decoder
+and startup probe require self-starting 3D data. The encoder follows the pinned SDK2
+v2.0.10 wire output (`setLidarWorkMode`: type 2002; `resetLidar`: type 100,
+command 1/value 1). Type 107 is handled as mode readback, not a write command.
+
+Protocol references: [Unitree SDK2 mode bits](https://github.com/unitreerobotics/unilidar_sdk2#32-configuring-work-mode)
+and the [Unitree Unilidar 2 user manual](https://oss-global-cdn.unitree.com/static/Unilidar%202%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C.pdf).
+
+Initialization state belongs to the connection configuration and survives
+worker reconnects in the same application session. After a restart has been
+attempted, retries open UART only and never repeatedly reset the LiDAR. If a
+reset write fails, its outcome is uncertain: retries still avoid another reset;
+power-cycle the sensor or restart VISTA after checking the connection if UART
+does not recover. Starting a new application session initializes it again.
+
+For **RAW replay through a virtual COM pair**, set `InitializeOnConnect: 0`.
+Replay has no hardware ACKs and must never receive setup/reset commands. With
+initialization disabled, the original passive serial/UDP/auto selection is
+preserved: the first valid frame selects the transport, without any writes or
+boot delay. Quanergy and RealSense do not execute this Unitree-only flow.
 
 Ground processing first converts sensor coordinates to the common world frame
 with `MountX/Y/Z` and `MountRoll/Pitch/YawDeg`. `FloorZ` is the floor height in
@@ -531,7 +571,9 @@ linking the Linux-only `libunilidar_sdk2.a`. The pinned
 official protocol and behavior reference. The same decoder is compiled on
 Windows x64, Linux x86-64, and Linux ARM64.
 
-Each connection attempt and inactive read is limited to five seconds. When the
+Each frame/ACK wait and inactive read is bounded by the five-second timeout.
+Hardware startup additionally includes the persistence and boot waits above;
+auto mode can try both control transports. When the
 LiDAR is unavailable, `ReconnectIntervalSeconds(Lidar)` controls how long the
 read worker waits before trying again. No extra connection check runs while
 sensor data continues to arrive.

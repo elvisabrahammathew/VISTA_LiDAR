@@ -45,6 +45,9 @@ struct DepthStreamConfig {
     std::chrono::milliseconds frame_timeout{};
 };
 
+struct UnitreeL2InitState;
+std::shared_ptr<UnitreeL2InitState> make_unitree_l2_init_state();
+
 struct UnitreeL2Config {
     UnitreeConnectionMode connection_mode{UnitreeConnectionMode::automatic};
     std::string sensor_ip{"192.168.1.62"};
@@ -53,6 +56,12 @@ struct UnitreeL2Config {
     std::uint16_t local_port{6201};
     std::string serial_port;
     std::uint32_t baud_rate{4'000'000};
+    /// Disable only for passive RAW replay or externally managed hardware.
+    bool initialize_on_connect{true};
+    std::uint32_t work_mode{9};
+    /// Copies used by the reconnect worker share one initialization session.
+    std::shared_ptr<UnitreeL2InitState> initialization_state{
+        make_unitree_l2_init_state()};
 };
 
 struct LidarConfig {

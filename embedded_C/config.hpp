@@ -71,6 +71,8 @@ struct AppConfig {
     std::string unitree_serial_port{"/dev/ttyACM0"};
 #endif
     std::uint32_t unitree_baud_rate{4'000'000};
+    bool unitree_initialize_on_connect{true};
+    std::uint32_t unitree_work_mode{9};
     std::string unitree_local_ip{"192.168.1.2"};
     std::optional<std::uint16_t> unitree_local_port;
     /// Controls whether the RAW logger worker and .bin output are created.
