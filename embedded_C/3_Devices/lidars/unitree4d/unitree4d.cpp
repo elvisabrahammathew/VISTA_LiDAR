@@ -83,36 +83,40 @@ struct UnitreeL2Reader::Impl {
                     "Unitree L2 did not produce a valid frame within " +
                     std::to_string(frame_timeout.count()) + " ms");
             }
+            const auto first = bytes.begin() + static_cast<std::ptrdiff_t>(read_offset);
             const auto magic = std::search(
-                bytes.begin(), bytes.end(), frame_magic.begin(), frame_magic.end());
-            if (magic != bytes.begin()) {
+                first, bytes.end(), frame_magic.begin(), frame_magic.end());
+            if (magic != first) {
                 if (magic == bytes.end()) {
                     const auto keep = std::min<std::size_t>(
-                        bytes.size(), frame_magic.size() - 1);
-                    bytes.erase(bytes.begin(), bytes.end() - keep);
+                        bytes.size() - read_offset, frame_magic.size() - 1);
+                    read_offset = bytes.size() - keep;
                 } else {
-                    bytes.erase(bytes.begin(), magic);
+                    read_offset = static_cast<std::size_t>(magic - bytes.begin());
                 }
             }
 
-            if (bytes.size() >= unitree_protocol::frame_header_size) {
-                const auto declared_size = unitree_protocol::read_u32_le(bytes, 8);
+            if (bytes.size() - read_offset >= unitree_protocol::frame_header_size) {
+                const auto declared_size = unitree_protocol::read_u32_le(bytes, read_offset + 8);
                 if (declared_size < unitree_protocol::frame_header_size +
                                         unitree_protocol::frame_tail_size ||
                     declared_size > unitree_protocol::maximum_frame_size) {
-                    bytes.erase(bytes.begin());
+                    ++read_offset;
                     continue;
                 }
-                if (bytes.size() >= declared_size) {
+                if (bytes.size() - read_offset >= declared_size) {
                     std::vector<std::uint8_t> frame(
-                        bytes.begin(), bytes.begin() + declared_size);
-                    bytes.erase(bytes.begin(), bytes.begin() + declared_size);
+                        bytes.begin() + static_cast<std::ptrdiff_t>(read_offset),
+                        bytes.begin() + static_cast<std::ptrdiff_t>(read_offset + declared_size));
+                    read_offset += declared_size;
                     try {
                         unitree_protocol::validate_frame(frame);
                         const auto timestamp =
                             unitree_protocol::packet_timestamp_ns(frame)
                                 .value_or(system_timestamp_ns());
-                        return RawPacket(std::move(frame), timestamp);
+                        RawPacket packet(std::move(frame), timestamp);
+                        packet.unitree_verification_.checked.store(true, std::memory_order_relaxed);
+                        return packet;
                     } catch (const std::exception&) {
                         // Continue scanning after a corrupted serial/UDP frame.
                         continue;
@@ -120,7 +124,13 @@ struct UnitreeL2Reader::Impl {
                 }
             }
 
-            std::array<std::uint8_t, read_buffer_size> input{};
+            // Compact only when another transport read is needed, not for each
+            // small IMU/point packet extracted from the same batch.
+            if (read_offset) {
+                bytes.erase(bytes.begin(), bytes.begin() + static_cast<std::ptrdiff_t>(read_offset));
+                read_offset = 0;
+            }
+            std::array<std::uint8_t, read_buffer_size> input;
             const auto count = transport->read(input.data(), input.size());
             if (count == 0) {
                 throw std::runtime_error("Unitree L2 transport returned no data");
@@ -142,6 +152,7 @@ struct UnitreeL2Reader::Impl {
 
     std::unique_ptr<IUnitreeTransport> transport;
     std::vector<std::uint8_t> bytes;
+    std::size_t read_offset{};
     std::chrono::milliseconds frame_timeout;
 };
 
@@ -217,13 +228,22 @@ std::optional<models::ImuFrame> UnitreeL2Decoder::decode_imu_packet(
         unitree_protocol::imu_packet_type) {
         return std::nullopt;
     }
-    return unitree_protocol::decode_imu_packet(packet.bytes());
+    return unitree_protocol::decode_imu_packet(validated_frame(packet));
+}
+
+unitree_protocol::ValidatedFrame UnitreeL2Decoder::validated_frame(const RawPacket& packet) const {
+    // Moved-from packets may retain copied metadata but never certified bytes.
+    if (packet.empty() || !packet.unitree_verification_.checked.load(std::memory_order_relaxed)) {
+        unitree_protocol::validate_frame(packet.bytes());
+        packet.unitree_verification_.checked.store(true, std::memory_order_relaxed);
+    }
+    return unitree_protocol::ValidatedFrame(packet.bytes(), 0);
 }
 
 models::PointCloudFrame UnitreeL2Decoder::decode_packet(
     const RawPacket& packet) {
     const auto& bytes = packet.bytes();
-    unitree_protocol::validate_frame(bytes);
+    const auto checked = validated_frame(packet);
     if (unitree_protocol::packet_type(bytes) !=
         unitree_protocol::point_packet_type) {
         return {};
@@ -232,12 +252,8 @@ models::PointCloudFrame UnitreeL2Decoder::decode_packet(
     if (accumulated_scan_count_ == 0) {
         cloud_timestamp_ns_ = packet.timestamp_ns().value_or(0);
     }
-    auto points = unitree_protocol::decode_point_packet(
-        bytes, static_cast<std::uint8_t>(accumulated_scan_count_));
-    accumulated_points_.insert(
-        accumulated_points_.end(),
-        std::make_move_iterator(points.begin()),
-        std::make_move_iterator(points.end()));
+    unitree_protocol::decode_point_packet(
+        checked, static_cast<std::uint8_t>(accumulated_scan_count_), accumulated_points_);
     ++accumulated_scan_count_;
 
     if (accumulated_scan_count_ < cloud_scan_count_) {

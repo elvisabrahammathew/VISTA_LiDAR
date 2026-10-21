@@ -1,6 +1,7 @@
 #include "3_Devices/lidars/unitree4d/unitree_protocol.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <iterator>
@@ -13,6 +14,17 @@ namespace vista::devices::unitree_protocol {
 namespace {
 
 constexpr std::uint8_t header_magic[]{0x55, 0xAA, 0x05, 0x0A};
+constexpr std::array<std::uint32_t, 256> make_crc_table() {
+    std::array<std::uint32_t, 256> table{};
+    for (std::size_t i = 0; i < table.size(); ++i) {
+        auto value = static_cast<std::uint32_t>(i);
+        for (unsigned bit = 0; bit < 8; ++bit)
+            value = (value & 1U) ? (value >> 1U) ^ 0xEDB88320U : value >> 1U;
+        table[i] = value;
+    }
+    return table;
+}
+constexpr auto crc_table = make_crc_table();
 
 void write_u32_le(std::vector<std::uint8_t>& bytes, std::size_t offset,
                   std::uint32_t value) {
@@ -126,12 +138,7 @@ float read_f32_le(
 std::uint32_t crc32(const std::uint8_t* data, std::size_t size) {
     std::uint32_t crc = 0xFFFFFFFFU;
     while (size-- > 0) {
-        crc ^= *data++;
-        for (std::uint8_t bit = 0; bit < 8; ++bit) {
-            crc = (crc & 1U) != 0U
-                      ? (crc >> 1U) ^ 0xEDB88320U
-                      : crc >> 1U;
-        }
+        crc = (crc >> 8U) ^ crc_table[(crc ^ *data++) & 0xFFU];
     }
     return ~crc;
 }
@@ -194,7 +201,14 @@ void validate_frame(const std::vector<std::uint8_t>& frame) {
 std::vector<models::PointXYZIRT> decode_point_packet(
     const std::vector<std::uint8_t>& frame,
     std::uint8_t ring) {
-    validate_frame(frame);
+    std::vector<models::PointXYZIRT> points;
+    decode_point_packet(ValidatedFrame(frame), ring, points);
+    return points;
+}
+
+void decode_point_packet(const ValidatedFrame& checked, std::uint8_t ring,
+                         std::vector<models::PointXYZIRT>& points) {
+    const auto& frame = checked.bytes();
     if (packet_type(frame) != point_packet_type) {
         throw std::invalid_argument("Unitree frame is not a 3D point packet");
     }
@@ -242,8 +256,7 @@ std::vector<models::PointXYZIRT> decode_point_packet(
     const auto cos_beta_cos_xi = cos_beta * cos_xi;
     const auto base_timestamp = packet_timestamp_ns(frame).value_or(0);
 
-    std::vector<models::PointXYZIRT> points;
-    points.reserve(point_count);
+    points.reserve(points.size() + point_count);
     for (std::uint32_t index = 0; index < point_count; ++index) {
         const auto raw_range = read_u16_le(frame, ranges_offset + index * 2);
         if (raw_range < 1) {
@@ -283,12 +296,15 @@ std::vector<models::PointXYZIRT> decode_point_packet(
                                  static_cast<double>(time_step) * index),
         });
     }
-    return points;
 }
 
 models::ImuFrame decode_imu_packet(
     const std::vector<std::uint8_t>& frame) {
-    validate_frame(frame);
+    return decode_imu_packet(ValidatedFrame(frame));
+}
+
+models::ImuFrame decode_imu_packet(const ValidatedFrame& checked) {
+    const auto& frame = checked.bytes();
     if (packet_type(frame) != imu_packet_type) {
         throw std::invalid_argument("Unitree frame is not an IMU packet");
     }

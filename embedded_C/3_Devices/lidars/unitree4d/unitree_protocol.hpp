@@ -8,6 +8,7 @@
 #include "models/imu/imu_message.hpp"
 #include "models/lidars/pointcloud.hpp"
 
+namespace vista::devices { class UnitreeL2Decoder; }
 namespace vista::devices::unitree_protocol {
 
 // Values follow Unitree's public unilidar_sdk2 protocol headers. The project
@@ -38,6 +39,19 @@ std::uint32_t packet_type(const std::vector<std::uint8_t>& frame);
 std::optional<std::uint64_t> packet_timestamp_ns(
     const std::vector<std::uint8_t>& frame);
 void validate_frame(const std::vector<std::uint8_t>& frame);
+// A short-lived checked view; the owner must keep its bytes alive and immutable.
+// The only unchecked constructor is private to the decoder's verified RAW path.
+class ValidatedFrame {
+public:
+    explicit ValidatedFrame(const std::vector<std::uint8_t>& bytes)
+        : bytes_(bytes) { validate_frame(bytes_); }
+    ValidatedFrame(std::vector<std::uint8_t>&&) = delete;
+    const std::vector<std::uint8_t>& bytes() const noexcept { return bytes_; }
+private:
+    friend class vista::devices::UnitreeL2Decoder;
+    ValidatedFrame(const std::vector<std::uint8_t>& bytes, int) : bytes_(bytes) {}
+    const std::vector<std::uint8_t>& bytes_;
+};
 std::vector<std::uint8_t> encode_work_mode(std::uint32_t mode);
 std::vector<std::uint8_t> encode_restart();
 
@@ -45,9 +59,13 @@ std::vector<std::uint8_t> encode_restart();
 std::vector<models::PointXYZIRT> decode_point_packet(
     const std::vector<std::uint8_t>& frame,
     std::uint8_t ring);
+// Append directly to scan storage; do not allocate an intermediate row vector.
+void decode_point_packet(const ValidatedFrame& frame, std::uint8_t ring,
+                         std::vector<models::PointXYZIRT>& points);
 
 /// Decodes quaternion, angular velocity and linear acceleration from type 104.
 models::ImuFrame decode_imu_packet(
     const std::vector<std::uint8_t>& frame);
+models::ImuFrame decode_imu_packet(const ValidatedFrame& frame);
 
 }  // namespace vista::devices::unitree_protocol

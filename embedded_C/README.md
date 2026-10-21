@@ -392,7 +392,9 @@ ctest --preset linux-x86_64-debug
 
 ## Linux ARM64 / Jetson
 
-Run the ARM64 preset natively on the Jetson/ADLINK device:
+The presets require CMake 3.20 or newer. For Ubuntu 20.04 with CMake 3.16,
+use the ADLINK script below instead. Run the ARM64 preset natively on a device
+with preset support:
 
 ```bash
 git submodule update --init --recursive
@@ -403,23 +405,19 @@ ctest --preset linux-arm64-debug
 ./out/build/linux-arm64-gcc/vista_edge
 ```
 
-### ADLINK NEON-2000-JNX / Ubuntu 18.04 / JetPack 4.x
+### ADLINK / Ubuntu 20.04 ARM64
 
-The legacy native path supports GCC 7.5 and CMake 3.10.2 without upgrading
-Ubuntu, JetPack, CUDA, or the system compiler. C++17 remains enabled. Modern
-Windows/Linux builds keep the standard filesystem backend; CMake automatically
-selects the pinned `../third_party/filesystem` (gulrak/ghc v1.5.16, MIT) submodule
-when the standard header/link probe fails. `VISTA_FORCE_PORTABLE_FILESYSTEM=ON`
-can exercise that backend on a modern compiler. All VISTA targets share the
-same backend; no namespace is injected into `std` and no third-party source
-is patched. GCC 8's separate `stdc++fs` link requirement is detected too.
+The ADLINK deployment target is now Ubuntu 20.04 ARM64, with C++17 and
+CMake 3.16 or newer. Ubuntu 18.04 / Bionic / GCC 7 is no longer an active
+build or validation target. Use a vendor-supported OS image/BSP for the
+device; this repository does not upgrade Ubuntu, JetPack or firmware.
 
 Initialize submodules, then run from the repository root on ADLINK:
 
 ```bash
 git submodule update --init --recursive
 bash embedded_C/scripts/build_adlink.sh
-cd embedded_C/out/build/linux-adlink-bionic
+cd embedded_C/out/build/linux-adlink-ubuntu20-arm64
 # Edit DeviceConfig.txt here, then:
 ./vista_edge
 ```
@@ -430,10 +428,12 @@ with `VISTA_BUILD_JOBS=1` if RAM is tight. It does not install packages, connect
 to hardware, start capture, or require presets/Python/CUDA. If build tools are
 missing, install `build-essential cmake` through the device's configured
 repositories. Existing compiler selection via `CC`/`CXX` is respected when
-configuring a fresh build directory; do not replace JetPack's default compiler.
+configuring a fresh build directory. Do not reuse a build cache or executable
+from the old OS. See [the Ubuntu 20.04 ARM64 guide](docs/ADLINK_UBUNTU20_BUILD.md)
+for prerequisites, configuration, rebuilds and validation limits.
 
 RealSense OFF disables only L515; Unitree serial/UDP and Quanergy still build.
-This camera-free path does not claim RealSense camera validation on JetPack 4.x.
+This camera-free path does not claim RealSense camera validation on ADLINK.
 The application is named `vista_edge` on Linux (no `.exe` suffix), beside the
 copied `DeviceConfig.txt` and optional local `GrafanaSecret.txt`. Keep the secret
 out of Git. Configuration is read relative to the working directory, so run
@@ -448,11 +448,13 @@ WebSocket servers to an appropriate LAN interface; panel URLs must point to
 the ADLINK address, not the browser PC's `127.0.0.1`. Restrict access with the
 firewall: these WebSocket listeners are not authenticated public services.
 
-The presets above still require CMake 3.20 or newer; CMake 3.10 users must use
-this script or the traditional build-directory commands, not `cmake --preset`.
-An ARM64 build on a newer Ubuntu is not automatically ABI-compatible with
-Ubuntu 18.04. Build natively on ADLINK or use a Bionic compiler/sysroot, and
-test real serial I/O, LIO behavior and sustained operation on the device.
+The shared filesystem wrapper and its optional portable backend are retained;
+removing an OS build target does not require changing storage or mapping code.
+Normal modern builds select standard filesystem when its header/link probe
+succeeds. An ARM64 binary built against newer Ubuntu libraries is not
+automatically compatible with Ubuntu 20.04: build natively on the target, or
+use a matching ARM64 compiler/sysroot. Test real serial I/O, LIO behavior and
+sustained operation on the actual device.
 
 The ARM64 preset enables librealsense's RSUSB backend by default. This avoids a
 compile-time dependency on patched Jetson UVC kernel drivers. The RealSense

@@ -1,12 +1,17 @@
 # ADLINK Ubuntu 18.04 compatibility validation
 
+**Historical report: the Ubuntu 18.04 build/validation target was retired on
+2026-10-21.** The results below record past tests, not current deployment
+instructions. Use the [Ubuntu 20.04 ARM64 guide](ADLINK_UBUNTU20_BUILD.md) instead.
+The former environment and build artifacts are not removed automatically.
+
 Validated on 2026-10-06. This is software/toolchain validation, not a physical
 ADLINK acceptance test or a long-running performance certification.
 
 ## Target and changes
 
 Target reported by the user: NEON-2000-JNX, aarch64, Ubuntu 18.04.5,
-Jetson Linux R32.5, GCC 7.5.0 and CMake 3.10.2. The current deployment does
+Jetson Linux R32.5, GCC 7.5.0 and CMake 3.10.2. The deployment at that time did
 not use a camera. No changes to Ubuntu, JetPack, CUDA, LiDAR configuration,
 Grafana dashboard/plugin, or the localization/mapping algorithm are required.
 
@@ -63,9 +68,10 @@ warnings remain; successful build does not mean a warning-free source tree.
 
 ## Deployment and limitations
 
-Follow the ADLINK section in `../README.md`: initialize all submodules, run
-`bash embedded_C/scripts/build_adlink.sh`, then edit/run from the generated
-build directory. Select the actual Linux serial path and device permissions.
+The historical procedure initialized all submodules, ran the then-current
+ADLINK build script, and edited/ran from its generated build directory.
+That script now targets Ubuntu 20.04 ARM64, not the environment in this report.
+Select the actual Linux serial path and device permissions.
 Use the correct Grafana/LAN addresses; localhost on a browser PC is not ADLINK.
 Do not deploy an arbitrary ARM64 executable built against newer Ubuntu libraries.
 

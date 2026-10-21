@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 #include <chrono>
 #include <cstdint>
@@ -91,8 +92,24 @@ public:
     }
 
 private:
+    // Only the Unitree boundary can certify its immutable owned bytes. Ordinary
+    // constructors (including RAW replay) start unverified. Atomic publication
+    // permits independent const consumers without a mutable byte buffer.
+    friend class UnitreeL2Reader;
+    friend class UnitreeL2Decoder;
+    struct UnitreeVerification {
+        mutable std::atomic<bool> checked{false};
+        UnitreeVerification() = default;
+        UnitreeVerification(const UnitreeVerification& other) noexcept
+            : checked(other.checked.load(std::memory_order_relaxed)) {}
+        UnitreeVerification& operator=(const UnitreeVerification& other) noexcept {
+            checked.store(other.checked.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            return *this;
+        }
+    };
     std::vector<std::uint8_t> bytes_;
     std::optional<std::uint64_t> timestamp_ns_;
+    UnitreeVerification unitree_verification_;
 };
 
 using LidarRawMessage = models::LidarMessage<RawPacket>;

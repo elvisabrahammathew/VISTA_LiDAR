@@ -11,6 +11,7 @@
 #include "3_Devices/lidars/lidar.hpp"
 
 namespace vista::devices {
+namespace unitree_protocol { class ValidatedFrame; }
 
 /// Unitree-only transport seam; also permits hardware-free startup tests.
 class IUnitreeTransport {
@@ -53,6 +54,7 @@ public:
     models::PointCloudFrame decode_packet(const RawPacket& packet) override;
 
 private:
+    unitree_protocol::ValidatedFrame validated_frame(const RawPacket& packet) const;
     std::size_t cloud_scan_count_;
     std::size_t accumulated_scan_count_{};
     std::uint64_t cloud_timestamp_ns_{};

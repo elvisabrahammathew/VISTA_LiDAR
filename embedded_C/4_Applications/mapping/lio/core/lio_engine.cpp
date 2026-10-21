@@ -43,7 +43,7 @@ struct ImuWindow {
     std::deque<TimedImu> samples;Vec acceleration{Vec::Zero()},gyro{Vec::Zero()};double acceleration_rms{},gyro_rms{},duration{};
     Vec acceleration_variance{Vec::Zero()},gyro_variance{Vec::Zero()};
     double block_acceleration_change{},block_gyro_change{};bool blocks_ready{};
-    void add(const LioScan& scan,std::size_t required,bool blocks_enabled){
+    void add(const LioScanView& scan,std::size_t required,bool blocks_enabled){
         for(const auto& s:scan.imu){
             if(s.time_s>scan.end_s || (!samples.empty() && s.time_s<=samples.back().time_s))continue;
             samples.push_back(s);
@@ -108,7 +108,7 @@ public:
         if(!last_accepted){tree.reset();local_points.clear();map_cells.clear();}
         return diagnostic(models::LocalizationState::initializing,"automatic IMU reinitialization; keep stationary; retained world map requires Point-LIO match");
     }
-    LioOutput process(const LioScan& scan){
+    LioOutput process(const LioScanView& scan){
         current_time=scan.end_s;
         if(fatal)return {diagnostic(models::LocalizationState::lost,fatal_reason+"; automatic initialization after 5s LOST"),std::nullopt};
         if(scan.imu.size()<2 || !std::isfinite(scan.begin_s) || !std::isfinite(scan.end_s) || scan.end_s<scan.begin_s)return reject("IMU does not bracket scan");
@@ -147,18 +147,19 @@ public:
             return reject(scan.end_s<=filter_time?"scan end is not monotonic":scan.imu.front().time_s>filter_time+1e-8?"IMU batch misses integrated horizon":"propagation backlog exceeds 2s",true);
         }
         struct ActiveGuard {Impl*& slot;Impl* previous;ActiveGuard(Impl*& p,Impl* now):slot(p),previous(p){slot=now;}~ActiveGuard(){slot=previous;}} guard(active,this);
-        std::vector<std::size_t> order;order.reserve(scan.cloud.points.size());
-        std::vector<double> times(scan.cloud.points.size());
+        order.clear();order.reserve(scan.cloud.points.size());
+        times.resize(scan.cloud.points.size());
         for(std::size_t i=0;i<scan.cloud.points.size();++i){
             const auto& p=scan.cloud.points[i];const Vec v(p.x,p.y,p.z);
-            const double t=scan.begin_s+static_cast<double>((static_cast<long double>(p.timestamp_ns)-scan.cloud.timestamp_ns)*1e-9L);
+            const double t=scan.begin_s+static_cast<double>((static_cast<long double>(p.timestamp_ns)-scan.point_reference_ns)*1e-9L);
             if(!v.allFinite() || v.norm()<.1 || v.norm()>200 || t<scan.begin_s-1e-6 || t>scan.end_s+1e-6)continue;
             times[i]=t;order.push_back(i);
         }
-        std::stable_sort(order.begin(),order.end(),[&](auto a,auto b){return times[a]<times[b];});
-        std::unordered_set<Cell,Hash> seen;std::vector<std::size_t> choices;
+        const auto earlier=[&](auto a,auto b){return times[a]<times[b];};
+        if(!std::is_sorted(order.begin(),order.end(),earlier))std::stable_sort(order.begin(),order.end(),earlier);
+        seen.clear();choices.clear();
         for(auto i:order){const auto& p=scan.cloud.points[i];const Vec v(p.x,p.y,p.z);if(v.norm()>=config.minimum_range_m && seen.insert(cell(v,config.scan_voxel_m)).second)choices.push_back(i);}
-        std::vector<bool> selected(scan.cloud.points.size(),false);
+        selected.assign(scan.cloud.points.size(),false);
         if(choices.size()>config.scan_max_points){
             for(std::size_t i=0;i<config.scan_max_points;++i)selected[choices[i*choices.size()/config.scan_max_points]]=true;
         }else for(auto i:choices)selected[i]=true;
@@ -166,8 +167,9 @@ public:
         const State saved_state=filter.get_x();auto saved_cov=filter.get_P();const auto saved_history=history;
         const auto saved_robustifier=robustifier;const auto saved_r_scales=imu_r_scales;
         const double saved_time=filter_time,saved_cov_time=cov_time,saved_imu_time=last_imu_update;
-        models::PointCloudFrame world=scan.cloud;world.points.clear();world.points.reserve(order.size());
-        Points additions;matches=examined=0;residual_sum=0;normal_information.setZero();pose_information.setZero();rest_gradient.setZero();
+        models::PointCloudFrame world;world.timestamp_ns=scan.point_reference_ns;
+        world.sensor_origin_world_m=scan.cloud.sensor_origin_world_m;world.points.reserve(order.size());
+        additions.clear();matches=examined=0;residual_sum=0;normal_information.setZero();pose_information.setZero();rest_gradient.setZero();
         if(rest_anchor)rest_rotation=rest_anchor->rot.normalized().toRotationMatrix();
         std::size_t imu_cursor=0;while(imu_cursor<scan.imu.size() && scan.imu[imu_cursor].time_s<=last_imu_update+1e-10)++imu_cursor;
         for(std::size_t begin=0;begin<order.size();){
@@ -183,14 +185,18 @@ public:
                 remember();
             }
             const auto pose=pose_at(t);
-            if(pose)for(std::size_t j=begin;j<end;++j){
+            if(pose){
+              const auto extrinsic=filter.get_x();
+              const auto extrinsic_rotation=extrinsic.offset_R_L_I.normalized();
+              const Vec origin=pose->r*extrinsic.offset_T_L_I+pose->p;
+              for(std::size_t j=begin;j<end;++j){
                 const auto index=order[j];auto p=scan.cloud.points[index];
-                const Vec body=vector_transform(Vec(p.x,p.y,p.z));const Vec v=pose->r*body+pose->p;
-                const Vec origin=pose->r*filter.get_x().offset_T_L_I+pose->p;
+                const Vec body=extrinsic_rotation*Vec(p.x,p.y,p.z)+extrinsic.offset_T_L_I;const Vec v=pose->r*body+pose->p;
                 p.x=static_cast<float>(v.x());p.y=static_cast<float>(v.y());p.z=static_cast<float>(v.z());
                 p.ray_origin_world_m=std::array<float,3>{static_cast<float>(origin.x()),static_cast<float>(origin.y()),static_cast<float>(origin.z())};
                 world.points.push_back(p);
                 if(selected[index]){auto q=point(v);q.intensity=p.intensity;additions.push_back(q);}
+              }
             }
             begin=end;
         }
@@ -321,7 +327,6 @@ private:
         auto p=Filter::cov::Zero().eval();auto values=lio_detail::imu_initial_covariance_diagonal();
         for(int i=0;i<30;++i)p(i,i)=values[static_cast<std::size_t>(i)];filter.change_P(p);
     }
-    Vec vector_transform(const Vec& p) const{const auto& s=filter.get_x();return s.offset_R_L_I.normalized()*p+s.offset_T_L_I;}
     void predict_to(double time){
         double dt=time-filter_time;if(dt<=1e-12)return;
         filter.predict(dt,noise,input,true,false);filter_time=time;
@@ -348,7 +353,8 @@ private:
     void prune_history(){while(history.size()>1 && (history[1].t<filter_time-.5 || history.size()>100'000))history.pop_front();}
     std::optional<Knot> pose_at(double t) const{
         if(history.empty() || t<history.front().t-1e-8)return std::nullopt;
-        auto it=std::upper_bound(history.begin(),history.end(),t+1e-10,[](double v,const Knot& k){return v<k.t;});
+        auto it=history.end();
+        if(history.back().t>t+1e-10)it=std::upper_bound(history.begin(),history.end(),t+1e-10,[](double v,const Knot& k){return v<k.t;});
         if(it==history.begin())return std::nullopt;Knot k=*(it-1);const double dt=std::max(0.0,t-k.t);
         k.p+=k.v*dt+.5*k.a*dt*dt;k.r=k.r*exp_rotation(k.w*dt);k.t=t;return k;
     }
@@ -375,7 +381,8 @@ private:
     }
     void match(State& s,esekfom::dyn_share_modified<double>& d){
         const Vec body=s.offset_R_L_I.normalized()*measurement_point+s.offset_T_L_I;
-        const Vec world=s.rot.normalized()*body+s.pos;Points near;std::vector<float> distances;
+        const Vec world=s.rot.normalized()*body+s.pos;
+        near.clear();distances.clear();
         tree->Nearest_Search(point(world),5,near,distances,2.236);
         if(near.size()!=5 || distances.back()>5){d.valid=false;return;}
         Vec center=Vec::Zero();for(const auto& p:near)center+=xyz(p);center/=5;
@@ -387,7 +394,7 @@ private:
         const double error=normal.dot(world-center);
         if(measurement_point.norm()<=81*error*error){d.valid=false;return;}
         const Vec a=skew(body)*(s.rot.conjugate().normalized()*normal);
-        d.M_Noise=config.lidar_measurement_covariance;d.h_x=Eigen::MatrixXd::Zero(1,12);d.h_x.block<1,3>(0,0)=normal.transpose();d.h_x.block<1,3>(0,3)=a.transpose();
+        d.M_Noise=config.lidar_measurement_covariance;d.h_x.setZero(1,12);d.h_x.block<1,3>(0,0)=normal.transpose();d.h_x.block<1,3>(0,3)=a.transpose();
         d.z.resize(1);d.z[0]=-error;++matches;residual_sum+=std::abs(error);normal_information+=normal*normal.transpose();
         const Eigen::Matrix<double,1,6> row=d.h_x.leftCols<6>();pose_information+=row.transpose()*row;
         if(config.stationary_update_enabled && rest_anchor){
@@ -433,6 +440,10 @@ private:
     std::string rest_gate{"warming"};double rest_lidar_m{},rest_imu_error{};
     Eigen::Matrix<double,6,1> rest_gradient{Eigen::Matrix<double,6,1>::Zero()};
     std::unique_ptr<Tree> tree;Points local_points;std::unordered_set<Cell,Hash> map_cells;Vec last_map_center{Vec::Zero()},measurement_point{Vec::Zero()};
+    // Per-engine scratch only: no shared globals or change to update ordering.
+    std::vector<std::size_t> order,choices;std::vector<double> times;
+    std::vector<bool> selected;std::unordered_set<Cell,Hash> seen;
+    Points additions,near;std::vector<float> distances;
     std::deque<Knot> history;LioEngineStatistics counts;bool initialized{},fatal{},recovering{};unsigned recovery_streak{};
     double filter_time{},cov_time{},last_imu_update{},current_time{},residual{},residual_sum{};
     std::size_t matches{},examined{};std::uint64_t rejected{};std::optional<double> first_rejection;std::string fatal_reason;
@@ -444,7 +455,8 @@ private:
 thread_local LioEngine::Impl* LioEngine::Impl::active=nullptr;
 LioEngine::LioEngine(LioConfig config):impl_(std::make_unique<Impl>(std::move(config))){}
 LioEngine::~LioEngine()=default;
-LioOutput LioEngine::process(const LioScan& scan){return impl_->process(scan);}
+LioOutput LioEngine::process(const LioScan& scan){return process(LioScanView{scan.cloud,scan.begin_s,scan.end_s,scan.imu,scan.cloud.timestamp_ns});}
+LioOutput LioEngine::process(const LioScanView& scan){return impl_->process(scan);}
 std::optional<double> LioEngine::propagation_time_s() const{return impl_->propagation_time_s();}
 models::LocalizationStatus LioEngine::restart_initialization(){return impl_->restart_initialization();}
 LioEngineStatistics LioEngine::statistics() const{return impl_->statistics();}

@@ -66,6 +66,14 @@ struct LioScan {
     double begin_s{}, end_s{};
     std::vector<TimedImu> imu; // Brackets the complete scan, including its end.
 };
+// Borrowed input is consumed synchronously; the engine never retains these
+// references. A separate time origin avoids copying/relabeling a bus cloud.
+struct LioScanView {
+    const models::PointCloudFrame& cloud;
+    double begin_s, end_s;
+    const std::vector<TimedImu>& imu;
+    std::uint64_t point_reference_ns;
+};
 struct LioOutput {
     models::LocalizationStatus status;
     std::optional<models::PointCloudFrame> world_cloud;
@@ -84,6 +92,7 @@ public:
     LioEngine(const LioEngine&) = delete;
     LioEngine& operator=(const LioEngine&) = delete;
     LioOutput process(const LioScan& scan);
+    LioOutput process(const LioScanView& scan);
     // Actual integrated horizon, not the end of the last examined/rejected scan.
     std::optional<double> propagation_time_s() const;
     // Re-estimate IMU at rest; retain the last accepted world pose and map.

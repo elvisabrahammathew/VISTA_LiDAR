@@ -103,7 +103,7 @@ RoomMapLodPointsPerNode: 128
 RoomMapMinObservations: 3
 RoomMapObservationIntervalMilliseconds: 100
 RoomMapFreezeAfterSeconds: 0
-RoomMapPublishIntervalMilliseconds: 1000
+RoomMapPublishIntervalMilliseconds: 2000
 RoomMapLoadExisting: 0
 RoomMapFile:
 RoomMapFreeSpaceMinObservations: 5

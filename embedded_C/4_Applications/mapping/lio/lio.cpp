@@ -175,9 +175,9 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                         latest.reason="IMU synchronization waiting: "+sync.describe_coverage(required_begin,p.end)+drop_diagnostics();pending.pop_front();continue;
                     }
                     synchronization_wait_since.reset();
-                    LioScan scan;scan.cloud=p.message->payload;
-                    scan.cloud.timestamp_ns=std::min_element(scan.cloud.points.begin(),scan.cloud.points.end(),[](const auto& a,const auto& b){return a.timestamp_ns<b.timestamp_ns;})->timestamp_ns;
-                    scan.begin_s=p.begin;scan.end_s=p.end;scan.imu=*batch;
+                    const auto& frame=p.message->payload;
+                    const auto point_reference=std::min_element(frame.points.begin(),frame.points.end(),[](const auto& a,const auto& b){return a.timestamp_ns<b.timestamp_ns;})->timestamp_ns;
+                    const LioScanView scan{frame,p.begin,p.end,*batch,point_reference};
                     auto output=engine.process(scan);latest=std::move(output.status);previous_end=p.end;
                     if(const auto integrated=engine.propagation_time_s())sync.retain_from(*integrated);
                     if(output.world_cloud){world.publish(devices::LidarPointCloudMessage(p.message->lidar_id,p.message->sequence,p.message->sensor_timestamp_ns,p.message->received_timestamp_ns,std::move(*output.world_cloud),p.message->received_monotonic_ns,p.message->measurement_timestamp_ns,p.message->measurement_clock_epoch,p.message->measurement_epoch_started_ns));++report.published;last_valid=std::chrono::steady_clock::now();}

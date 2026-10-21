@@ -488,3 +488,81 @@ VISTA_TEST(unitree_invalid_init_config_does_not_open_any_transport) {
     VISTA_CHECK_THROWS(UnitreeL2::connect(config, Milliseconds(100), h.hooks()));
     VISTA_CHECK(h.opens.empty());
 }
+
+VISTA_TEST(unitree_crc_table_matches_independent_bitwise_reference_and_known_vector) {
+    const std::vector<std::uint8_t> known{'1','2','3','4','5','6','7','8','9'};
+    VISTA_CHECK(protocol::crc32(known.data(), known.size()) == 0xCBF43926U);
+    VISTA_CHECK(protocol::crc32(nullptr, 0) == 0U);
+    std::vector<std::uint8_t> data(65'536);std::uint32_t seed=0x12345678;
+    for(auto& b:data){seed=1664525U*seed+1013904223U;b=static_cast<std::uint8_t>(seed>>24U);}
+    for(std::size_t offset: {0U,1U,3U,7U})for(std::size_t size: {0U,1U,9U,80U,1020U,4096U,65520U}){
+        std::uint32_t reference=0xFFFFFFFFU;
+        for(std::size_t i=0;i<size;++i){reference^=data[offset+i];for(unsigned b=0;b<8;++b)reference=(reference&1U)?(reference>>1U)^0xEDB88320U:reference>>1U;}
+        VISTA_CHECK(protocol::crc32(data.data()+offset,size)==~reference);
+    }
+}
+
+VISTA_TEST(unitree_checked_packet_copy_move_and_reassignment_preserve_integrity) {
+    vista::devices::UnitreeL2Decoder decoder(1);
+    auto packet=one_meter_unitree_packet();
+    VISTA_CHECK(decoder.decode_packet(packet).points.size()==1);
+    auto copy=packet;auto moved=std::move(copy);
+    VISTA_CHECK(decoder.decode_packet(moved).points.size()==1);
+    // Moved-from metadata must not certify an empty vector.
+    if(copy.empty())VISTA_CHECK_THROWS(decoder.decode_packet(copy));
+    auto corrupt=packet.bytes();corrupt[200]^=1;
+    packet=vista::devices::RawPacket(corrupt);
+    VISTA_CHECK_THROWS(decoder.decode_packet(packet));
+    VISTA_CHECK_THROWS(decoder.decode_packet(packet)); // Failure never certifies.
+    moved=packet;
+    VISTA_CHECK_THROWS(decoder.decode_packet(moved));
+    packet=one_meter_unitree_packet();
+    VISTA_CHECK(decoder.decode_packet(packet).points.size()==1);
+}
+
+VISTA_TEST(unitree_untrusted_entrypoints_still_reject_crc_and_semantic_corruption) {
+    vista::devices::UnitreeL2Decoder decoder(1);
+    auto imu=unitree_imu_packet().bytes();imu[44]^=1;
+    const vista::devices::RawPacket invalid(imu);
+    VISTA_CHECK_THROWS(decoder.decode_imu_packet(invalid));
+    VISTA_CHECK_THROWS(decoder.decode_packet(invalid));
+    VISTA_CHECK_THROWS(protocol::decode_imu_packet(imu));
+    auto point=one_meter_unitree_packet().bytes();point[200]^=1;
+    VISTA_CHECK_THROWS(protocol::decode_point_packet(point,0));
+    auto layout=one_meter_unitree_packet().bytes();write_u32_le(layout,128,301);
+    write_u32_le(layout,layout.size()-12,protocol::crc32(layout.data()+12,layout.size()-24));
+    const vista::devices::RawPacket invalid_layout(layout);
+    VISTA_CHECK_THROWS(decoder.decode_packet(invalid_layout));
+    VISTA_CHECK_THROWS(decoder.decode_packet(invalid_layout));
+}
+
+VISTA_TEST(unitree_checked_append_preserves_prior_rows_ring_and_timestamps) {
+    const auto packet=one_meter_unitree_packet();
+    protocol::ValidatedFrame checked(packet.bytes());
+    std::vector<vista::models::PointXYZIRT> points;
+    protocol::decode_point_packet(checked,4,points);
+    protocol::decode_point_packet(checked,5,points);
+    VISTA_CHECK(points.size()==2 && points[0].ring==4 && points[1].ring==5);
+    VISTA_CHECK(points[0].timestamp_ns==points[1].timestamp_ns);
+    VISTA_CHECK(points[0].x==points[1].x && points[0].intensity==42);
+}
+
+VISTA_TEST(unitree_reader_offset_buffer_handles_fragmentation_noise_and_corrupt_frames) {
+    const auto point=one_meter_unitree_packet().bytes(),imu=unitree_imu_packet().bytes();
+    auto corrupt=point;corrupt[200]^=1;
+    std::vector<std::vector<std::uint8_t>> expected;
+    std::vector<std::uint8_t> stream{1,2,0x55,0xAA,5};
+    for(int i=0;i<75;++i){
+        stream.insert(stream.end(),corrupt.begin(),corrupt.end());
+        const auto& valid=i%2?imu:point;expected.push_back(valid);
+        stream.insert(stream.end(),valid.begin(),valid.end());
+    }
+    for(std::size_t chunk:{1U,3U,11U,127U,65536U}){
+        auto config=serial_config();config.initialize_on_connect=false;UnitreeHarness h;
+        h.plans.push_back({UnitreeConnectionMode::serial,stream,false,false,false,chunk});
+        auto parts=UnitreeL2::connect(config,Milliseconds(5000),h.hooks());
+        for(const auto& valid:expected){const auto raw=parts.first->read_raw_packet();VISTA_CHECK(raw.bytes()==valid);protocol::validate_frame(raw.bytes());}
+        VISTA_CHECK_THROWS(parts.first->read_raw_packet());
+        VISTA_CHECK(h.writes.empty() && h.waits.empty());
+    }
+}

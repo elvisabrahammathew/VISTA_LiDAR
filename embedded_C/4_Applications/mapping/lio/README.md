@@ -226,11 +226,35 @@ timing; it does not reproduce the original USB delays.
 
 ## Build and validation
 
-Use existing Windows/Linux CMake presets or the legacy Adlink build script.
+### Processing-cost optimizations (21 October 2026)
+
+Unitree frame CRC32 uses the same reflected IEEE polynomial and wire coverage,
+with a constexpr lookup table. The reader certifies immutable owned RAW bytes;
+the decoder reuses that private certification. Constructing a new RAW packet
+(including replay) does not certify it: the first decoder access validates it.
+Standalone byte-vector protocol entry points still validate each input. Semantic
+layout, point count, IMU finiteness and timestamp checks remain independent.
+The transport scanner advances an offset and compacts only before another read.
+Point rows append directly to scan storage, without a temporary row vector.
+
+The LIO worker borrows its immutable bus cloud and synchronized IMU batch for a
+synchronous engine call. The separate point-time origin does not relabel the
+source cloud. Per-engine matching scratch is reused; already ordered points skip
+sorting, while unordered input retains stable sorting and equal-time ordering.
+World output is built directly rather than copying then clearing the input.
+Latest-time pose lookups reuse the last history knot; overlapping historical
+points retain the binary-search path. There is no change to EKF update order,
+point budgets, voxel sizes, quality/recovery gates, rest/noise layers or map
+resolution. Rollback still restores complete filter/history/robustifier state.
+These are execution-cost changes, not a remedy or guarantee for position drift.
+
+Use existing Windows/Linux CMake presets (CMake 3.20+) or the
+[Ubuntu 20.04 ARM64 build script](../../../docs/ADLINK_UBUNTU20_BUILD.md)
+(CMake 3.16+).
 `cmake/point_lio.cmake` creates `vista_point_lio`; no initialized FAST-LIO checkout
 is needed. Eigen and Boost.Preprocessor submodules remain required. The portable
-target uses standard C++17 threading wrappers and the existing GCC 7 filesystem
-compatibility layer. Only numerical code is optimized in Windows Debug; use
+target uses standard C++17 threading wrappers and the shared filesystem wrapper;
+no Ubuntu 18.04-specific build is required. Only numerical code is optimized in Windows Debug; use
 Release for deployment and observe input drops/CPU load.
 
 The suite includes point-time update counts, unique IMU consumption, 30-DOF

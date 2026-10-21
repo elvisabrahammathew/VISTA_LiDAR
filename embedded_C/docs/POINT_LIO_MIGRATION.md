@@ -53,7 +53,10 @@ resumes. This is local recovery, not global relocalization or loop closure.
 
 ## Software validation
 
-The full suite has 207 tests. Final 0.4/0.4 m default build/test results:
+These are historical migration results, not the current suite size or supported
+OS matrix. Ubuntu 18.04 builds were retired on 2026-10-21; current ADLINK
+deployment uses the [Ubuntu 20.04 ARM64 guide](ADLINK_UBUNTU20_BUILD.md).
+At migration time the full suite had 207 tests. Final 0.4/0.4 m default results:
 
 | Platform | Compiler / build | Optional RealSense | Result |
 |---|---|---|---|

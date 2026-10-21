@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 
 project(vista_edge VERSION 0.1.0 LANGUAGES CXX)
 
 option(VISTA_BUILD_TESTS "Build the C++ unit tests" ON)
 option(VISTA_ENABLE_REALSENSE "Build RealSense L515 support" ON)
 option(VISTA_FORCE_PORTABLE_FILESYSTEM
-    "Use the GCC 7 compatible filesystem backend even on modern compilers" OFF)
+    "Use the portable filesystem backend instead of the detected standard backend" OFF)
 
 # The same source tree is built natively on Windows x64, Linux x86-64, and
 # Linux ARM64. ARM64 defaults to librealsense's user-space USB backend so a
@@ -105,8 +105,8 @@ endif()
 add_library(vista_edge_core OBJECT ${VISTA_CORE_SOURCES})
 vista_enable_warnings(vista_edge_core)
 target_include_directories(vista_edge_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-# CMake 3.10 cannot link OBJECT libraries. Compile the objects once and carry
-# link/usage requirements in a separate INTERFACE target on every platform.
+# Keep shared link/usage requirements in a separate INTERFACE target. Both
+# application and tests reuse the same objects and dependencies on every platform.
 add_library(vista_edge_dependencies INTERFACE)
 target_include_directories(vista_edge_dependencies INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
 include(cmake/filesystem.cmake)

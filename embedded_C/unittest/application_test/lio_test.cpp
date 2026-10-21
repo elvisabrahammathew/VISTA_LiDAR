@@ -5,6 +5,7 @@
 #include "4_Applications/mapping/lio/core/imu_robustness.hpp"
 #include "4_Applications/mapping/lio/imu_sample_history.hpp"
 #include <cmath>
+#include <algorithm>
 #include <limits>
 #include <thread>
 #include "models/topics.hpp"
@@ -317,6 +318,41 @@ VISTA_TEST(lio_stationary_room_tracks_and_keeps_ground_in_world_output) {
     bool floor=false;for(const auto& p:out.world_cloud->points)if(std::abs(p.z)<0.01)floor=true;
     VISTA_CHECK(floor);
     VISTA_CHECK(out.status.local_map_points<=config.local_max_points);
+}
+
+VISTA_TEST(lio_borrowed_scan_matches_owned_input_without_relabeling_source_cloud) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;
+    LioEngine owned(c),borrowed(c);std::size_t accepted{};
+    for(int i=0;i<14;++i){
+        auto input=scan(i*.1);auto source=input.cloud;
+        source.timestamp_ns+=1234; // A transport timestamp need not be point-time origin.
+        const auto before=source.points;
+        const auto a=owned.process(input);
+        const auto b=borrowed.process(LioScanView{source,input.begin_s,input.end_s,input.imu,input.cloud.timestamp_ns});
+        VISTA_CHECK(a.status.state==b.status.state && a.status.reason==b.status.reason);
+        VISTA_CHECK(a.status.position_m==b.status.position_m && a.status.orientation_xyzw==b.status.orientation_xyzw);
+        VISTA_CHECK(a.status.position_variance==b.status.position_variance);
+        VISTA_CHECK(a.world_cloud.has_value()==b.world_cloud.has_value());
+        VISTA_CHECK(source.points==before && source.timestamp_ns==input.cloud.timestamp_ns+1234);
+        if(a.world_cloud){++accepted;VISTA_CHECK(a.world_cloud->timestamp_ns==b.world_cloud->timestamp_ns);VISTA_CHECK(a.world_cloud->points==b.world_cloud->points);VISTA_CHECK(a.world_cloud->sensor_origin_world_m==b.world_cloud->sensor_origin_world_m);
+            for(std::size_t j=0;j<a.world_cloud->points.size();++j)VISTA_CHECK(a.world_cloud->points[j].ray_origin_world_m==b.world_cloud->points[j].ray_origin_world_m);}
+    }
+    VISTA_CHECK(accepted>3);
+}
+
+VISTA_TEST(lio_sort_fast_path_matches_stable_order_with_equal_time_points) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine ordered(c),scrambled(c);
+    for(int i=0;i<14;++i){
+        auto a=scan(i*.1),b=a;
+        // Reverse time groups, not equal-time points. Stable sorting must retain
+        // the exact original order within each acquisition-time group.
+        std::reverse(b.cloud.points.begin(),b.cloud.points.end());
+        for(auto first=b.cloud.points.begin();first!=b.cloud.points.end();){auto last=first+1;while(last!=b.cloud.points.end() && last->timestamp_ns==first->timestamp_ns)++last;std::reverse(first,last);first=last;}
+        const auto x=ordered.process(a),y=scrambled.process(b);
+        VISTA_CHECK(x.status.state==y.status.state && x.status.reason==y.status.reason);
+        VISTA_CHECK(x.status.position_m==y.status.position_m && x.status.orientation_xyzw==y.status.orientation_xyzw);
+        if(x.world_cloud){VISTA_CHECK(y.world_cloud && x.world_cloud->points==y.world_cloud->points);for(std::size_t j=0;j<x.world_cloud->points.size();++j)VISTA_CHECK(x.world_cloud->points[j].ray_origin_world_m==y.world_cloud->points[j].ray_origin_world_m);}
+    }
 }
 
 VISTA_TEST(point_lio_updates_many_lidar_times_and_each_new_imu_once) {
