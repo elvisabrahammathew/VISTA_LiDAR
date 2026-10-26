@@ -1,4 +1,6 @@
 #include "config.hpp"
+#include "1_Platform/os/paths.hpp"
+#include "default_device_config.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -145,9 +147,8 @@ AppConfig parse_device_config_text(const std::string& contents) {
     bool unitree_baud_rate_seen = false;
     bool unitree_local_ip_seen = false;
     bool unitree_local_port_seen = false;
-    bool ground_settings_seen = false;
-    bool ground_enabled = true;
-    application::GroundRemovalConfig ground;
+    bool mounting_settings_seen = false;
+    application::MountingConfig mount;
 
     while (std::getline(input, original_line)) {
         ++line_number;
@@ -320,68 +321,33 @@ AppConfig parse_device_config_text(const std::string& contents) {
             config.lio.maximum_rotation_step_deg=parse_float(value,key);
         } else if (key == "liosynchronizationtimeoutmilliseconds") {
             config.lio.synchronization_timeout=std::chrono::milliseconds(parse_unsigned(value,key,60'000));
-        } else if (key == "groundmode") {
-            ground_enabled = lower_copy(value) != "none" && lower_copy(value) != "off";
-            if (ground_enabled) ground.mode = application::parse_ground_mode(value);
-            ground_settings_seen = true;
-        } else if (key == "useimuforground") {
-            ground.use_imu =
-                parse_zero_one_switch(value, "UseImuForGround(Lidar)");
-            ground_settings_seen = true;
+        } else if (key == "groundmode" || key == "useimuforground" ||
+                   key == "floorz" || key == "grounddistancethreshold" ||
+                   key == "groundnormaltolerancedeg" || key == "groundcalibrationframes" ||
+                   key == "groundmininlierratio") {
+            throw std::invalid_argument("Ground processing is retired; remove '" + key +
+                "' from DeviceConfig.txt. Keep MountX/Y/Z and MountRoll/Pitch/YawDeg.");
         } else if (key == "mountx") {
-            ground.mount_x_m = parse_float(value, "MountX(Lidar)");
-            ground_settings_seen = true;
+            mount.mount_x_m = parse_float(value, "MountX(Lidar)");
+            mounting_settings_seen = true;
         } else if (key == "mounty") {
-            ground.mount_y_m = parse_float(value, "MountY(Lidar)");
-            ground_settings_seen = true;
+            mount.mount_y_m = parse_float(value, "MountY(Lidar)");
+            mounting_settings_seen = true;
         } else if (key == "mountz") {
-            ground.mount_z_m = parse_float(value, "MountZ(Lidar)");
-            ground_settings_seen = true;
+            mount.mount_z_m = parse_float(value, "MountZ(Lidar)");
+            mounting_settings_seen = true;
         } else if (key == "mountrolldeg") {
-            ground.mount_roll_deg =
+            mount.mount_roll_deg =
                 parse_float(value, "MountRollDeg(Lidar)");
-            ground_settings_seen = true;
+            mounting_settings_seen = true;
         } else if (key == "mountpitchdeg") {
-            ground.mount_pitch_deg =
+            mount.mount_pitch_deg =
                 parse_float(value, "MountPitchDeg(Lidar)");
-            ground_settings_seen = true;
+            mounting_settings_seen = true;
         } else if (key == "mountyawdeg") {
-            ground.mount_yaw_deg =
+            mount.mount_yaw_deg =
                 parse_float(value, "MountYawDeg(Lidar)");
-            ground_settings_seen = true;
-        } else if (key == "floorz") {
-            ground.floor_z_m = parse_float(value, "FloorZ(Lidar)");
-            ground_settings_seen = true;
-        } else if (key == "grounddistancethreshold") {
-            ground.distance_threshold_m =
-                parse_float(value, "GroundDistanceThreshold(Lidar)");
-            if (ground.distance_threshold_m <= 0.0F) {
-                throw std::invalid_argument(
-                    "GroundDistanceThreshold(Lidar) must be positive");
-            }
-            ground_settings_seen = true;
-        } else if (key == "groundnormaltolerancedeg") {
-            ground.normal_tolerance_deg =
-                parse_float(value, "GroundNormalToleranceDeg(Lidar)");
-            if (ground.normal_tolerance_deg <= 0.0F ||
-                ground.normal_tolerance_deg > 90.0F) {
-                throw std::invalid_argument(
-                    "GroundNormalToleranceDeg(Lidar) must be in (0, 90]");
-            }
-            ground_settings_seen = true;
-        } else if (key == "groundcalibrationframes") {
-            ground.calibration_frames = static_cast<std::size_t>(
-                parse_unsigned(value, "ground calibration frames", 100'000));
-            ground_settings_seen = true;
-        } else if (key == "groundmininlierratio") {
-            ground.minimum_inlier_ratio =
-                parse_float(value, "GroundMinInlierRatio(Lidar)");
-            if (ground.minimum_inlier_ratio <= 0.0F ||
-                ground.minimum_inlier_ratio > 1.0F) {
-                throw std::invalid_argument(
-                    "GroundMinInlierRatio(Lidar) must be in (0, 1]");
-            }
-            ground_settings_seen = true;
+            mounting_settings_seen = true;
         } else if (key == "grafanaenabled") {
             config.grafana.enabled = parse_boolean(value, "GrafanaEnabled");
         } else if (key == "grafanahost") {
@@ -447,6 +413,30 @@ AppConfig parse_device_config_text(const std::string& contents) {
             config.gaussian_map_websocket.port=static_cast<std::uint16_t>(parse_unsigned(value,"GaussianMapWebSocketPort",65'535));
         } else if (key == "gaussianmapwebsocketmaxpoints") {
             config.gaussian_map_websocket.maximum_points=static_cast<std::size_t>(parse_unsigned(value,"GaussianMapWebSocketMaxPoints",2'000'000));
+        } else if (key == "foregroundenabled") {
+            config.foreground.enabled=parse_boolean(value,"ForegroundEnabled");
+        } else if (key == "foregroundbackgrounddistancemeters") {
+            config.foreground.background_distance_m=parse_float(value,"ForegroundBackgroundDistanceMeters");
+        } else if (key == "foregroundoutlierfilterenabled") {
+            config.foreground.outlier_filter_enabled=parse_boolean(value,"ForegroundOutlierFilterEnabled");
+        } else if (key == "foregroundoutlierradiusmeters") {
+            config.foreground.outlier_radius_m=parse_float(value,"ForegroundOutlierRadiusMeters");
+        } else if (key == "foregroundoutlierminneighbors") {
+            config.foreground.outlier_minimum_neighbors=static_cast<std::size_t>(parse_unsigned(value,"ForegroundOutlierMinNeighbors",16));
+        } else if (key == "foregroundoutlierstartdistancemeters") {
+            config.foreground.outlier_start_distance_m=parse_float(value,"ForegroundOutlierStartDistanceMeters");
+        } else if (key == "foregroundoutlierenddistancemeters") {
+            config.foreground.outlier_end_distance_m=parse_float(value,"ForegroundOutlierEndDistanceMeters");
+        } else if (key == "foregroundoutliermaxradiusmeters") {
+            config.foreground.outlier_max_radius_m=parse_float(value,"ForegroundOutlierMaxRadiusMeters");
+        } else if (key == "foregroundmaxpoints") {
+            config.foreground.maximum_input_points=static_cast<std::size_t>(parse_unsigned(value,"ForegroundMaxPoints",50'000));
+        } else if (key == "foregroundpublishintervalmilliseconds") {
+            config.foreground.publish_interval=std::chrono::milliseconds(parse_unsigned(value,"ForegroundPublishIntervalMilliseconds",500));
+        } else if (key == "foregroundwebsocketbindaddress") {
+            config.foreground_websocket.bind_address=value;
+        } else if (key == "foregroundwebsocketport") {
+            config.foreground_websocket.port=static_cast<std::uint16_t>(parse_unsigned(value,"ForegroundWebSocketPort",65'535));
         } else if (key == "roommapenabled") {
             config.room_map.enabled = parse_boolean(value, "RoomMapEnabled");
         } else if (key == "roommapvoxelsizemeters") {
@@ -554,20 +544,29 @@ AppConfig parse_device_config_text(const std::string& contents) {
                 "LocalIP, and LocalPort");
         }
     }
-    if (ground_settings_seen) {
-        config.mounting = ground;
-        if (ground_enabled) config.ground_removal = ground;
-    }
+    if (mounting_settings_seen) config.mounting = mount;
     if(config.mounting){
-        config.lio.initial_position_m={ground.mount_x_m,ground.mount_y_m,ground.mount_z_m};
-        config.lio.initial_rpy_deg={ground.mount_roll_deg,ground.mount_pitch_deg,ground.mount_yaw_deg};
+        config.lio.initial_position_m={mount.mount_x_m,mount.mount_y_m,mount.mount_z_m};
+        config.lio.initial_rpy_deg={mount.mount_roll_deg,mount.mount_pitch_deg,mount.mount_yaw_deg};
     }
     application::validate_lio_config(config.lio);
     // Keep the internal flags, deriving them after parsing so TXT order is irrelevant.
     config.pointcloud_websocket.enabled = false; // Legacy keys parse, but raw/live 3D delivery is retired.
     config.room_map_websocket.enabled = config.grafana.enabled;
     config.gaussian_map_websocket.enabled=config.grafana.enabled && config.gaussian_map.enabled;
-    config.room_map.surface_snapshots=config.gaussian_map.enabled && config.room_map.enabled;
+    config.room_map.surface_snapshots=(config.gaussian_map.enabled || config.foreground.enabled) && config.room_map.enabled;
+    if(config.foreground.enabled && !config.room_map.enabled)
+        throw std::invalid_argument("ForegroundEnabled requires RoomMapEnabled");
+    config.foreground.maximum_cached_points=config.room_map.cache_max_voxels;
+    config.foreground.maximum_cached_regions=config.room_map.cache_max_tiles;
+    config.foreground.require_localization=config.lio.enabled;
+    config.foreground_websocket.enabled=config.grafana.enabled && config.foreground.enabled;
+    config.foreground_websocket.maximum_points=config.foreground.maximum_input_points;
+    config.foreground_websocket.publish_interval=config.foreground.publish_interval;
+    config.foreground_websocket.maximum_clients=config.room_map_websocket.maximum_clients;
+    config.foreground_websocket.retry_interval=config.room_map_websocket.retry_interval;
+    application::validate_foreground_config(config.foreground);
+    application::validate_pointcloud_websocket_config(config.foreground_websocket);
     config.gaussian_map_websocket.maximum_clients=config.room_map_websocket.maximum_clients;
     config.gaussian_map_websocket.retry_interval=config.room_map_websocket.retry_interval;
     config.gaussian_map_websocket.publish_interval=config.room_map.publish_interval;
@@ -583,6 +582,9 @@ AppConfig parse_device_config_text(const std::string& contents) {
     application::validate_pointcloud_websocket_config(config.gaussian_map_websocket);
     if(config.gaussian_map_websocket.enabled && config.room_map_websocket.port==config.gaussian_map_websocket.port)
         throw std::invalid_argument("Room Map and Gaussian Map WebSocket ports must be different");
+    if(config.foreground_websocket.enabled && (config.foreground_websocket.port==config.room_map_websocket.port ||
+       (config.gaussian_map_websocket.enabled && config.foreground_websocket.port==config.gaussian_map_websocket.port)))
+        throw std::invalid_argument("Foreground WebSocket requires its own port");
     return config;
 }
 
@@ -626,19 +628,74 @@ void configure_session_output_paths(AppConfig& config,
     if (config.pointcloud_logging_enabled) config.pcd_path = root / "processed" / (session_stem + ".pcd");
 }
 
+StartupConfigFiles create_missing_startup_config_files(
+    const vista::fs::path& directory) {
+    const auto root = vista::fs::absolute(directory).lexically_normal();
+    StartupConfigFiles result;
+    result.device_config_created = platform::create_text_file_if_missing(
+        root / default_device_config_path, detail::embedded_device_config);
+    result.grafana_secret_created = platform::create_text_file_if_missing(
+        root / application::grafana_secret_file_name,
+        "# Grafana service-account token. Keep this file private; do not commit it.\n"
+        "# Paste your token after the colon, then restart the application.\n"
+        "GrafanaToken: \n");
+    for (const auto* name : {default_device_config_path,
+             application::grafana_secret_file_name}) {
+        if (!vista::fs::is_regular_file(root / name)) {
+            throw std::runtime_error("configuration is not a regular file: " +
+                (root / name).u8string());
+        }
+    }
+    return result;
+}
+
+vista::fs::path default_device_config_file() {
+    return platform::executable_path().parent_path() / default_device_config_path;
+}
+
 AppConfig AppConfig::load() {
+    return load(default_device_config_file());
+}
+
+vista::fs::path data_root_for_executable(const vista::fs::path& executable,
+    const vista::fs::path& build_data_root) {
+    const auto directory = executable.lexically_normal().parent_path();
+    const auto platform = directory.filename().u8string();
+    if (directory.parent_path().filename() == "publish" &&
+        (platform == "windows-x64" || platform == "linux-x86_64" ||
+         platform == "linux-arm64")) {
+        return (directory.parent_path().parent_path() / "data").lexically_normal();
+    }
+    return build_data_root.lexically_normal();
+}
+
+AppConfig AppConfig::load(const vista::fs::path& path) {
     const auto session_start = std::chrono::system_clock::now();
-    vista::io::ifstream input(default_device_config_path);
+    const auto config_path = vista::fs::absolute(path).lexically_normal();
+    vista::io::ifstream input(config_path, std::ios::binary);
     if (!input) {
         throw std::runtime_error(
             "could not read device configuration '" +
-            std::string(default_device_config_path) + "'");
+            config_path.u8string() + "'");
     }
     std::ostringstream contents;
     contents << input.rdbuf();
+    if (input.bad() || contents.bad()) {
+        throw std::runtime_error(
+            "failed while reading device configuration '" +
+            config_path.u8string() + "'");
+    }
 
-    auto config = parse_device_config_text(contents.str());
-    const auto data_root = vista::fs::path(VISTA_DATA_ROOT).lexically_normal();
+    auto config = [&] {
+        try {
+            return parse_device_config_text(contents.str());
+        } catch (const std::invalid_argument& error) {
+            throw std::invalid_argument("invalid device configuration '" +
+                config_path.u8string() + "': " + error.what());
+        }
+    }();
+    const auto data_root = data_root_for_executable(
+        platform::executable_path(), vista::fs::path(VISTA_DATA_ROOT));
     configure_session_output_paths(config, data_root, session_start);
     return config;
 }
@@ -683,7 +740,7 @@ RuntimeConfig AppConfig::runtime_config() const {
             200.0F,
             std::nullopt,
             0.05F,
-            ground_removal,
+            std::nullopt, // Retired Ground API is never enabled by application config.
             mounting,
             lio.enabled,
         },
@@ -705,7 +762,6 @@ RuntimeConfig AppConfig::runtime_config() const {
             WorkerConfig{
                 false,
                 platform::ThreadConfig("pointcloud-websocket", 4)},
-            WorkerConfig{true, platform::ThreadConfig("ground-processing", 3)},
             // Also serves DISABLED/LOAD ERROR status and empty snapshots when no map exists.
             WorkerConfig{true, platform::ThreadConfig("room-mapping", 4)},
             WorkerConfig{grafana.enabled,
@@ -714,6 +770,8 @@ RuntimeConfig AppConfig::runtime_config() const {
             WorkerConfig{true,platform::ThreadConfig("live-pointcloud-preprocessing",3)},
             WorkerConfig{gaussian_map.enabled,platform::ThreadConfig("gaussian-mapping",5)},
             WorkerConfig{grafana.enabled && gaussian_map.enabled,platform::ThreadConfig("gaussian-map-websocket",5)},
+            WorkerConfig{foreground.enabled,platform::ThreadConfig("foreground-filter",5)},
+            WorkerConfig{grafana.enabled && foreground.enabled,platform::ThreadConfig("foreground-websocket",5)},
         },
         TopicQueueConfig{32, 8, 8, 16},
     };

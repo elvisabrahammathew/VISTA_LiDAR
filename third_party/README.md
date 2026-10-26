@@ -41,11 +41,10 @@ Upstream checkout files remain unmodified. ROS, PCL and Python are not required
 by the adapter; see `embedded_C/4_Applications/mapping/lio/README.md` for licensing
 and the distinction between local odometry and globally corrected SLAM.
 
-The former `fast_lio` checkout may remain for historical comparisons; no active
-C++ build, include path, state model or estimator links against it. The build
-does not require that checkout to be initialized.
+The former `fast_lio` checkout was retired after migration to Point-LIO. Its
+history remains in earlier Git revisions; it is not a current dependency.
 
-Unitree protocol references remain in `unitreelidar` and `unilidar_sdk2`; the
+Unitree protocol references remain in `unilidar_sdk2`; the
 existing device decoder does not link their Linux-only vendor binaries.
 
 The `others` directory is reserved for future external dependencies.

@@ -80,6 +80,19 @@ VISTA_TEST(lio_worker_does_not_hide_unknown_reordering){imu_admission_case(2);}
 VISTA_TEST(lio_worker_still_rejects_genuine_imu_epoch_rewind){imu_admission_case(3);}
 VISTA_TEST(lio_worker_never_deduplicates_across_imu_producers){imu_admission_case(4);}
 
+VISTA_TEST(lio_worker_publishes_real_fault_transition_before_next_one_second_heartbeat) {
+    vista::platform::MessageBus bus;vista::platform::StopToken stop;LioConfig c;
+    auto imu=bus.publisher<vista::models::ImuMessage>(vista::models::topics::lidar_imu);
+    auto status=bus.subscribe<vista::models::LocalizationStatus>(vista::models::topics::localization_status,"immediate-fault");
+    std::string error;auto worker=spawn_lio_worker(bus,{"immediate-fault-worker",3},stop,c,[&](auto,auto e){error=e;});
+    std::shared_ptr<const vista::models::LocalizationStatus> message;
+    const bool initial=status.receive_for(message,std::chrono::seconds(5))==vista::platform::ReceiveStatus::message;
+    vista::models::ImuFrame sample;imu.publish(vista::models::ImuMessage("imu",1,1,100,sample,0,std::nullopt));
+    bool lost=false;const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(700);
+    while(std::chrono::steady_clock::now()<deadline)if(status.receive_for(message,std::chrono::milliseconds(20))==vista::platform::ReceiveStatus::message && message->state==vista::models::LocalizationState::lost){lost=true;break;}
+    stop.request_stop();bus.close();worker.join();VISTA_CHECK(initial && lost && error.empty());
+}
+
 VISTA_TEST(point_lio_output_model_matches_upstream_30_dof_noise_and_priors) {
     LioConfig c;
     const auto defaults=lio_detail::imu_process_noise_diagonal(c);
@@ -138,7 +151,7 @@ VISTA_TEST(live_worker_continues_when_lio_waits_and_latches_lost_without_map_fal
     auto cleaned=bus.subscribe<vista::devices::LidarPointCloudMessage>(vista::models::topics::pointcloud_cleaned,"test-map-input");
     auto state=bus.subscribe<vista::models::LocalizationStatus>(vista::models::topics::localization_status,"test-live-state");
     PreprocessingConfig config;config.input_world_coordinates=true;config.voxel_size_m.reset();
-    GroundRemovalConfig mount;mount.mount_x_m=100;mount.floor_z_m=10;config.mounting=mount;config.ground_removal=mount;
+    MountingConfig mount;mount.mount_x_m=100;config.mounting=mount;
     std::string live_error,clean_error,lio_error;
     auto cleaning=spawn_preprocessing_worker(bus,{"test-world-clean",3},stop,config,[&](auto,auto e){clean_error=e;});
     auto viewing=spawn_live_preprocessing_worker(bus,{"test-live-clean",3},stop,config,[&](auto,auto e){live_error=e;});
@@ -171,7 +184,7 @@ VISTA_TEST(live_worker_continues_when_lio_waits_and_latches_lost_without_map_fal
 
 VISTA_TEST(live_websocket_dependencies_do_not_require_ground_processing) {
     vista::AppConfig app;app.grafana.enabled=true;app.pointcloud_websocket.enabled=true;
-    auto runtime=app.runtime_config();runtime.threads.ground_processing.enabled=false;
+    auto runtime=app.runtime_config();
     // Explicit legacy API use in this unit test; production no longer starts it.
     runtime.threads.pointcloud_websocket.enabled=true;
     runtime.threads.pcd_logger.enabled=false;app.pcd_path.reset();
@@ -284,7 +297,7 @@ VISTA_TEST(lio_synchronization_requires_brackets_and_rejects_gaps) {
 VISTA_TEST(lio_world_preprocessing_preserves_pose_and_floor) {
     // Moving-map input remains independent of ground removal.
     PreprocessingConfig config;config.input_world_coordinates=true;config.voxel_size_m.reset();
-    GroundRemovalConfig mount;mount.mount_x_m=100;config.mounting=mount;
+    MountingConfig mount;mount.mount_x_m=100;config.mounting=mount;
     PointCloudPreprocessor processor(config);
     vista::models::PointCloudFrame frame;frame.sensor_origin_world_m=std::array<float,3>{100,0,1};
     frame.points.push_back({101,0,0});auto clean=processor.clean(frame);
@@ -304,6 +317,88 @@ LioScan scan(double begin,bool room=true) {
     }
     return s;
 }
+}
+VISTA_TEST(lio_holding_preserves_wire_codes_and_never_triggers_lost_recovery_timer) {
+    using S=vista::models::LocalizationState;
+    VISTA_CHECK(static_cast<unsigned>(S::waiting_imu)==0 && static_cast<unsigned>(S::lost)==4 && static_cast<unsigned>(S::holding)==5);
+    LioRecoveryTimer timer;const auto now=std::chrono::steady_clock::now();
+    VISTA_CHECK(!timer.update(S::lost,now));
+    VISTA_CHECK(!timer.update(S::holding,now+std::chrono::seconds(20)));
+    VISTA_CHECK(!timer.update(S::lost,now+std::chrono::seconds(21)));
+    VISTA_CHECK(timer.update(S::lost,now+std::chrono::seconds(26)));
+    vista::models::LocalizationStatus status;status.state=S::holding;
+    const auto wire=vista::application::format_localization_measurement(status);
+    VISTA_CHECK(wire.find("state_code=5i")!=std::string::npos && wire.find("pose_valid=0i")!=std::string::npos);
+}
+VISTA_TEST(lio_holding_keeps_pose_map_and_imu_horizon_without_false_reinitialization) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine engine(c);LioOutput out;
+    for(int i=0;i<12;++i)out=engine.process(scan(i*.1));
+    VISTA_CHECK(out.status.pose_valid);const auto anchor=out.status;
+    const auto imu_before=engine.statistics().imu_updates;
+    for(int i=12;i<132;++i){auto sparse=scan(i*.1);sparse.cloud.points.resize(1);
+        out=engine.process(sparse);
+        VISTA_CHECK(out.status.state==vista::models::LocalizationState::holding && !out.status.pose_valid && !out.world_cloud);
+        VISTA_CHECK(out.status.position_m==anchor.position_m && out.status.orientation_xyzw==anchor.orientation_xyzw);
+        VISTA_CHECK(out.status.local_map_points==anchor.local_map_points);
+        VISTA_CHECK_NEAR(*engine.propagation_time_s(),sparse.end_s,1e-8);
+    }
+    VISTA_CHECK(engine.statistics().holding_scans==120 && engine.statistics().imu_updates-imu_before==1200);
+    for(int i=132;i<134;++i){out=engine.process(scan(i*.1));
+        VISTA_CHECK(out.status.state==vista::models::LocalizationState::holding && !out.world_cloud && !out.status.pose_valid);
+        VISTA_CHECK(out.status.local_map_points==anchor.local_map_points && out.status.position_m==anchor.position_m);
+    }
+    out=engine.process(scan(13.4));
+    VISTA_CHECK(out.status.pose_valid && out.world_cloud && out.status.state==vista::models::LocalizationState::tracking);
+    VISTA_CHECK(engine.statistics().holding_recoveries==1);
+    for(int axis=0;axis<3;++axis)VISTA_CHECK_NEAR(out.status.position_m[axis],anchor.position_m[axis],.03);
+    auto sparse=scan(13.5);sparse.cloud.points.resize(1);engine.process(sparse);
+    const auto updates=engine.statistics().imu_updates;
+    out=engine.process(scan(13.55));
+    VISTA_CHECK(out.status.state==vista::models::LocalizationState::holding && !out.world_cloud);
+    VISTA_CHECK(engine.statistics().imu_updates-updates==5); // 50 ms overlap is not integrated twice.
+    out=engine.process(scan(13.60));VISTA_CHECK(!out.world_cloud);
+    out=engine.process(scan(13.65));VISTA_CHECK(out.status.pose_valid && out.world_cloud);
+}
+VISTA_TEST(lio_holding_does_not_certify_stationarity_or_freeze_real_motion_on_recovery) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine engine(c);LioOutput out;
+    for(int i=0;i<12;++i)out=engine.process(scan(i*.1));
+    const auto anchor=out.status;
+    for(int i=12;i<42;++i){auto sparse=scan(i*.1);sparse.cloud.points.resize(1);out=engine.process(sparse);VISTA_CHECK(!out.world_cloud);}
+    for(int i=42;i<45;++i){auto moved=scan(i*.1);for(auto& p:moved.cloud.points)p.x-=.20F;
+        out=engine.process(moved);if(i<44)VISTA_CHECK(!out.world_cloud && !out.status.pose_valid);
+    }
+    VISTA_CHECK(out.status.pose_valid && out.world_cloud);
+    VISTA_CHECK_NEAR(out.status.position_m[0]-anchor.position_m[0],.20,.04);
+}
+VISTA_TEST(lio_holding_does_not_mask_imu_faults_clock_rewind_or_explicit_epoch_restart) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine engine(c);LioOutput out;
+    for(int i=0;i<12;++i)out=engine.process(scan(i*.1));
+    auto sparse=scan(1.2);sparse.cloud.points.resize(1);out=engine.process(sparse);
+    VISTA_CHECK(out.status.state==vista::models::LocalizationState::holding);
+    auto corrupt=scan(1.3);corrupt.imu[4].acceleration[0]=std::numeric_limits<double>::quiet_NaN();
+    out=engine.process(corrupt);VISTA_CHECK(!out.world_cloud && out.status.state==vista::models::LocalizationState::degraded);
+    VISTA_CHECK(out.status.reason.find("non-finite IMU")!=std::string::npos);
+    out=engine.process(scan(0));VISTA_CHECK(out.status.state==vista::models::LocalizationState::lost && !out.world_cloud);
+    out.status=engine.restart_initialization();VISTA_CHECK(out.status.state==vista::models::LocalizationState::initializing);
+    auto next=engine.process(scan(0));VISTA_CHECK(!next.world_cloud && next.status.state==vista::models::LocalizationState::initializing);
+    // New, qualified IMU bias after an epoch reset must survive a later hold.
+    for(int i=1;i<35;++i){auto sparse=scan(i*.1);sparse.cloud.points.resize(1);
+        for(auto& m:sparse.imu)m.angular_velocity[2]=.03;
+        out=engine.process(sparse);VISTA_CHECK(!out.world_cloud);
+    }
+    VISTA_CHECK(out.status.state==vista::models::LocalizationState::holding);
+    for(int i=35;i<38;++i){auto full=scan(i*.1);for(auto& m:full.imu)m.angular_velocity[2]=.03;out=engine.process(full);}
+    VISTA_CHECK(out.status.pose_valid && out.world_cloud);
+    VISTA_CHECK_NEAR(out.status.position_m[0],0,.03);
+}
+VISTA_TEST(lio_holding_retains_map_when_established_room_becomes_geometrically_degenerate) {
+    LioConfig c;c.scan_voxel_m=.1;c.map_voxel_m=.1;LioEngine engine(c);LioOutput out;
+    for(int i=0;i<12;++i)out=engine.process(scan(i*.1));
+    const auto anchor=out.status;
+    for(int i=12;i<42;++i){out=engine.process(scan(i*.1,false));
+        VISTA_CHECK(out.status.state==vista::models::LocalizationState::holding && !out.world_cloud);
+        VISTA_CHECK(out.status.local_map_points==anchor.local_map_points && out.status.position_m==anchor.position_m);
+    }
 }
 VISTA_TEST(lio_stationary_room_tracks_and_keeps_ground_in_world_output) {
     // Ideal acceleration remains unchanged by initialization normalization.

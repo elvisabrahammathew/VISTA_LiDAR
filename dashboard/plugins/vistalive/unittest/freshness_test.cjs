@@ -193,7 +193,9 @@ const dashboard = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../V
 assert.equal(dashboard.uid, 'vistalive');
 assert.equal(dashboard.__inputs[0].pluginId, 'vista-live-datasource');
 const metrics = dashboard.panels.filter(panel => ['stat','table','timeseries'].includes(panel.type));
-assert.equal(metrics.length, 26);
+// Ground State / Ground Validation were retired; the remaining metric panels
+// must all retain the same disconnect contract.
+assert.equal(metrics.length, 24);
 for (const panel of metrics) {
   assert.equal(panel.datasource.type, 'vista-live-datasource');
   assert.equal(panel.fieldConfig.defaults.noValue, 'No data');
@@ -204,4 +206,4 @@ for (const panel of metrics) {
 const threeD = dashboard.panels.filter(panel => panel.type === 'vista-lidarpointcloud-panel');
 assert.equal(threeD.length, 2);
 for (const panel of threeD) {assert.notEqual(panel.datasource?.type, 'vista-live-datasource');}
-Promise.all([fixture(), emptyCompletion()]).then(() => console.log('VISTA Live: freshness, detached snapshots, Grafana empty-result recovery, error/retry, completion/repeat, bounded reconnect, teardown and 26-panel dashboard checks passed.')).catch(error => {console.error(error); process.exitCode = 1;});
+Promise.all([fixture(), emptyCompletion()]).then(() => console.log('VISTA Live: freshness, detached snapshots, Grafana empty-result recovery, error/retry, completion/repeat, bounded reconnect, teardown and 24-panel dashboard checks passed.')).catch(error => {console.error(error); process.exitCode = 1;});

@@ -81,6 +81,7 @@ struct LioOutput {
 struct LioEngineStatistics {
     std::uint64_t imu_updates{}, lidar_updates{}, saturated_imu_axes{};
     std::uint64_t downweighted_imu_axes{}, stationary_updates{};
+    std::uint64_t holding_scans{}, holding_recoveries{};
     double velocity_norm_m_s{};
 };
 

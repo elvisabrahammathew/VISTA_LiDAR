@@ -2,6 +2,20 @@
 
 A LiDAR-powered smart infrastructure platform developed as part of the Monash VISTA program.
 
+## Run the C++ program without building
+
+Ready-to-run Release packages are in [`publish/`](publish/README.md): Windows
+x64, Linux x86-64 and Linux ARM64. Review the DeviceConfig.txt beside your chosen
+executable before starting. Release builds refresh that platform's package
+automatically; private Grafana tokens and local runtime data are not committed.
+
+## Build the C++ application
+
+See [the teammate build guide](embedded_C/docs/BUILDING.md) for Visual Studio
+2019/2022, VS Code, pinned submodules, Linux builds, and the pre-commit checklist.
+In VS Code, open `VISTA-CPP.code-workspace`. In Visual Studio, open the
+`embedded_C` folder (CMake project), not a generated solution from another PC.
+
 ## Project Overview
 
 This project is being developed as part of the Monash VISTA Program.

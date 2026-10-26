@@ -10,6 +10,7 @@
 #include "1_Platform/threading/threading.hpp"
 #include "3_Devices/lidars/lidar.hpp"
 #include "models/mapping/ground_status.hpp"
+#include "4_Applications/processing/pointcloud/mounting.hpp"
 
 namespace vista::application {
 
@@ -31,14 +32,10 @@ struct AxisAlignedRoi {
     float max_z{};
 };
 
-struct GroundRemovalConfig {
+/// Retained, tested reference API only; no runtime worker/TXT settings enable it.
+/// See docs/GROUND_PROCESSING_RETIRED.md before restoring ground processing.
+struct GroundRemovalConfig : MountingConfig {
     GroundMode mode{GroundMode::static_height};
-    float mount_x_m{};
-    float mount_y_m{};
-    float mount_z_m{};
-    float mount_roll_deg{};
-    float mount_pitch_deg{};
-    float mount_yaw_deg{};
     float floor_z_m{};
     float distance_threshold_m{0.10F};
     float normal_tolerance_deg{15.0F};
@@ -52,9 +49,9 @@ struct PreprocessingConfig {
     float max_distance_m{200.0F};
     std::optional<AxisAlignedRoi> region_of_interest;
     std::optional<float> voxel_size_m{0.05F};
-    std::optional<GroundRemovalConfig> ground_removal;
-    /// Mounting remains active even when ground removal is disabled.
-    std::optional<GroundRemovalConfig> mounting;
+    std::optional<GroundRemovalConfig> ground_removal; // Reference API, not runtime config.
+    /// Initial/fixed pose without any dependency on floor detection.
+    std::optional<MountingConfig> mounting;
     /// LIO already supplied world XYZ and the moving sensor origin.
     bool input_world_coordinates{false};
     /// Independent live branch: filters only, no world mounting/ground removal.
@@ -67,8 +64,8 @@ struct PreprocessingReport {
     std::uint64_t dropped_message_count{};
 };
 
-/// Stateful point-cloud processor used to calibrate one ground plane per run.
-/// Mount pose is always the safe fallback when IMU data is unavailable.
+/// Runtime workers use clean() only and do not subscribe to IMU or remove floors.
+/// The direct Ground API below is retained for reference/tests, not activated by TXT.
 class PointCloudPreprocessor {
 public:
     explicit PointCloudPreprocessor(PreprocessingConfig config);
@@ -123,13 +120,5 @@ platform::WorkerHandle spawn_preprocessing_worker(
 platform::WorkerHandle spawn_live_preprocessing_worker(
     platform::MessageBus&, platform::ThreadConfig, platform::StopToken,
     PreprocessingConfig, PreprocessingCompletion);
-
-/// Independent consumer of pointcloud/cleaned; publishes processed cloud and ground status.
-platform::WorkerHandle spawn_ground_processing_worker(
-    platform::MessageBus& bus,
-    platform::ThreadConfig thread_config,
-    platform::StopToken stop,
-    PreprocessingConfig config,
-    PreprocessingCompletion on_complete);
 
 }  // namespace vista::application

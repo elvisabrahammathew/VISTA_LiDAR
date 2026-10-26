@@ -21,9 +21,38 @@ const moduleParent = module;
 const { decodeRoomMapMetadata, makeRoomMapViewRequest } = loadTypeScript('src/room_map_view.ts');
 const { decodePointCloudPacket } = loadTypeScript('src/protocol.ts');
 const { GaussianRenderer } = loadTypeScript('src/gaussian_renderer.ts');
+const { transientExpired } = loadTypeScript('src/transient.ts');
+const { decodeForegroundStatus, foregroundStatusMessage } = loadTypeScript('src/foreground_status.ts');
 let passed = 0;
 const test = (name, run) => { run(); ++passed; console.log(`[PASS] ${name}`); };
 const metadata = { type: 'roommap', totalPoints: 300000, pointBudget: 250000, state: 2, bounds: [-1,-2,-3,4,5,6] };
+
+test('foreground status distinguishes paused input, matched background and unresolved queries',()=>{
+  const value={type:'foreground-status',version:1,active:false,reason:'localization unavailable: IMU gap',
+    inputPoints:0,backgroundPoints:0,unknownPoints:0,foregroundPoints:0};
+  const decode=()=>decodeForegroundStatus(JSON.stringify(value));
+  assert(foregroundStatusMessage(decode()).includes('IMU gap'));
+  value.active=true;value.inputPoints=100;value.backgroundPoints=100;
+  assert(foregroundStatusMessage(decode()).includes('match RoomMap'));
+  value.unknownPoints=1;
+  assert(foregroundStatusMessage(decode()).includes('budget-limited'));
+  value.foregroundPoints=5;
+  assert(foregroundStatusMessage(decode()).includes('Receiving foreground'));
+  assert.equal(decodeForegroundStatus(JSON.stringify(metadata)),undefined);
+});
+test('foreground status rejects malformed versions, counters and messages',()=>{
+  const value={type:'foreground-status',version:1,active:false,reason:'waiting',
+    inputPoints:0,backgroundPoints:0,unknownPoints:0,foregroundPoints:0};
+  for(const invalid of [{version:2},{active:'false'},{inputPoints:-1},{foregroundPoints:50001},
+    {unknownPoints:1.5},{reason:'x'.repeat(8193)},{backgroundPoints:null}]) {
+    assert.throws(()=>decodeForegroundStatus(JSON.stringify({...value,...invalid})));
+  }
+});
+test('foreground expires while persistent map views remain unchanged',()=>{
+  assert(!transientExpired(0,100000,0));assert(!transientExpired(0,100000));
+  assert(!transientExpired(500,1499,1000));assert(transientExpired(500,1500,1000));
+  assert(!transientExpired(1500,1501,1000));
+});
 const gaussianPacket = () => {
   const bytes=new ArrayBuffer(76),v=new DataView(bytes);
   new Uint8Array(bytes).set([71,83,80,49]);

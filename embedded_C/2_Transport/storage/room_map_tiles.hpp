@@ -43,6 +43,9 @@ public:
     std::size_t size() const;
     std::size_t prune_cached(std::int64_t window, std::int64_t age);
     void flush();
+    /// Session owner calls only after successful final export (or discarded import).
+    /// Deletion waits for all disk views AND immutable region readers to release.
+    void discard_when_unused();
     /// Enable before the first integration/import; disabled has no snapshot I/O.
     void enable_surface_snapshots(bool enabled);
     /// Imported references use streaming point pages, preserving duplicate points.

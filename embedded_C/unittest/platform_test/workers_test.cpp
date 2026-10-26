@@ -47,7 +47,7 @@ VISTA_TEST(workers_register_their_own_topics_and_process_one_packet) {
     vista::platform::MessageBus bus;
     bus.configure_topic(vista::models::topics::lidar_raw, 2);
     bus.configure_topic(vista::models::topics::pointcloud_decoded, 2);
-    bus.configure_topic(vista::models::topics::pointcloud_processed, 2);
+    bus.configure_topic(vista::models::topics::pointcloud_cleaned, 2);
 
     std::optional<vista::devices::LidarWorkerReport> read_report;
     std::optional<vista::devices::LidarWorkerReport> decode_report;
@@ -55,18 +55,13 @@ VISTA_TEST(workers_register_their_own_topics_and_process_one_packet) {
     std::string read_error;
     std::string decode_error;
     std::string preprocessing_error;
-    std::string ground_error;
     auto processed_observer = bus.subscribe<vista::devices::LidarPointCloudMessage>(
-        vista::models::topics::pointcloud_processed,"test-processed-observer");
+        vista::models::topics::pointcloud_cleaned,"test-cleaned-observer");
     auto decoder_slot =
         std::make_shared<vista::devices::LidarDecoderSlot>();
 
     // Consumers are started first, but each worker performs its own subscribe
     // and publisher setup rather than receiving endpoints from this test.
-    auto ground = vista::application::spawn_ground_processing_worker(
-        bus, vista::platform::ThreadConfig("test-ground-processing",3),stop,
-        vista::application::PreprocessingConfig{0.0F,10.0F,std::nullopt,std::nullopt,std::nullopt},
-        [&](auto,auto error) { ground_error=std::move(error); });
     auto preprocessing = vista::application::spawn_preprocessing_worker(
         bus,
         vista::platform::ThreadConfig("test-preprocessing", 3),
@@ -107,12 +102,10 @@ VISTA_TEST(workers_register_their_own_topics_and_process_one_packet) {
     reader.join();
     decoder.join();
     preprocessing.join();
-    ground.join();
 
     VISTA_CHECK(read_error.empty());
     VISTA_CHECK(decode_error.empty());
     VISTA_CHECK(preprocessing_error.empty());
-    VISTA_CHECK(ground_error.empty());
     VISTA_CHECK(read_report && read_report->message_count == 1);
     VISTA_CHECK(decode_report && decode_report->message_count == 1);
     VISTA_CHECK(

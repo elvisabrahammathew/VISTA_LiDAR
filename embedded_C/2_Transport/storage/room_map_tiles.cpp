@@ -1,4 +1,5 @@
 #include "2_Transport/storage/room_map_tiles.hpp"
+#include "2_Transport/storage/session_directory.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -86,7 +87,9 @@ struct MeasureIo {
 
 class RoomMapTileStore::Impl {
 public:
+    std::shared_ptr<detail::SessionDirectory> directory=std::make_shared<detail::SessionDirectory>();
     struct Region final : models::RoomMapRegion {
+        std::shared_ptr<detail::SessionDirectory> directory;
         vista::fs::path file;
         std::size_t threshold{};
         std::uint64_t digest{}, digest2{};
@@ -120,6 +123,8 @@ public:
         if(preferred.empty()) preferred=vista::fs::temp_directory_path()/"vista-map-tiles";
         root=preferred; root+= "."+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+
             "."+std::to_string(++counter);
+        root=vista::fs::absolute(root).lexically_normal();
+        directory->root=root;
     }
     MapVoxelKey tile_key(const MapVoxelKey& k) const {
         MapVoxelKey t{floor_div(k.x,edge),floor_div(k.y,edge),floor_div(k.z,edge)};
@@ -164,6 +169,7 @@ public:
         node_cache.emplace(n.path,std::make_pair(n,++node_clock));return n;
     }
     void write_node(const Node& n) {
+        directory->ensure();
         vista::fs::create_directories(n.path);
         const auto file=n.path/"lod.bin"; auto temporary=file;temporary+=".tmp";
         {vista::io::ofstream out(temporary,std::ios::binary|std::ios::trunc);
@@ -220,6 +226,7 @@ public:
         const auto write_started=std::chrono::steady_clock::now();
         auto nodes=chain(tile.key);auto& leaf=nodes.back();
         const auto file=leaf.path/"cells.bin";auto temporary=file;temporary+=".tmp";
+        directory->ensure();
         vista::fs::create_directories(leaf.path);
         std::uint64_t old_count{};
         if(reference_mode && tile.on_disk) {
@@ -255,6 +262,7 @@ public:
             } else if(old==regions.end() || old->second->point_count!=summary.count ||
                       old->second->digest!=digest || old->second->digest2!=digest2) {
                 auto region=std::make_shared<Region>();
+                region->directory=directory;
                 region->version=++geometry_revision;region->point_count=summary.count;
                 region->digest=digest;region->digest2=digest2;region->threshold=confirmation;
                 region->file=leaf.path/("surface-"+std::to_string(region->version)+".bin");
@@ -372,6 +380,7 @@ RoomMapTileStore::RoomMapTileStore(vista::fs::path root,float voxel,float tile,s
     std::size_t tiles,std::size_t threshold,std::size_t lod)
     :impl_(std::make_shared<Impl>(std::move(root),voxel,tile,voxels,tiles,threshold,lod)) {}
 RoomMapTileStore::~RoomMapTileStore()=default;
+void RoomMapTileStore::discard_when_unused() {impl_->directory->discard=true;}
 MapVoxelCell* RoomMapTileStore::find(const MapVoxelKey& k) {
     const auto key=impl_->tile_key(k);
     if(impl_->cache.find(key)==impl_->cache.end()) {

@@ -32,6 +32,27 @@ VISTA_TEST(gaussian_regions_are_full_immutable_and_ignore_evidence_only_updates)
     count=0;for(const auto& r:first->regions) r.second->read([&](const auto&){++count;});
     VISTA_CHECK(count==32); // Old revision survives atomic page replacement/deletion.
 }
+
+VISTA_TEST(gaussian_cache_cleanup_waits_for_retained_view_and_preserves_sibling_files) {
+    auto s=store();add(*s,0,0);
+    auto snapshot=s->view_source(1)->surface_snapshot();
+    const auto parent=vista::fs::temp_directory_path()/("vista-gaussian-cleanup-"+
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    vista::fs::create_directory(parent);const auto sentinel=parent/"RoomMap.pcd";
+    {vista::io::ofstream out(sentinel);out<<"keep";}
+    std::shared_ptr<const vista::models::GaussianMapViewSource> held;
+    vista::fs::path cache;
+    {
+        vista::application::GaussianMapBuilder builder(parent/"tiles.gaussian");
+        held=builder.update(*snapshot);
+        for(const auto& item:vista::fs::directory_iterator(parent)) if(item.is_directory()) cache=item.path();
+        VISTA_CHECK(!cache.empty());
+    }
+    vista::models::RoomMapViewRequest request;request.point_budget=10;
+    VISTA_CHECK(held->select_splats(request).size()==1 && vista::fs::exists(cache));
+    held.reset();VISTA_CHECK(!vista::fs::exists(cache) && vista::fs::exists(sentinel));
+    vista::fs::remove(sentinel);vista::fs::remove(parent);
+}
 VISTA_TEST(gaussian_surfaces_fit_planes_across_tiles_and_propagate_deletions) {
     auto s=store();for(int x=-4;x<8;++x) for(int y=-4;y<8;++y) add(*s,x,y);
     auto snapshot=s->view_source(1)->surface_snapshot();
@@ -103,6 +124,17 @@ VISTA_TEST(gaussian_loaded_reference_preserves_floor_and_deduplicates_repeated_p
     const auto points=view->select_splats(request);
     VISTA_CHECK(points.size()==144);
     for(const auto& p:points) VISTA_CHECK(p.center.z==0);
+}
+
+VISTA_TEST(gaussian_bulk_page_records_preserve_unsigned_intensity_and_sparse_view_selection) {
+    auto s=store();for(int x=-5;x<8;++x)for(int y=-3;y<6;++y){add(*s,x,y);
+        s->find({x,y,0})->point.intensity=255;s->mark_changed({x,y,0});}
+    vista::application::GaussianMapBuilder builder;const auto view=builder.update(*s->view_source(1)->surface_snapshot());
+    vista::models::RoomMapViewRequest request;request.point_budget=1000;const auto all=view->select_splats(request);
+    VISTA_CHECK(all.size()==117);for(const auto& p:all)VISTA_CHECK(p.center.intensity==255);
+    request.point_budget=7;const auto sparse=view->select_splats(request);VISTA_CHECK(sparse.size()==7);
+    for(std::size_t i=0;i<sparse.size();++i){const auto index=static_cast<std::size_t>((i+.5L)*all.size()/sparse.size());
+        VISTA_CHECK(sparse[i].center==all[index].center && sparse[i].covariance==all[index].covariance && sparse[i].opacity==all[index].opacity);}
 }
 
 VISTA_TEST(gaussian_rotated_plane_has_thin_normal_covariance_across_region_boundaries) {

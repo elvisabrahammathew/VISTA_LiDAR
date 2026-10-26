@@ -11,8 +11,10 @@ inline constexpr const char* pointcloud_cleaned_sensor = "pointcloud/cleaned_sen
 // Motion-compensated localization outputs. Any active IMU uses lidar/imu above.
 inline constexpr const char* pointcloud_world = "localization/pointcloud_world";
 inline constexpr const char* localization_status = "localization/status";
-// World-coordinate cloud including the floor, used by mapping and ground processing.
+// World-coordinate cloud including the floor, used by mapping and PCD logging.
 inline constexpr const char* pointcloud_cleaned = "pointcloud/cleaned";
+// Legacy identifiers retained for reference/codec tests; production creates no
+// Ground worker or publisher. New consumers should use pointcloud_cleaned.
 inline constexpr const char* pointcloud_processed = "pointcloud/processed";
 inline constexpr const char* ground_status = "processing/ground_status";
 // Independent mapping types: RoomMapMessage, RoomMapViewMessage, RoomMapStatus.
@@ -21,6 +23,8 @@ inline constexpr const char* room_map = "mapping/room_map";
 inline constexpr const char* room_map_view = "mapping/room_map_view";
 inline constexpr const char* room_map_status = "mapping/room_map_status";
 inline constexpr const char* gaussian_map_view = "mapping/gaussian_map_view";
+// Causal confirmed-background observations and replacement-only live foreground.
+inline constexpr const char* foreground_points = "perception/foreground_points";
 
 // Platform and application monitoring topics consumed by grafana_bridge.
 inline constexpr const char* system_health = "monitor/system_health";

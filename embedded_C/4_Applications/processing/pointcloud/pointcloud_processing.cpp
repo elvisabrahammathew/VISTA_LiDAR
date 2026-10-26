@@ -257,8 +257,7 @@ public:
     }
 
     void update_imu(const models::ImuFrame& sample) {
-        const auto& mount=config.mounting ? config.mounting : config.ground_removal;
-        if (!mount || !mount->use_imu) return;
+        if (!config.ground_removal || !config.ground_removal->use_imu) return;
         const Vec3 acceleration{sample.linear_acceleration_x_m_s2,sample.linear_acceleration_y_m_s2,sample.linear_acceleration_z_m_s2};
         const Vec3 angular{sample.angular_velocity_x_rad_s,sample.angular_velocity_y_rad_s,sample.angular_velocity_z_rad_s};
         const auto acceleration_magnitude=norm(acceleration), angular_speed=norm(angular);
@@ -290,7 +289,7 @@ public:
             const auto distance2=dx*dx+dy*dy+dz*dz;
             return distance2<min2 || distance2>max2;
         }),frame.points.end());
-        const auto& mount=config.mounting ? config.mounting : config.ground_removal;
+        const auto* mount=mounting();
         if (config.input_world_coordinates && !frame.sensor_origin_world_m)
             throw std::invalid_argument("world cloud requires its localized sensor origin");
         if (config.preserve_sensor_coordinates) {
@@ -333,11 +332,16 @@ public:
     models::GroundStatus ground_status() const { return latest_ground_status; }
 
 private:
-    Matrix3 current_rotation(const GroundRemovalConfig& ground) const {
-        if (ground.use_imu && imu_up) return imu_rotation(*imu_up,ground.mount_yaw_deg);
+    const MountingConfig* mounting() const {
+        if (config.mounting) return &*config.mounting;
+        return config.ground_removal ? &*config.ground_removal : nullptr;
+    }
+    Matrix3 current_rotation(const MountingConfig& ground) const {
+        if (config.ground_removal && config.ground_removal->use_imu && imu_up)
+            return imu_rotation(*imu_up,ground.mount_yaw_deg);
         return euler_rotation(ground.mount_roll_deg,ground.mount_pitch_deg,ground.mount_yaw_deg);
     }
-    void transform_to_world(models::PointCloudFrame& frame,const GroundRemovalConfig& ground) const {
+    void transform_to_world(models::PointCloudFrame& frame,const MountingConfig& ground) const {
         const auto rotation=current_rotation(ground);
         for (auto& point:frame.points) {
             const auto world=multiply(rotation,Vec3{point.x,point.y,point.z});
@@ -442,50 +446,28 @@ models::PointCloudFrame preprocess_point_cloud(models::PointCloudFrame frame,con
 }
 
 namespace {
-platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete,bool ground_stage,bool sensor_stage=false) {
+platform::WorkerHandle spawn_processing_stage(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete,bool sensor_stage=false) {
+    // The retained direct Ground API is deliberately unreachable from workers.
+    config.ground_removal.reset();
     platform::WorkerTopicInputs inputs(thread_config.name);
-    auto pointcloud_input=inputs.subscribe<devices::LidarPointCloudMessage>(bus,ground_stage ? models::topics::pointcloud_cleaned :
-        (config.input_world_coordinates ? models::topics::pointcloud_world : models::topics::pointcloud_decoded));
-    std::optional<platform::WorkerTopicInput<models::ImuMessage>> imu_input;
-    // Sensor cleaning needs neither gravity nor IMU. Do not wake this worker
-    // at IMU rate or allocate an unused per-subscriber sample queue.
-    if(!sensor_stage) imu_input.emplace(inputs.subscribe<models::ImuMessage>(bus,models::topics::lidar_imu));
-    auto publisher=bus.publisher<devices::LidarPointCloudMessage>(sensor_stage ? models::topics::pointcloud_cleaned_sensor : (ground_stage ? models::topics::pointcloud_processed : models::topics::pointcloud_cleaned));
-    auto ground_publisher=bus.publisher<models::GroundStatusMessage>(models::topics::ground_status);
-    return platform::spawn_worker(std::move(thread_config),[stop,ground_stage,inputs=std::move(inputs),pointcloud_input=std::move(pointcloud_input),imu_input=std::move(imu_input),publisher=std::move(publisher),ground_publisher=std::move(ground_publisher),config=std::move(config),on_complete=std::move(on_complete)]() mutable {
+    auto pointcloud_input=inputs.subscribe<devices::LidarPointCloudMessage>(bus,
+        config.input_world_coordinates ? models::topics::pointcloud_world : models::topics::pointcloud_decoded);
+    // Cleaning uses fixed mounting or already-localized XYZ, never IMU gravity.
+    auto publisher=bus.publisher<devices::LidarPointCloudMessage>(sensor_stage ? models::topics::pointcloud_cleaned_sensor : models::topics::pointcloud_cleaned);
+    return platform::spawn_worker(std::move(thread_config),[stop,inputs=std::move(inputs),pointcloud_input=std::move(pointcloud_input),publisher=std::move(publisher),config=std::move(config),on_complete=std::move(on_complete)]() mutable {
         try {
             PreprocessingReport report; PointCloudPreprocessor processor(std::move(config)); bool pointcloud_closed=false;
-            std::optional<models::GroundState> last_ground_state;
             while (!pointcloud_closed) {
                 const auto ready=inputs.wait();
-                if (imu_input && imu_input->is_ready(ready)) {
-                    std::shared_ptr<const models::ImuMessage> message;
-                    while (imu_input->try_receive(message)==platform::ReceiveStatus::message) processor.update_imu(message->payload);
-                }
                 if (pointcloud_input.is_ready(ready)) {
                     std::shared_ptr<const devices::LidarPointCloudMessage> message;
                     while (true) {
                         const auto status=pointcloud_input.try_receive(message);
                         if (status==platform::ReceiveStatus::closed) { pointcloud_closed=true; break; }
                         if (status!=platform::ReceiveStatus::message) break;
-                        auto processed=ground_stage ? processor.process_ground(message->payload) : processor.clean(message->payload);
+                        auto processed=processor.clean(message->payload);
                         ++report.message_count; report.point_count+=processed.points.size();
-                        auto ground_status=processor.ground_status();
-                        if (!ground_status.configured_mode.empty() && (!last_ground_state || *last_ground_state!=ground_status.state)) {
-                            std::cout << "Ground status: " << models::to_string(ground_status.state)
-                                      << ", mode=" << ground_status.configured_mode
-                                      << ", tilt=" << ground_status.ground_tilt_deg << " deg"
-                                      << ", height error=" << ground_status.ground_height_error_m << " m"
-                                      << ", inliers=" << ground_status.ground_inlier_ratio*100.0F << "%"
-                                      << ", RMS residual=" << ground_status.rms_residual_m << " m\n";
-                            last_ground_state=ground_status.state;
-                        }
-                        if (!ground_status.configured_mode.empty()) {
-                            ground_publisher.publish(models::GroundStatusMessage(
-                                message->lidar_id,message->sequence,message->sensor_timestamp_ns,
-                                message->received_timestamp_ns,std::move(ground_status),message->received_monotonic_ns,message->measurement_timestamp_ns));
-                        }
-                        publisher.publish(devices::LidarPointCloudMessage(message->lidar_id,message->sequence,message->sensor_timestamp_ns,message->received_timestamp_ns,std::move(processed),message->received_monotonic_ns,message->measurement_timestamp_ns));
+                        publisher.publish(devices::LidarPointCloudMessage(message->lidar_id,message->sequence,message->sensor_timestamp_ns,message->received_timestamp_ns,std::move(processed),message->received_monotonic_ns,message->measurement_timestamp_ns,message->measurement_clock_epoch,message->measurement_epoch_started_ns));
                     }
                 }
             }
@@ -499,10 +481,6 @@ platform::WorkerHandle spawn_preprocessing_worker(platform::MessageBus& bus,plat
     return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),false);
 }
 
-platform::WorkerHandle spawn_ground_processing_worker(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete) {
-    return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),true);
-}
-
 platform::WorkerHandle spawn_live_preprocessing_worker(platform::MessageBus& bus,platform::ThreadConfig thread_config,platform::StopToken stop,PreprocessingConfig config,PreprocessingCompletion on_complete) {
     config.input_world_coordinates=false;
     config.preserve_sensor_coordinates=true;
@@ -510,7 +488,7 @@ platform::WorkerHandle spawn_live_preprocessing_worker(platform::MessageBus& bus
     config.ground_removal.reset();
     // The existing ROI is in world coordinates, not in the moving sensor frame.
     config.region_of_interest.reset();
-    return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),false,true);
+    return spawn_processing_stage(bus,std::move(thread_config),stop,std::move(config),std::move(on_complete),true);
 }
 
 }  // namespace vista::application

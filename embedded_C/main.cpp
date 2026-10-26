@@ -3,11 +3,28 @@
 int main() {
     try {
         // All user settings are loaded from DeviceConfig.txt.
-        const auto config = vista::AppConfig::load();
+        const auto config_path = vista::default_device_config_file();
+        const auto created = vista::create_missing_startup_config_files(
+            config_path.parent_path());
+        if (created.device_config_created) {
+            std::cout << "Created default device configuration: "
+                      << config_path.u8string() << '\n';
+        }
+        if (created.grafana_secret_created) {
+            std::cout << "Created GrafanaSecret.txt beside the executable with an "
+                         "empty GrafanaToken. Fill it in to enable Grafana authentication.\n";
+        }
+        if (created.device_config_created) {
+            // Do not issue hardware mode/restart commands with unreviewed defaults.
+            std::cout << "Review DeviceConfig.txt (especially the COM port/IP), "
+                         "then restart this application. No workers were started.\n";
+            return EXIT_SUCCESS;
+        }
+        const auto config = vista::AppConfig::load(config_path);
         const auto runtime = config.runtime_config();
         vista::platform::validate_worker_selection(config, runtime);
 
-        std::cout << "Device configuration: " << vista::default_device_config_path
+        std::cout << "Device configuration: " << config_path.u8string()
                   << " (selected " << vista::devices::to_string(config.lidar_type)
                   << ")\n";
         std::cout << "Platform: " << vista::platform::platform_name() << '\n';
@@ -51,21 +68,16 @@ int main() {
                   << static_cast<double>(config.lidar_reconnect_interval.count()) /
                          1000.0
                   << " second(s)\n";
-        if (config.ground_removal) {
-            const auto& ground = *config.ground_removal;
-            std::cout << "Ground removal: mode="
-                      << vista::application::to_string(ground.mode)
-                      << ", mount=(" << ground.mount_x_m << ", "
-                      << ground.mount_y_m << ", " << ground.mount_z_m
-                      << ") m, RPY=(" << ground.mount_roll_deg << ", "
-                      << ground.mount_pitch_deg << ", "
-                      << ground.mount_yaw_deg << ") deg, floor Z="
-                      << ground.floor_z_m << " m, IMU="
-                      << (ground.use_imu ? "preferred with pose fallback"
-                                         : "disabled")
+        if (config.mounting) {
+            const auto& mount = *config.mounting;
+            std::cout << "Initial/fixed LiDAR world pose: position=(" << mount.mount_x_m << ", "
+                      << mount.mount_y_m << ", " << mount.mount_z_m
+                      << ") m, RPY=(" << mount.mount_roll_deg << ", "
+                      << mount.mount_pitch_deg << ", "
+                      << mount.mount_yaw_deg << ") deg"
                       << '\n';
         } else {
-            std::cout << "Ground removal: disabled\n";
+            std::cout << "Initial/fixed LiDAR world pose: origin\n";
         }
         std::cout << "Grafana Live: ";
         if (config.grafana.enabled) {
@@ -101,6 +113,10 @@ int main() {
         if(config.grafana.enabled && config.gaussian_map.enabled)
             std::cout<<"Gaussian-map WebSocket: ws://"<<config.gaussian_map_websocket.bind_address
                 <<':'<<config.gaussian_map_websocket.port<<" (geometric intensity surfaces)\n";
+        if(config.foreground.enabled)
+            std::cout<<"Foreground: live world points outside confirmed RoomMap; not a motion label\n";
+        if(config.foreground_websocket.enabled)
+            std::cout<<"Foreground WebSocket: ws://"<<config.foreground_websocket.bind_address<<':'<<config.foreground_websocket.port<<'\n';
 
         const auto started = std::chrono::steady_clock::now();
         std::cout << "Mapping pose: " << (config.lio.enabled ? vista::application::LioEngine::backend_name() : "fixed mount") << '\n';
@@ -123,9 +139,6 @@ int main() {
         bus.configure_topic(
             vista::models::topics::pointcloud_decoded,
             runtime.queues.decoded_capacity);
-        bus.configure_topic(
-            vista::models::topics::pointcloud_processed,
-            runtime.queues.processed_capacity);
         bus.configure_topic(vista::models::topics::pointcloud_cleaned, runtime.queues.processed_capacity);
         bus.configure_topic(vista::models::topics::pointcloud_cleaned_sensor, runtime.queues.processed_capacity);
         bus.configure_topic(vista::models::topics::pointcloud_world,4);
@@ -134,10 +147,8 @@ int main() {
         bus.configure_topic(vista::models::topics::room_map, 2);
         bus.configure_topic(vista::models::topics::room_map_view, 2);
         bus.configure_topic(vista::models::topics::gaussian_map_view,2);
+        bus.configure_topic(vista::models::topics::foreground_points,2);
         bus.configure_topic(vista::models::topics::room_map_status, runtime.queues.telemetry_capacity);
-        bus.configure_topic(
-            vista::models::topics::ground_status,
-            runtime.queues.telemetry_capacity);
         bus.configure_topic(
             vista::models::topics::system_health,
             runtime.queues.telemetry_capacity);
@@ -171,15 +182,16 @@ int main() {
         auto pointcloud_websocket_result = std::make_shared<
             vista::platform::WorkerResult<
                 vista::application::PointCloudWebSocketReport>>();
-        auto ground_result = std::make_shared<
-            vista::platform::WorkerResult<vista::application::PreprocessingReport>>();
         auto room_map_result = std::make_shared<
             vista::platform::WorkerResult<vista::application::RoomMapReport>>();
         auto room_map_websocket_result = std::make_shared<
             vista::platform::WorkerResult<vista::application::PointCloudWebSocketReport>>();
 
         std::vector<vista::platform::WorkerHandle> workers;
-        workers.reserve(13);
+        workers.reserve(16);
+        auto foreground_result=std::make_shared<vista::platform::WorkerResult<vista::application::ForegroundReport>>();
+        auto foreground_socket_result=std::make_shared<vista::platform::WorkerResult<vista::application::PointCloudWebSocketReport>>();
+        bool foreground_started=false,foreground_socket_started=false;
         auto live_result=std::make_shared<vista::platform::WorkerResult<vista::application::PreprocessingReport>>();
         bool live_started=false;
         auto lio_result=std::make_shared<vista::platform::WorkerResult<vista::application::LioReport>>();
@@ -192,7 +204,6 @@ int main() {
         bool grafana_started = false;
         bool system_monitor_started = false;
         bool pointcloud_websocket_started = false;
-        bool ground_started = false;
         bool room_map_started = false;
         bool room_map_websocket_started = false;
         auto gaussian_result=std::make_shared<vista::platform::WorkerResult<vista::application::GaussianMapReport>>();
@@ -201,6 +212,18 @@ int main() {
 
         try {
             // The user controls worker creation and startup order in main.
+            if(runtime.threads.foreground_websocket.enabled) {
+                vista::platform::add_worker(workers,vista::application::spawn_foreground_websocket(bus,
+                    runtime.threads.foreground_websocket.thread,stop,config.foreground_websocket,
+                    vista::platform::completion_for(foreground_socket_result)));
+                foreground_socket_started=true;
+            }
+            if(runtime.threads.foreground_filter.enabled) {
+                vista::platform::add_worker(workers,vista::application::spawn_foreground_worker(bus,
+                    runtime.threads.foreground_filter.thread,stop,config.foreground,
+                    vista::platform::completion_for(foreground_result)));
+                foreground_started=true;
+            }
             if (runtime.threads.grafana_bridge.enabled &&
                 config.grafana.enabled) {
                 vista::platform::add_worker(
@@ -281,15 +304,6 @@ int main() {
                         *config.pcd_path,
                         vista::platform::completion_for(pcd_logger_result)));
                 pcd_logger_started = true;
-            }
-
-            // Ground processing owns its own calibration state and consumes cleaned
-            // world points. Mapping receives those same points with the floor intact.
-            if (runtime.threads.ground_processing.enabled) {
-                vista::platform::add_worker(workers, vista::application::spawn_ground_processing_worker(
-                    bus, runtime.threads.ground_processing.thread, stop,
-                    runtime.preprocessing, vista::platform::completion_for(ground_result)));
-                ground_started = true;
             }
 
             if (runtime.threads.preprocessing.enabled) {
@@ -415,8 +429,6 @@ int main() {
             runtime.threads.pointcloud_websocket.thread.name,
             pointcloud_websocket_result,
             pointcloud_websocket_started);
-        vista::platform::collect_worker_error(failures, runtime.threads.ground_processing.thread.name,
-                                             ground_result, ground_started);
         vista::platform::collect_worker_error(failures, runtime.threads.room_mapping.thread.name,
                                              room_map_result, room_map_started);
         vista::platform::collect_worker_error(failures, runtime.threads.room_map_websocket.thread.name,
@@ -425,12 +437,14 @@ int main() {
         vista::platform::collect_worker_error(failures,runtime.threads.live_preprocessing.thread.name,live_result,live_started);
         vista::platform::collect_worker_error(failures,runtime.threads.gaussian_mapping.thread.name,gaussian_result,gaussian_started);
         vista::platform::collect_worker_error(failures,runtime.threads.gaussian_map_websocket.thread.name,gaussian_socket_result,gaussian_socket_started);
+        vista::platform::collect_worker_error(failures,runtime.threads.foreground_filter.thread.name,foreground_result,foreground_started);
+        vista::platform::collect_worker_error(failures,runtime.threads.foreground_websocket.thread.name,foreground_socket_result,foreground_socket_started);
         vista::platform::throw_if_worker_failures(failures);
 
         const auto packet_count =
             read_result->report ? read_result->report->message_count : 0;
-        const auto point_count = ground_result->report
-                                     ? ground_result->report->point_count
+        const auto point_count = preprocessing_result->report
+                                     ? preprocessing_result->report->point_count
                                      : 0;
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started);
@@ -481,6 +495,15 @@ int main() {
         if (room_map_result->report) {
             std::cout << "Room map: " << room_map_result->report->map_points << " points, input-drops="
                       << room_map_result->report->dropped_input_messages << '\n';
+        }
+        if(foreground_result->report) {
+            const auto& report=*foreground_result->report;
+            std::cout<<"Foreground scan filter: "<<report.isolated_points<<" isolated point(s) removed, "
+                <<report.filter_unresolved_points<<" unresolved, "<<report.filter_distance_checks<<" neighbor checks\n";
+            std::cout<<"Foreground: "<<report.processed_frames<<" sampled query frame(s), "<<report.foreground_frames<<" nonempty frame(s), "<<report.foreground_points
+                <<" points, background="<<report.background_points<<", unresolved="<<report.unknown_points
+                <<", peak cache="<<report.peak_cache_points<<", query failures="<<report.query_failures
+                <<", input drops="<<report.dropped_input_messages<<'\n';
         }
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

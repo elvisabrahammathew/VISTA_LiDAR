@@ -6,6 +6,7 @@
 #include <sstream>
 #include <thread>
 #include "2_Transport/storage/room_map_tiles.hpp"
+#include "2_Transport/storage/session_directory.hpp"
 #include "4_Applications/mapping/room_map/room_map.hpp"
 #include "4_Applications/pointcloud_websocket/pointcloud_websocket.hpp"
 #include "unittest/test.hpp"
@@ -52,6 +53,86 @@ VISTA_TEST(room_map_tiles_keep_more_points_than_cache_and_export_complete_pcd) {
     VISTA_CHECK(full.points.size()==12);
     for(int i=0;i<12;++i) VISTA_CHECK(std::find(full.points.begin(),full.points.end(),map_geometry(point(i+0.25F)))!=full.points.end());
     vista::fs::remove(path);
+}
+
+VISTA_TEST(room_map_tiles_cleanup_waits_for_disk_view_and_detached_surface_readers) {
+    const auto parent=test_path();vista::fs::create_directory(parent);
+    const auto sentinel=parent/"other-session.txt";
+    {vista::io::ofstream out(sentinel);out<<"keep";}
+    vista::fs::path cache;
+    std::shared_ptr<const vista::models::RoomMapViewSource> view;
+    std::shared_ptr<const vista::models::RoomMapSurfaceSnapshot> surface;
+    std::shared_ptr<const vista::models::RoomMapRegion> region;
+    {
+        vista::transport::RoomMapTileStore store(parent/"tiles",1,1,2,2,1,2);
+        store.enable_surface_snapshots(true);
+        store.insert({1,0,0},{map_geometry(point(1.25F)),1,0,0});
+        view=store.view_source(123);surface=view->surface_snapshot();
+        region=surface->regions.begin()->second;cache=store.directory();
+        store.discard_when_unused();
+        VISTA_CHECK(vista::fs::exists(cache));
+    }
+    VISTA_CHECK(view->select_view(positive_view()).points.size()==1);
+    view.reset();VISTA_CHECK(vista::fs::exists(cache));
+    surface.reset();VISTA_CHECK(vista::fs::exists(cache));
+    std::size_t count{};region->read([&](const auto&){++count;});VISTA_CHECK(count==1);
+    region.reset();
+    VISTA_CHECK(!vista::fs::exists(cache) && vista::fs::exists(sentinel));
+    vista::fs::remove(sentinel);vista::fs::remove(parent);
+}
+
+VISTA_TEST(room_map_tiles_without_successful_export_are_retained) {
+    vista::fs::path cache;
+    {
+        vista::transport::RoomMapTileStore store({},1,1,2,2,1,2);
+        store.insert({1,0,0},{map_geometry(point(1.25F)),1,0,0});
+        store.flush();cache=store.directory();
+        // No discard permission: failure/crash recovery evidence must survive.
+    }
+    VISTA_CHECK(vista::fs::exists(cache));
+    // Only this test's generated, exact child directory is removed.
+    VISTA_CHECK(vista::fs::canonical(cache.parent_path())==vista::fs::canonical(vista::fs::temp_directory_path()));
+    vista::fs::remove_all(cache);
+}
+
+VISTA_TEST(room_map_reset_discards_old_cache_only_after_its_readers_release) {
+    auto options=config();const auto parent=test_path();vista::fs::create_directory(parent);
+    options.storage_directory=parent/"tiles";
+    vista::application::RoomMapAccumulator map(options);
+    map.integrate({1,{point(1.25F)}},0ms);auto reader=map.view_source();
+    vista::fs::path cache;
+    for(const auto& item:vista::fs::directory_iterator(parent)) cache=item.path();
+    VISTA_CHECK(!cache.empty());
+    map.reset();VISTA_CHECK(reader->select_view(positive_view()).points.size()==1);
+    reader.reset();VISTA_CHECK(!vista::fs::exists(cache));
+    vista::fs::remove(parent);
+}
+
+VISTA_TEST(room_map_session_directory_refuses_foreign_existing_directory) {
+    const auto root=test_path();vista::fs::create_directory(root);
+    const auto sentinel=root/"foreign.txt";{vista::io::ofstream out(sentinel);out<<"keep";}
+    {
+        vista::transport::detail::SessionDirectory lease;lease.root=root;lease.discard=true;
+        VISTA_CHECK_THROWS(lease.ensure());
+    }
+    VISTA_CHECK(vista::fs::exists(sentinel));vista::fs::remove(sentinel);vista::fs::remove(root);
+}
+
+VISTA_TEST(room_map_frozen_pcd_export_keeps_cache_available_until_session_end) {
+    auto options=config();const auto parent=test_path();vista::fs::create_directory(parent);
+    options.storage_directory=parent/"tiles";const auto pcd=parent/"RoomMap.pcd";
+    vista::fs::path cache;
+    {
+        vista::application::RoomMapAccumulator map(options);
+        map.integrate({1,{point(1.25F)}},0ms);map.freeze();
+        vista::transport::RoomMapSessionFile output(pcd);map.save(output);
+        for(const auto& item:vista::fs::directory_iterator(parent)) if(item.is_directory()) cache=item.path();
+        VISTA_CHECK(!cache.empty() && map.snapshot().points.size()==1);
+        VISTA_CHECK(vista::fs::exists(cache)); // freeze/save is NOT session end.
+        map.discard_cache_when_unused();VISTA_CHECK(vista::fs::exists(cache));
+    }
+    VISTA_CHECK(!vista::fs::exists(cache) && vista::transport::load_room_map_snapshot(pcd,10).points.size()==1);
+    vista::fs::remove(pcd);vista::fs::remove(parent);
 }
 
 VISTA_TEST(room_map_tiles_exceed_old_250000_limit_with_bounded_cache_and_complete_export) {

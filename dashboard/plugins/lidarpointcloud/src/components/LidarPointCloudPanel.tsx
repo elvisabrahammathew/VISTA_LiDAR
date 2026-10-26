@@ -6,6 +6,9 @@ import { decodePointCloudPacket } from '../protocol';
 import { decodeRoomMapMetadata, makeRoomMapViewRequest, RoomMapMetadata } from '../room_map_view';
 import { GroundStatus, LidarPointCloudOptions, PointCloudFrame } from '../types';
 import { GaussianRenderer } from '../gaussian_renderer';
+import { transientExpired } from '../transient';
+import { decodeForegroundStatus, foregroundStatusMessage, ForegroundStatus } from '../foreground_status';
+import { GaussianForegroundPanel } from './GaussianForegroundPanel';
 
 type Props = PanelProps<LidarPointCloudOptions>;
 
@@ -45,6 +48,7 @@ interface StatusState {
   frameId: string;
   ground?: GroundStatus;
   roomMap?: RoomMapMetadata;
+  foreground?: ForegroundStatus;
 }
 
 const initialStatus: StatusState = {
@@ -56,12 +60,18 @@ const initialStatus: StatusState = {
   frameId: '-',
 };
 
-export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, height }) => {
+// Keep the old single-stream/DataFrame component intact for existing dashboards.
+export const LidarPointCloudPanel: React.FC<Props> = (props) =>
+  props.options.sourceMode === 'websocket' && props.options.overlayForeground
+    ? <GaussianForegroundPanel {...props} /> : <SinglePointCloudPanel {...props} />;
+
+const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneState | null>(null);
   const optionsRef = useRef(options);
   const statusUpdateTimeRef = useRef(0);
   const roomMapRef = useRef<RoomMapMetadata | undefined>(undefined);
+  const foregroundRef = useRef<ForegroundStatus | undefined>(undefined);
   const [status, setStatus] = useState<StatusState>(initialStatus);
 
   optionsRef.current = options;
@@ -226,6 +236,16 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
     let reconnectTimer: number | undefined;
     let lastViewRequest = '';
     let stopped = false;
+    let lastFrameMs = performance.now();
+    let staleCleared = false;
+    const clearTransient = () => {
+      if (!(options.staleTimeoutMs && options.staleTimeoutMs > 0) || staleCleared) { return; }
+      displayFrame(sceneRef.current, { positions: new Float32Array(0), pointCount: 0, protocol: 'LPC1' }, optionsRef.current);
+      foregroundRef.current = undefined;
+      setStatus((current) => ({ ...current, shownPoints: 0, inputPoints: 0, foreground: undefined,
+        state: 'waiting', message: 'No fresh foreground points' }));
+      staleCleared = true;
+    };
 
     const connect = () => {
       if (stopped) {
@@ -239,6 +259,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
 
       try {
         roomMapRef.current = undefined;
+        foregroundRef.current = undefined;
         lastViewRequest = '';
         socket = new WebSocket(options.websocketUrl);
         socket.binaryType = 'arraybuffer';
@@ -248,6 +269,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       }
 
       socket.onopen = () => {
+        if (stopped) { return; }
         setStatus((current) => ({
           ...current,
           state: 'connected',
@@ -256,8 +278,16 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       };
 
       socket.onmessage = (event) => {
+        if (stopped || event.target !== socket) { return; }
         if (typeof event.data === 'string') {
           try {
+            const foreground = decodeForegroundStatus(event.data);
+            if (foreground) {
+              foregroundRef.current = foreground;
+              // The following LPC1 frame updates the overlay using its existing
+              // 200 ms throttle; metadata must not double React update frequency.
+              return;
+            }
             const meta = decodeRoomMapMetadata(event.data);
             if (meta) {
               roomMapRef.current = meta;
@@ -281,6 +311,8 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
         }
         try {
           const frame = decodePointCloudPacket(event.data);
+          lastFrameMs = performance.now();
+          staleCleared = false;
           displayFrame(sceneRef.current, frame, optionsRef.current);
           updateStatus(frame, options.websocketUrl);
         } catch (error) {
@@ -293,10 +325,14 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       };
 
       socket.onerror = () => {
+        if (stopped) { return; }
+        clearTransient();
         setStatus((current) => ({ ...current, state: 'error', message: `WebSocket error at ${options.websocketUrl}` }));
       };
 
       socket.onclose = () => {
+        if (stopped) { return; }
+        clearTransient();
         if (!stopped) {
           scheduleReconnect('WebSocket disconnected');
         }
@@ -317,6 +353,7 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
 
     connect();
     const viewTimer = window.setInterval(() => {
+      if (transientExpired(lastFrameMs, performance.now(), options.staleTimeoutMs)) { clearTransient(); }
       const scene = sceneRef.current;
       if (!scene || !roomMapRef.current || socket?.readyState !== WebSocket.OPEN) { return; }
       const viewport = scene.renderer.getSize(new THREE.Vector2());
@@ -328,16 +365,20 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
       stopped = true;
       window.clearInterval(viewTimer);
       roomMapRef.current = undefined;
+      foregroundRef.current = undefined;
       if (sceneRef.current) { sceneRef.current.roomMapBounds = undefined; }
       if (reconnectTimer !== undefined) {
         window.clearTimeout(reconnectTimer);
       }
       if (socket) {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
         socket.onclose = null;
         socket.close();
       }
     };
-  }, [options.sourceMode, options.websocketUrl, options.reconnectDelayMs]);
+  }, [options.sourceMode, options.websocketUrl, options.reconnectDelayMs, options.staleTimeoutMs]);
 
   const updateStatus = (frame: PointCloudFrame, source: string) => {
     const now = performance.now();
@@ -347,14 +388,16 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
     statusUpdateTimeRef.current = now;
     const shownPoints = sceneRef.current?.pointCount ?? 0;
     setStatus({
-      state: 'connected',
-      message: frame.pointCount > 0 ? `Receiving from ${source}` : `Connected to ${source}; no point-cloud data`,
+      state: foregroundRef.current && !foregroundRef.current.active ? 'waiting' : 'connected',
+      message: foregroundRef.current ? foregroundStatusMessage(foregroundRef.current) :
+        frame.pointCount > 0 ? `Receiving from ${source}` : `Connected to ${source}; no point-cloud data`,
       shownPoints,
       inputPoints: frame.pointCount,
       protocol: frame.protocol,
       frameId: frame.frameId?.toString() ?? '-',
       ground: frame.ground,
       roomMap: roomMapRef.current,
+      foreground: foregroundRef.current,
     });
   };
 
@@ -392,6 +435,13 @@ export const LidarPointCloudPanel: React.FC<Props> = ({ options, data, width, he
           Points {status.shownPoints.toLocaleString()} / {status.inputPoints.toLocaleString()} · {status.protocol} · frame{' '}
           {status.frameId}
         </div>
+        {status.foreground && (
+          <div>
+            Processed {status.foreground.inputPoints.toLocaleString()} · Background{' '}
+            {status.foreground.backgroundPoints.toLocaleString()} · Unresolved{' '}
+            {status.foreground.unknownPoints.toLocaleString()}
+          </div>
+        )}
         {status.roomMap && (
           <div>
             Room map: {status.roomMap.totalPoints.toLocaleString()} stored points · camera-dependent LOD ·{' '}
@@ -446,7 +496,7 @@ const displayFrame = (
     state.gaussian.set(new Float32Array(0),new Float32Array(0),new Float32Array(0),new Float32Array(0));
     state.geometry.boundingBox = null;
     state.geometry.boundingSphere = null;
-    if (!state.roomMapBounds) { state.fitted = false; }
+    if (!state.roomMapBounds && !options.staleTimeoutMs) { state.fitted = false; }
     return;
   }
 

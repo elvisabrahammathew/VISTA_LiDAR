@@ -3,6 +3,18 @@
 This directory is the C++17 counterpart of the Rust project in `../embedded`.
 The Rust source remains unchanged and can be kept as a behavioral reference.
 
+For a clean checkout, Visual Studio 2019/2022 or VS Code setup, dependencies,
+and what to commit, start with [Building VISTA C++](docs/BUILDING.md).
+
+## Ready-to-run Release programs
+
+The repository-level [`publish/`](../publish/README.md) contains separate
+Windows x64, Linux x86-64 and Linux ARM64 packages. Windows Release links directly
+to `publish/windows-x64/vista_edge.exe` with a static CRT and two TXT configs.
+Linux Release builds copy their packages as before; Debug never replaces them. Existing
+published DeviceConfig.txt and private GrafanaSecret.txt are preserved. See that
+guide for startup, dependencies, config locations and publishing commands.
+
 ## Current map display (October 2026)
 
 The two 3D panels now display **Room Map :8766** and **geometric Gaussian Map
@@ -12,8 +24,13 @@ CPU worker from full confirmed map checkpoints, with changed-tile/neighbor updat
 and disk-backed output. No camera, clustering, detection or tracking is added.
 See the [Gaussian mapping guide](4_Applications/mapping/gaussian_map/README.md).
 
+Ground processing was retired from the runtime on 2026-10-21. Re-import the
+updated existing V5 JSON to remove Ground panels; neither plugin needs an update
+for this removal. Mounting, LIO, RoomMap and Gaussian algorithms remain unchanged.
+See [Ground retirement and restoration notes](docs/GROUND_PROCESSING_RETIRED.md).
+
 Update the existing `vista-lidarpointcloud-panel` from
-`dashboard/plugins/lidarpointcloud/dist` to **1.2.0**, restart Grafana, hard-refresh
+`dashboard/plugins/lidarpointcloud/dist` to **1.3.0**, restart Grafana, hard-refresh
 the browser and import **V5** (`dashboard/VISTA_Live_Dashboard_V5_Gaussian_Map.json`)
 over the existing UID `vistalive`. V4 remains available as the previous file. `vistalive` and
 health telemetry are unchanged. This update requirement supersedes older
@@ -54,7 +71,7 @@ latest values for 1, 9, 11, 12, 13 and 14 workers, including multiple input fram
 
 `main.cpp` explicitly chooses and starts the independent Read, Decode,
 Preprocessing, RAW Logger, PCD Logger, System Monitor, Grafana Bridge, and
-Ground Processing, Room Mapping, Room-map WebSocket, Gaussian Mapping and Gaussian-map WebSocket
+Room Mapping, Room-map WebSocket, Gaussian Mapping and Gaussian-map WebSocket
 workers, independent sensor-frame Live Preprocessing, plus optional LiDAR-inertial odometry for moving mapping. Each worker registers its own
 publisher/subscriber endpoints on the shared MessageBus. RAW and PCD logger
 workers write to filenames generated from the local system start time. Capture
@@ -88,14 +105,13 @@ these layers do not guarantee elimination of stationary or moving drift.
 Preprocessing publishes `pointcloud/cleaned` in world coordinates after finite/range
 filtering, mounting (fixed mode only), ROI, and voxel downsampling. These are retained measured
 points, not centroid-synthesized rays. Each cleaned frame carries the world
-sensor origin; mounting remains active with GroundMode none. Ground Processing
-consumes cleaned points and publishes processed points/ground diagnostics. The
-PCD logger uses processed world points; mapping keeps the floor. Health telemetry
+sensor origin; mounting is independent of the retired Ground branch. The
+PCD logger and mapping both use cleaned world points, including the floor. Health telemetry
 consumes `pointcloud/cleaned_sensor` from an independent worker, with
 finite/range/voxel filtering but NO mount transform, ground removal or world ROI.
 It continues when LIO is INITIALIZING, WAITING IMU, DEGRADED or LOST. Grafana's
 LiDAR online/count/rate telemetry describes this live branch, not pose validity.
-World ground diagnostics remain separate; they are not overlaid on sensor XYZ.
+Runtime preprocessing has no IMU subscription; LIO and IMU health remain active.
 On localization failure the existing Room Map is held; no invalid pose is integrated.
 No detection/tracking worker is added in this change.
 
@@ -113,7 +129,7 @@ A stale accepted result is DEGRADED,
 not automatically classified as missing IMU. Original fault reasons are retained.
 Only the Point-LIO numerical target uses optimized code in Visual Studio Debug
 (debug symbols remain, variables may be optimized out). Other VISTA workers
-retain normal Debug runtime checks. Test physical motion and sensor calibration
+retain normal Debug runtime checks. Test physical foreground and sensor calibration
 on target hardware before treating the map as accurate.
 
 ### Build a new room map
@@ -249,7 +265,7 @@ RoomMapEnabled 0 publishes DISABLED status and empty map snapshots. The map
 service remains alive to supply status/replays, but does not build or load.
 
 Detection and tracking are not implemented by this change. Live sensor read,
-decode, preprocessing, and ground processing remain available independently
+decode and preprocessing remain available independently
 of mapping. The reference is ready for future application consumers. Preserve
 the sensor mounting/world frame when reusing it.
 
@@ -291,6 +307,19 @@ that same configured interval. Freeze/shutdown can perform a final checkpoint.
 Periodic checkpoints do not rewrite the entire session PCD: PCD export remains
 on freeze/clean shutdown. Checkpoint means flushed tile/LOD files, not fsync-level
 power-loss durability. Grafana metrics keep their independent publish interval.
+The supplied DeviceConfig now uses **5000 ms** for this cadence. Capture, LIO,
+RoomMap integration and the configured Foreground sampling rate are independent
+and unchanged. Gaussian construction adds its own processing time; this interval
+is not a hard five-second end-to-end deadline. Gaussian fitting uses a bounded
+per-tile padded lookup table (at most 72³ pointers, about 3 MiB on 64-bit systems)
+instead of repeated neighborhood hash lookups. Fit order, covariance math, map
+resolution, GSP1 wire format and the 41-byte disk record layout are unchanged;
+record I/O and sequential selection avoid redundant small operations.
+Foreground and Gaussian are compiled in a small dedicated OBJECT target, with
+optimization enabled even in Debug, as already done for the numerical LIO core.
+Debug symbols, the Debug C++ runtime and iterator ABI remain; local variables in
+these two files may be optimized out. Other worker/controller code and tests keep
+their normal Debug checks. No runtime worker/thread is added by this build target.
 Rebuild/restart VISTA and reimport this existing dashboard (UID vistalive). This
 update does not change the plugin protocol or require a newer plugin than 1.1.0.
 
@@ -379,6 +408,25 @@ ctest --preset windows-debug
 
 When CMake is not on PATH, use the CMake executable bundled with Visual Studio.
 
+For Release, use the same configure preset and select the Release build/test
+presets instead (run these commands from `embedded_C`):
+
+```powershell
+cmake --build --preset windows-release
+ctest --preset windows-release
+./out/build/windows-vs2019/Release/vista_edge.exe
+```
+
+In Visual Studio's CMake Presets interface, keep the Configure Preset set to
+`windows-vs2019`, then choose `windows-debug` or `windows-release` (display name
+`Windows x64 - Release`) in the Build Preset selector. Choose `vista_edge.exe`
+as the startup target and press F5. If the new preset is not listed yet, reopen
+the `embedded_C` folder so Visual Studio reloads `CMakePresets.json`.
+The selectors are separate: the Configure Preset remains `windows-vs2019` for
+both builds. Debug outputs go to `out/build/windows-vs2019/Debug`, Release outputs
+to `out/build/windows-vs2019/Release`. Each folder has its own runtime
+`DeviceConfig.txt` and `GrafanaSecret.txt`; builds never copy or overwrite them.
+
 ## Ubuntu x86-64
 
 ```bash
@@ -418,7 +466,7 @@ Initialize submodules, then run from the repository root on ADLINK:
 git submodule update --init --recursive
 bash embedded_C/scripts/build_adlink.sh
 cd embedded_C/out/build/linux-adlink-ubuntu20-arm64
-# Edit DeviceConfig.txt here, then:
+# Missing DeviceConfig.txt is created on first launch; review it and run again.
 ./vista_edge
 ```
 
@@ -435,10 +483,31 @@ for prerequisites, configuration, rebuilds and validation limits.
 RealSense OFF disables only L515; Unitree serial/UDP and Quanergy still build.
 This camera-free path does not claim RealSense camera validation on ADLINK.
 The application is named `vista_edge` on Linux (no `.exe` suffix), beside the
-copied `DeviceConfig.txt` and optional local `GrafanaSecret.txt`. Keep the secret
-out of Git. Configuration is read relative to the working directory, so run
-from that build directory. A subsequent rebuild may replace the copied config;
-put permanent device settings in the source `DeviceConfig.txt` or keep a backup.
+runtime `DeviceConfig.txt` and optional local `GrafanaSecret.txt`. Keep the secret
+out of Git. On Windows and Linux, the application reads `DeviceConfig.txt` and
+optional `GrafanaSecret.txt` beside the executable, regardless of the working
+directory or a shortcut's "Start in" setting. Put these files in the same folder
+as `vista_edge.exe` (Windows) or `vista_edge` (Linux); there is no fallback to a
+different config in the working directory. Missing sidecars are created at startup:
+`DeviceConfig.txt` uses `config/DeviceConfig.defaults.txt` embedded at build time;
+`GrafanaSecret.txt`
+contains `GrafanaToken:` with no token. Existing files, even empty or invalid ones,
+are never overwritten. If the device config was created, the application exits
+successfully without starting workers or issuing hardware commands: review the
+COM/IP and other settings, fill the token if needed, then run it again. If only
+the secret was created, normal startup continues (existing environment-token
+fallback still applies). The executable directory must be writable when a file
+is missing; errors identify the full path. No real token is embedded in the EXE.
+Startup prints the full config path, and unreadable or invalid configuration
+errors identify that path.
+Other data/output path behavior is unchanged; the application does not change
+its working directory. Builds never copy or overwrite either runtime file.
+Edit only the `DeviceConfig.txt` beside the executable for your device's COM/IP
+and other settings. `config/DeviceConfig.defaults.txt` is a build-time template,
+not a runtime configuration: changing it affects only subsequently created files,
+never an existing runtime file. The former `embedded_C/DeviceConfig.txt` is no
+longer used. Local `embedded_C/GrafanaSecret.txt` is no longer copied by builds;
+manage the token only in the secret file beside the executable.
 
 For Unitree, set `SerialPort(unitree-l2)` to the actual Linux device, such as
 `/dev/ttyACM0` or `/dev/ttyUSB0`, and grant the user serial access (normally the
@@ -503,20 +572,13 @@ DepthWidth(realsensel515): 640
 DepthHeight(realsensel515): 480
 DepthFps(realsensel515): 30
 
-# LiDAR mounting and ground calibration (hybrid, ransac, static)
-GroundMode(lidar): hybrid
-UseImuForGround(lidar): 0
+# Initial LiDAR world pose for LIO; fixed mounting without LIO
 MountX(lidar): 0.0
 MountY(lidar): 0.0
 MountZ(lidar): 0.75
 MountRollDeg(lidar): 0.0
 MountPitchDeg(lidar): 0.0
 MountYawDeg(lidar): 0.0
-FloorZ(lidar): 0.0
-GroundDistanceThreshold(lidar): 0.10
-GroundNormalToleranceDeg(lidar): 15.0
-GroundCalibrationFrames(lidar): 50
-GroundMinInlierRatio(lidar): 0.20
 
 # Supported Radar: none
 Radar: None
@@ -591,15 +653,12 @@ initialization disabled, the original passive serial/UDP/auto selection is
 preserved: the first valid frame selects the transport, without any writes or
 boot delay. Quanergy and RealSense do not execute this Unitree-only flow.
 
-Ground processing first converts sensor coordinates to the common world frame
-with `MountX/Y/Z` and `MountRoll/Pitch/YawDeg`. `FloorZ` is the floor height in
-that world frame. `static` removes only the configured floor band; `ransac`
-collects `GroundCalibrationFrames` before selecting a plane; `hybrid` uses the
-configured floor immediately and replaces it with a validated RANSAC plane.
-Calibration runs once per process start. `UseImuForGround` defaults to `0`; when
-set to `1`, a stationary gravity sample supplies roll/pitch while configured yaw
-is preserved. Missing or invalid IMU data automatically falls back to the
-configured mounting angles.
+`MountX/Y/Z` and `MountRoll/Pitch/YawDeg` define the initial world pose for LIO,
+or a fixed sensor-to-world transform when LIO is off. They do not estimate a floor.
+Ground TXT keys are retired and rejected with a migration message; remove them
+from old local deployment configurations. No Ground worker, calibration, filtering
+or Ground metrics are enabled by the application. The direct reference API and
+tests remain documented in `docs/GROUND_PROCESSING_RETIRED.md` for future reuse.
 
 The Unitree wire protocol is decoded by VISTA-owned portable code rather than
 linking the Linux-only `libunilidar_sdk2.a`. The pinned
@@ -687,11 +746,12 @@ measurements per configured interval to:
 http://<GrafanaHost>:<GrafanaPort>/api/live/push/<GrafanaNamespace>
 ```
 
-The bridge sends `pointcloud_current`, `imu`, `ground_state`, `ground_status`,
+The bridge sends `pointcloud_current`, `imu`,
 `room_map_status`, `pipeline_health`, `system_health`, `worker_health`, and
 `grafana_bridge_health`. It no longer subscribes to storage/power topics; those
-remain available internally. Ground plane parameters remain in the 3D header,
-not duplicated in HTTP metrics. Future radar, detection, tracking, and analytics
+remain available internally. Ground HTTP channels are no longer produced.
+The optional legacy 3D header/codec remains compatible; no Ground values are
+attached to the active map panels. Future radar, detection, tracking, and analytics
 measurements can be added to the same worker without changing `main.cpp`.
 A Grafana outage does not stop LiDAR capture: the
 worker reports the first failure, keeps draining its topic queues, and retries
@@ -706,7 +766,30 @@ API is only for compatibility and tests. Current panel addresses are:
 ```text
 ws://<RoomMapWebSocketBindAddress>:<RoomMapWebSocketPort>
 ws://<GaussianMapWebSocketBindAddress>:<GaussianMapWebSocketPort>
+ws://<ForegroundWebSocketBindAddress>:<ForegroundWebSocketPort>
 ```
+
+The optional independent `foreground-filter` branch samples the latest accepted world
+scan every 250 ms and publishes current points outside the latest causally older,
+completed confirmed-background checkpoint on
+port 8768. It uses full-resolution map regions, not renderer LOD or just resident
+mapper voxels. New stationary objects/unmapped surfaces also appear; this is not
+a motion label. It does not restore Ground processing or add semantic classes
+and persistent tracking IDs.
+See [Room Map foreground](docs/ROOM_MAP_FOREGROUND.md)
+for configuration, resource limits, safety pauses, and the Grafana plugin update.
+Foreground's optional same-scan isolation filter uses a sensor-range-adaptive
+radius (default 0.15 m through 1 m, growing linearly to a 0.30 m cap at 5 m), not distance
+from the map origin. Its two-neighbor rule and bounded work remain; RoomMap's
+confirmation and subtraction tolerance are unchanged. Set
+`ForegroundOutlierMaxRadiusMeters` equal to `ForegroundOutlierRadiusMeters` for
+fixed-radius A/B tests. No Grafana update is needed for this filtering change.
+The October 22 pipeline-budget update also needs only a rebuilt C++ application:
+Foreground tolerates localization heartbeat scheduling jitter for 2.5 seconds,
+but still clears on explicit invalid poses or scans older than 500 ms. Bounded
+idle-time prefetch warms current background pages without a new worker or an
+extra whole-map copy. See the foreground guide for read/time limits and Unknown
+handling. No plugin rebuild or dashboard reimport is required for this update.
 
 With the default `127.0.0.1` binding, Grafana and the browser must run on the
 same computer as `vista_edge`. Use `0.0.0.0` only when remote browser access is

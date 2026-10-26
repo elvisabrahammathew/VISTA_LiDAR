@@ -1,0 +1,12 @@
+Program: VISTA Edge
+Platform: linux-x86_64
+Configuration: Release
+Build OS: Ubuntu 20.04 LTS
+Compiler: GNU 9.3.0
+RealSense support: ON
+Executable: vista_edge
+SHA256: 815fb675af8842c35ea9f0b24732ccdf44d7a4ade99cb29feb4ada3903de86eb
+Build executable SHA256: cbb7ec740d222f62e870f23f298560e58354e9f8b23b7d1699251bae46615f23
+Bundled runtimes: libusb-1.0.so.0;libudev.so.1;libstdc++.so.6;libgcc_s.so.1
+Source: repository working tree at build time (including uncommitted edits).
+See publish/README.md for compatibility, configuration and licenses.

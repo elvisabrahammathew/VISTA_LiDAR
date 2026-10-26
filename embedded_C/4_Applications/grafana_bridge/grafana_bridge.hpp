@@ -79,13 +79,12 @@ struct ImuTelemetry {
 /// Converts one IMU sample to the dedicated Grafana Live measurement.
 std::string format_imu_measurement(const ImuTelemetry& telemetry);
 
-/// Publishes the five ground-quality values shown by Ground Validation.
-/// Plane/IMU flags remain available internally and in the 3D WebSocket header.
+/// Legacy pure formatter retained for Ground reference/tests only.
+/// The runtime bridge neither subscribes to nor publishes Ground measurements.
 std::string format_ground_measurement(
     const models::GroundStatusMessage& message);
 
-/// Publishes the current state on a tag-free measurement so Grafana Stat
-/// always receives exactly one stable series.
+/// Legacy pure formatter; not used by the runtime bridge.
 std::string format_ground_state_measurement(
     const models::GroundStatusMessage& message);
 
@@ -105,7 +104,7 @@ struct GrafanaBridgeReport {
     std::uint64_t received_decoded_messages{};
     std::uint64_t received_processed_messages{};
     std::uint64_t received_imu_messages{};
-    std::uint64_t received_ground_messages{};
+    std::uint64_t received_ground_messages{}; // Legacy report field, always zero.
     std::uint64_t published_measurements{};
     std::uint64_t failed_publish_attempts{};
     std::uint64_t dropped_input_messages{};

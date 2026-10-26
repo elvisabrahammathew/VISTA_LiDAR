@@ -7,6 +7,30 @@ The ground grid covers 60 m x 60 m, centered at the world origin (`-30` to
 
 ## Sources
 
+### Gaussian + Foreground overlay (1.3.0)
+
+Enable **Overlay Foreground on Gaussian** in WebSocket mode. The main URL must
+serve Gaussian GSP1 (normally :8767); **Foreground WebSocket URL** serves LPC1
+(normally :8768). Both must refer to the same VISTA application/world frame.
+V5 uses a neutral Gaussian background and orange Foreground, with one shared
+camera and independent layer checkboxes. RoomMap LOD remains a separate panel.
+
+Foreground replaces rather than accumulates points. Pause/empty frames,
+disconnect and its default 1000 ms expiry clear only that layer. Gaussian keeps
+the last complete view on transport disconnect; explicit empty/error map data
+can clear it. Moving Foreground never re-fits the camera. A reconnect cannot
+revive obsolete frames. Hidden layers continue receiving updates/expiry checks.
+
+Gaussian **Maximum displayed points** and **Maximum Foreground points** are
+independent display budgets, not storage caps. The overlay is visual only: no
+Foreground is inserted into the map or Gaussian representation. Splat alpha is
+not a watertight opaque mesh, so this is not a guarantee of physical occlusion.
+Mismatched localization/world frames cannot be repaired by the panel.
+
+Legacy single-WebSocket/DataFrame panels still use their original path. C++
+streams and worker cadence are unchanged; the update does not reduce bytes sent
+by those streams or guarantee lower total rendering cost.
+
 - **WebSocket**: receives Room Map `LPC1` on :8766 and Gaussian Map `GSP1` on :8767. Earlier `LDR1` test packets remain compatible. Production no longer publishes live sensor 3D frames.
 - **Grafana DataFrame**: reads numeric fields named `x`, `y`, `z`, and optional `intensity`/`reflectivity`/`i` from the panel query.
 

@@ -20,4 +20,5 @@ cmake -G "Unix Makefiles" \
 cmake --build . -- -j"${VISTA_BUILD_JOBS:-2}"
 ctest --output-on-failure
 echo "Executable: $build_dir/vista_edge"
-echo "Edit $build_dir/DeviceConfig.txt for the Linux serial port and Grafana host before running."
+echo "Published Release: $source_dir/../publish/linux-arm64/vista_edge"
+echo "If DeviceConfig.txt is missing, run $build_dir/vista_edge once to create it, then review the Linux serial port and Grafana host before running again."

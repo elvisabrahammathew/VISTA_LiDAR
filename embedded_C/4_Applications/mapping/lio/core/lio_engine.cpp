@@ -104,6 +104,7 @@ public:
         filter.change_x(anchor);configure_covariances();initialized=fatal=false;fatal_reason.clear();first_rejection.reset();imu_window=ImuWindow{};
         filter_time=cov_time=last_imu_update=0;history.clear();recovery_streak=0;recovering=last_accepted.has_value();
         robustifier=lio_detail::ImuRobustifier{};imu_r_scales={1,1,1,1,1,1};rest_anchor.reset();rest_window.clear();rest_gate="warming";
+        holding=false;hold_candidate_started=false;hold_candidate.reset();
         if(last_accepted)local_map_seed_time=-std::numeric_limits<double>::infinity();
         if(!last_accepted){tree.reset();local_points.clear();map_cells.clear();}
         return diagnostic(models::LocalizationState::initializing,"automatic IMU reinitialization; keep stationary; retained world map requires Point-LIO match");
@@ -134,6 +135,9 @@ public:
                 s.gravity=-(s.rot.normalized()*imu_window.acceleration.normalized())*9.81;
                 s.acc=-(s.rot.conjugate().normalized()*s.gravity);
                 filter.change_x(s);configure_covariances();initialized=true;filter_time=cov_time=last_imu_update=scan.end_s;remember();
+                // A real epoch reset may qualify NEW IMU calibration before
+                // geometry returns. A later hold must not restore pre-reset bias.
+                recovery_prior=s;recovery_covariance=filter.get_P();
             }
             std::ostringstream r;r.imbue(std::locale::classic());r<<std::fixed<<std::setprecision(3)
                 <<(initialized?"IMU initialized; accumulating Point-LIO local map":"IMU initialization; keep stationary")
@@ -163,7 +167,23 @@ public:
         if(choices.size()>config.scan_max_points){
             for(std::size_t i=0;i<config.scan_max_points;++i)selected[choices[i*choices.size()/config.scan_max_points]]=true;
         }else for(auto i:choices)selected[i]=true;
-        if(choices.size()<100)return reject("insufficient scan geometry");
+        if(choices.size()<100){
+            matches=examined=0;residual=0;
+            if(last_accepted)return hold_geometry(scan,"insufficient scan geometry; selected="+std::to_string(choices.size())+"/100");
+            return reject("insufficient scan geometry");
+        }
+        if(holding && !hold_candidate_started){
+            // Long unobserved IMU dead reckoning is NOT a new world anchor.
+            // Seed a registration HYPOTHESIS from the trusted pose/calibration;
+            // neither it nor its provisional cloud may enter either map.
+            auto seed=recovery_prior;seed.pos=last_accepted->pos;seed.rot=last_accepted->rot;seed.vel.setZero();filter.change_x(seed);
+            auto covariance=recovery_covariance;
+            for(int i=0;i<6;++i)covariance(i,i)+=.25;
+            // Overlapping scans must not re-integrate already consumed IMU.
+            filter.change_P(covariance);filter_time=std::max(filter_time,scan.begin_s);
+            cov_time=last_imu_update=filter_time;
+            history.clear();remember();hold_candidate_started=true;hold_candidate.reset();
+        }
         const State saved_state=filter.get_x();auto saved_cov=filter.get_P();const auto saved_history=history;
         const auto saved_robustifier=robustifier;const auto saved_r_scales=imu_r_scales;
         const double saved_time=filter_time,saved_cov_time=cov_time,saved_imu_time=last_imu_update;
@@ -233,11 +253,20 @@ public:
             std::size_t cursor=0;while(cursor<scan.imu.size() && scan.imu[cursor].time_s<=last_imu_update+1e-10)++cursor;
             advance(scan.end_s,scan.imu,cursor);remember();prune_history();
             std::ostringstream r;r.imbue(std::locale::classic());r<<failure<<"; matches="<<matches<<"/"<<examined<<"; ratio="<<ratio<<"; residual_m="<<residual<<"; normal_eigen_min="<<normal_min<<"; pose_eigen_min="<<pose_min;
+            if(last_accepted && (failure=="insufficient LiDAR correspondences" || failure=="degenerate LiDAR geometry"))
+                return hold_geometry(scan,r.str());
             return reject(r.str());
         }
         // A rejected established pose needs several consistent scans against an
         // unchanged trusted map, not one passing frame that reseeds the world.
-        if(recovering && ++recovery_streak<3)return {diagnostic(models::LocalizationState::degraded,"Point-LIO recovery confirmation "+std::to_string(recovery_streak)+"/3; map held"),std::nullopt};
+        if(holding){
+            if(hold_candidate && ((corrected.pos-hold_candidate->pos).norm()>std::min(.25,config.maximum_translation_step_m) ||
+                angle_deg(*hold_candidate,corrected)>std::min(5.0,config.maximum_rotation_step_deg)))recovery_streak=0;
+            hold_candidate=corrected;
+        }
+        if(recovering && ++recovery_streak<3)return {diagnostic(holding?models::LocalizationState::holding:models::LocalizationState::degraded,"Point-LIO recovery confirmation "+std::to_string(recovery_streak)+"/3; map held"),std::nullopt};
+        if(holding)++counts.holding_recoveries;
+        holding=false;hold_candidate_started=false;hold_candidate.reset();
         recovering=false;recovery_streak=0;first_rejection.reset();
         bool stationary=false;
         if(config.stationary_update_enabled){
@@ -246,6 +275,7 @@ public:
             stationary=update_stationary(corrected,rest_motion);
         }
         last_accepted=filter.get_x();
+        recovery_prior=*last_accepted;recovery_covariance=filter.get_P();
         // Do not feed stationary registration noise back into its own reference.
         // Persistent RoomMap still receives every accepted full-resolution cloud.
         if(!stationary && needs_local_map_update(corrected))refresh_map(additions,false);
@@ -258,6 +288,21 @@ public:
         return {std::move(status),std::move(world)};
     }
 private:
+    LioOutput hold_geometry(const LioScanView& scan,std::string reason){
+        if(!holding)holding_since=scan.end_s;
+        holding=true;hold_candidate_started=false;hold_candidate.reset();
+        recovering=true;recovery_streak=0;first_rejection.reset();
+        rest_window.clear();rest_anchor.reset();
+        // Keep the real temporal horizon current, even for sparse scans. IMU
+        // continuity/finite-state checks stay active; prediction is NOT published.
+        std::size_t cursor=0;
+        while(cursor<scan.imu.size() && scan.imu[cursor].time_s<=last_imu_update+1e-10)++cursor;
+        advance(scan.end_s,scan.imu,cursor);remember();prune_history();
+        if(!finite_state())return reject("non-finite Point-LIO prediction during HOLDING",true);
+        ++rejected;++counts.holding_scans;
+        reason+="; HOLDING last accepted pose; current pose unverified; map held; duration_s="+std::to_string(scan.end_s-holding_since);
+        return {diagnostic(models::LocalizationState::holding,std::move(reason)),std::nullopt};
+    }
     bool needs_local_map_update(const State& pose) const {
         if(!config.stationary_update_enabled || current_time-local_map_seed_time<1.5)return true;
         // A cheap insertion/keyframe gate, not another registration. Keep the
@@ -433,7 +478,8 @@ private:
         return {diagnostic(fatal?models::LocalizationState::lost:models::LocalizationState::degraded,std::move(reason)),std::nullopt};
     }
     LioConfig config;Filter filter;Filter::processnoisecovariance noise;point_lio_native::input_ikfom input;
-    State initial_anchor;std::optional<State> last_accepted;ImuWindow imu_window;TimedImu latest_imu;
+    State initial_anchor,recovery_prior;std::optional<State> last_accepted;Filter::cov recovery_covariance{Filter::cov::Identity()};ImuWindow imu_window;TimedImu latest_imu;
+    bool holding{},hold_candidate_started{};double holding_since{};std::optional<State> hold_candidate;
     lio_detail::ImuRobustifier robustifier;std::array<double,6> imu_r_scales{1,1,1,1,1,1};
     struct RestSample {double t;Eigen::Matrix<double,6,1> motion;};
     std::optional<State> rest_anchor;std::deque<RestSample> rest_window;

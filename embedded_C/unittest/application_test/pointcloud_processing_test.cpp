@@ -4,11 +4,12 @@
 
 #include "4_Applications/processing/pointcloud/pointcloud_processing.hpp"
 #include "unittest/test.hpp"
+#include "models/topics.hpp"
 
 VISTA_TEST(pointcloud_cleaning_sets_world_ray_origin_without_ground_removal) {
     vista::application::PreprocessingConfig config;
     config.voxel_size_m.reset();
-    vista::application::GroundRemovalConfig mount;
+    vista::application::MountingConfig mount;
     mount.mount_x_m=-10.0F; mount.mount_y_m=2.0F; mount.mount_z_m=0.75F;
     config.mounting=mount;
     vista::application::PointCloudPreprocessor processor(config);
@@ -236,10 +237,42 @@ VISTA_TEST(cleaned_cloud_preserves_ground_and_ground_stage_does_not_transform_tw
 }
 
 VISTA_TEST(mounting_is_applied_when_ground_removal_is_disabled) {
-    vista::application::GroundRemovalConfig mount; mount.mount_z_m=2.5F;
+    vista::application::MountingConfig mount; mount.mount_z_m=2.5F;
     vista::application::PointCloudPreprocessor processor({
         0.0F,10.0F,std::nullopt,std::nullopt,std::nullopt,mount});
     const auto cleaned=processor.clean(frame({point(1,0,-2.5F)}));
     VISTA_CHECK(cleaned.points.size()==1);
     VISTA_CHECK_NEAR(cleaned.points[0].z,0.0F,1.0e-5F);
+}
+
+VISTA_TEST(runtime_cleaning_has_no_ground_or_imu_subscription_and_preserves_floor) {
+    using namespace vista;
+    platform::MessageBus bus(8);platform::StopToken stop;
+    // Incompatible types fail synchronously if a retired subscription/publisher
+    // is accidentally restored. No real sensor or network endpoint is involved.
+    auto no_imu=bus.publisher<int>(models::topics::lidar_imu);
+    auto no_ground=bus.publisher<int>(models::topics::ground_status);
+    auto no_processed=bus.publisher<int>(models::topics::pointcloud_processed);
+    auto input=bus.publisher<devices::LidarPointCloudMessage>(models::topics::pointcloud_decoded);
+    auto output=bus.subscribe<devices::LidarPointCloudMessage>(models::topics::pointcloud_cleaned,"test-clean-no-ground");
+    application::PreprocessingConfig config;config.voxel_size_m.reset();
+    application::MountingConfig mount;mount.mount_z_m=.75F;config.mounting=mount;
+    // Even a direct legacy API caller cannot accidentally activate it in a worker.
+    application::GroundRemovalConfig legacy;legacy.distance_threshold_m=.1F;
+    config.ground_removal=legacy;
+    std::string error;
+    auto worker=application::spawn_preprocessing_worker(bus,{"test-clean-no-ground",3},stop,config,
+        [&](auto,auto e){error=std::move(e);});
+    input.publish(devices::LidarPointCloudMessage("test",7,10,20,
+        models::PointCloudFrame(10,{{1,0,-.75F,1,0,0,10},{1,0,.25F,1,0,0,11}}),30,31,4,29));
+    std::shared_ptr<const devices::LidarPointCloudMessage> received;
+    const auto result=output.receive_for(received,std::chrono::seconds(2));
+    stop.request_stop();bus.close();worker.join();
+    VISTA_CHECK(result==platform::ReceiveStatus::message && error.empty());
+    VISTA_CHECK(received->payload.points.size()==2);
+    VISTA_CHECK_NEAR(received->payload.points[0].z,0,1e-6);
+    VISTA_CHECK_NEAR(received->payload.points[1].z,1,1e-6);
+    VISTA_CHECK(received->sequence==7 && received->received_monotonic_ns==30 && received->measurement_timestamp_ns==31);
+    VISTA_CHECK(received->measurement_clock_epoch==4 && received->measurement_epoch_started_ns==29);
+    VISTA_CHECK(received->payload.sensor_origin_world_m && (*received->payload.sensor_origin_world_m)[2]==.75F);
 }

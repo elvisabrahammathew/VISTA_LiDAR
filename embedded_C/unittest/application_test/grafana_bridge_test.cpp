@@ -6,6 +6,18 @@
 
 #include "4_Applications/grafana_bridge/grafana_bridge.hpp"
 #include "unittest/test.hpp"
+#include "models/topics.hpp"
+
+VISTA_TEST(grafana_runtime_bridge_does_not_subscribe_to_retired_ground_topic) {
+    vista::platform::MessageBus bus;vista::platform::StopToken stop;
+    auto retired=bus.publisher<int>(vista::models::topics::ground_status);
+    stop.request_stop(); // Exercise endpoint registration without HTTP traffic.
+    std::optional<vista::application::GrafanaBridgeReport> report;std::string error;
+    auto worker=vista::application::spawn_grafana_bridge(bus,{"test-bridge-no-ground",4},stop,{},
+        [&](auto r,auto e){report=std::move(r);error=std::move(e);});
+    worker.join();
+    VISTA_CHECK(error.empty() && report && report->received_ground_messages==0);
+}
 
 VISTA_TEST(grafana_worker_rows_keep_all_twelve_names_and_unique_millisecond_times) {
     std::vector<vista::models::WorkerHealthTelemetry> workers;

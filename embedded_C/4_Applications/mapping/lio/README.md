@@ -28,13 +28,17 @@ External IMU (alternative) -> lidar/imu       |
                                       |
                        world preprocessing (keep floor)
                             /                   \
-                  disk-backed RoomMap       existing ground processing
-                         :8766              optional processed PCD logger
+                  disk-backed RoomMap       optional cleaned PCD logger
+                         :8766                    (floor intact)
                            |
                     Gaussian surface map :8767
 ```
 
-The public topics, localization state codes, Grafana field names, LPC1 WebSocket
+Ground processing was retired from the runtime on 2026-10-21. Its reference
+algorithm/tests remain available; see [Ground restoration notes](../../../docs/GROUND_PROCESSING_RETIRED.md).
+Mounting remains an independent initial/fixed pose configuration.
+
+The localization state codes, active Grafana field names, LPC1 WebSocket
 format, PCD and room-map tile formats are unchanged. No Grafana plugin or JSON
 reimport is required solely for clock recovery. No detection/tracking is
 added. Live sensor health remains independent of localization validity; live
@@ -183,7 +187,27 @@ of an established pose, **three consecutive qualifying scans against the held
 local map** are required before map publication resumes. This is local recovery,
 not global relocalization. Large movement during loss may remain unrecoverable.
 
-Persistent quality rejection becomes LOST after two acquisition seconds; unsafe
+After an accepted pose exists, insufficient selected points/correspondences or
+degenerate LiDAR geometry enter **HOLDING** (wire code 5). Pose/orientation and
+the local/persistent maps remain at their last accepted values; `pose_valid`
+stays false and no world cloud is emitted. Continuous IMU validation and internal
+prediction keep the temporal horizon current, without claiming dead reckoning is
+a valid world pose. Low geometry does not start the LOST/IMU-reinitialization timer.
+
+When sufficient geometry returns, a local registration hypothesis is seeded from
+the last trusted pose/calibration, with a zero-velocity hypothesis and increased
+pose covariance. This is not an assertion that the sensor stayed still or a new
+world origin. Long unobserved IMU drift is not used as the new map anchor. Three
+consecutive qualifying matches against the unchanged local map are required;
+successive candidates must also stay within 0.25 m / 5 degrees (or the configured
+step limits if smaller). Only the third verified candidate can publish a cloud
+or update either map. Large actual movement/scene aliasing can remain unrecoverable:
+this is local recovery, not global relocalization. Current-pose validity is the
+authoritative uncertainty signal during HOLDING; displayed coordinates are historical.
+
+Before the first accepted pose, initialization/geometry behavior is unchanged.
+Residual/ratio/pose-jump/covariance rejection still becomes LOST after two
+acquisition seconds; unsafe
 timing can enter LOST immediately. Five continuous host seconds in LOST trigger
 IMU initialization while keeping the accepted world anchor/map. Confirmed recent
 bit-identical duplicate IMUs are discarded; conflicting samples, unknown
@@ -271,6 +295,9 @@ The stationary RAW has apparent sensor motion and an IMU consistency anomaly;
 switching algorithms does not certify those inputs or repair firmware calibration.
 
 ## License
+
+The HOLDING state/recovery update and its RAW/platform checks are documented in
+[HOLDING validation](../../../docs/LIO_HOLDING_VALIDATION_20261022.md).
 
 Point-LIO/Unitree derived code is GPL-2.0; `core/COPYING` matches the upstream
 LICENSE. Generated IKFoM headers retain their own notices. Eigen and

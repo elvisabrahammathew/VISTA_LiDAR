@@ -92,10 +92,10 @@ platform::WorkerHandle spawn_pcd_logger(
     platform::StopToken stop,
     vista::fs::path path,
     LoggerCompletion on_complete) {
-    // PCD output is intentionally based on the fully processed point cloud.
+    // World-cleaned XYZ, floor intact. No Ground worker is needed for logging.
     platform::WorkerTopicInputs inputs(thread_config.name);
     auto processed_input = inputs.subscribe<devices::LidarPointCloudMessage>(
-        bus, models::topics::pointcloud_processed);
+        bus, models::topics::pointcloud_cleaned);
     auto subscriber = std::move(processed_input).take_subscriber();
     return platform::spawn_worker(
         std::move(thread_config),

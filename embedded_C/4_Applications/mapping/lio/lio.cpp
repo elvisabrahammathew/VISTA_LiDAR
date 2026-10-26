@@ -39,6 +39,7 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
             struct Pending { std::shared_ptr<const devices::LidarPointCloudMessage> message;double begin,end;std::chrono::steady_clock::time_point arrival; };
             std::deque<Pending> pending;
             auto heartbeat=std::chrono::steady_clock::now();auto last_valid=heartbeat;
+            std::optional<models::LocalizationState> published_state;bool published_valid{};
             auto reset_temporal=[&](const std::string& reason) {
                 recovery_reason=reason;++recovery_count;
                 latest=engine.restart_initialization();
@@ -197,8 +198,10 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                     // stale temporal state; never guess a new world origin.
                     reset_temporal(latest.reason);
                 }
-                if(now>=heartbeat) {
-                    if(latest.pose_valid && now-last_valid>config.synchronization_timeout){latest.pose_valid=false;latest.state=models::LocalizationState::degraded;latest.reason="no fresh localized scan (input/processing delay); map held";}
+                if(latest.pose_valid && now-last_valid>config.synchronization_timeout){latest.pose_valid=false;latest.state=models::LocalizationState::degraded;latest.reason="no fresh localized scan (input/processing delay); map held";}
+                // Fault/recovery transitions are delivered immediately; the 1 s
+                // heartbeat is monitoring cadence, not permission to hide LOST.
+                if(now>=heartbeat || !published_state || *published_state!=latest.state || published_valid!=latest.pose_valid) {
                     latest.timestamp_ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
                     latest.dropped_messages=report.dropped+cloud.dropped_messages()+imu.dropped_messages();
                     latest.rejected_scans=report.rejected;
@@ -209,7 +212,8 @@ platform::WorkerHandle spawn_lio_worker(platform::MessageBus& bus,
                         "; stale_epoch_messages="+std::to_string(stale_epoch_messages);
                     if(!latest.pose_valid && !recovery_reason.empty())
                         diagnostic.reason+="; previous_loss="+recovery_reason;
-                    telemetry.publish(std::move(diagnostic));heartbeat=now+std::chrono::seconds(1);
+                    telemetry.publish(std::move(diagnostic));published_state=latest.state;published_valid=latest.pose_valid;
+                    heartbeat=now+std::chrono::seconds(1);
                 }
             }
             report.dropped+=cloud.dropped_messages()+imu.dropped_messages();

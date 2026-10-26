@@ -105,6 +105,9 @@ struct RoomMapViewMessage {
     std::shared_ptr<const RoomMapViewSource> source;
     std::uint64_t revision{}, timestamp_ns{}, point_count{};
     RoomMapState state{RoomMapState::empty};
+    // Host steady-clock completion of this checkpoint, unchanged by heartbeats.
+    // A newer scan receipt is required before foreground may subtract it.
+    std::uint64_t checkpoint_monotonic_ns{};
 };
 
 }  // namespace vista::models

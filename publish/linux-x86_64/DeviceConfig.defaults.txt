@@ -1,0 +1,144 @@
+# Template: embedded_C/config/DeviceConfig.defaults.txt (used only at build time).
+# Runtime: edit DeviceConfig.txt beside vista_edge.exe/vista_edge; builds never overwrite it.
+# Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
+Lidar: unitree-l2
+RawLoggingEnabled(Lidar): 1
+PointCloudLoggingEnabled(Lidar): 0
+ReconnectIntervalSeconds(Lidar): 5
+SensorIP(quanergy-m8, unitree-l2): 192.168.1.3
+SensorPort(quanergy-m8, unitree-l2): 4141
+ConnectionMode(unitree-l2): auto
+LocalIP(unitree-l2): 192.168.1.2
+LocalPort(unitree-l2): 6201
+SerialPort(unitree-l2): /dev/ttyACM0
+BaudRate(unitree-l2): 4000000
+# Hardware init once per application session; set 0 for passive RAW/COM replay.
+InitializeOnConnect(unitree-l2): 1
+# WorkMode bits: 0 NEGA=1/Normal=0; 1 2D=1/3D=0; 2 IMU off=1/on=0;
+# 3 UART=1/ENET=0 (UART required here); 4 standby=1/self-start=0; 5..31 reserved=0.
+WorkMode(unitree-l2): 9
+UsbSerial(realsensel515): 123456789012
+DepthWidth(realsensel515): 640
+DepthHeight(realsensel515): 480
+DepthFps(realsensel515): 30
+
+# Initial LiDAR world pose for LIO; fixed mounting when LioEnabled is 0.
+MountX(lidar): 0
+MountY(lidar): 0
+MountZ(lidar): 0.7
+MountRollDeg(lidar): 0.0
+MountPitchDeg(lidar): 0.0
+MountYawDeg(lidar): 0.0
+
+# Point-LIO (Unitree IMU-as-output); Mount is the INITIAL LiDAR world pose
+# Keep stationary at startup. IMU topic is lidar/imu; timing uses host monotonic clock.
+LioEnabled: 1
+# Causal IMU outlier downweighting; no sample/timestamp deletion.
+LioRobustImuEnabled: 1
+# Joint-rest velocity update and local-map insertion gate; no extra matcher.
+LioStationaryUpdateEnabled: 1
+LioLidarToImuTranslationX: 0.007698
+LioLidarToImuTranslationY: 0.014655
+LioLidarToImuTranslationZ: -0.00667
+LioLidarToImuRollDeg: 0.0
+LioLidarToImuPitchDeg: 0.0
+LioLidarToImuYawDeg: 0.0
+# Internal odometry only, matching Unitree's L2 launch; RoomMap stays at 0.05 m.
+LioScanVoxelSizeMeters: 0.40
+LioMapVoxelSizeMeters: 0.40
+LioLocalMapRadiusMeters: 30.0
+LioLocalMapMaxPoints: 50000
+LioScanMaxPoints: 5000
+LioInitializationSamples: 50
+# Point-LIO IMU measurement R diagonals (not process Q; do not square)
+LioImuAccelerationCovariance: 0.1
+LioImuGyroscopeCovariance: 0.1
+LioImuAccelerationBiasCovariance: 0.0001
+LioImuGyroscopeBiasCovariance: 0.0001
+# Point-LIO state-output process Q and scalar LiDAR measurement covariance
+LioVelocityProcessCovariance: 20.0
+LioAccelerationProcessCovariance: 500.0
+LioAngularVelocityProcessCovariance: 1000.0
+LioLidarMeasurementCovariance: 0.01
+# Acceleration units: 9.81 for m/s^2, 1.0 for g. Saturation is per raw IMU axis.
+LioImuAccelerationNorm: 9.81
+LioImuAccelerationSaturation: 30.0
+LioImuGyroscopeSaturation: 35.0
+# Matching only: full-resolution world output/RoomMap keep valid nearer points.
+LioMinRangeMeters: 0.5
+LioPlaneThresholdMeters: 0.10
+LioMaxImuGapMilliseconds: 100
+LioMinMatchRatio: 0.15
+LioMaxResidualMeters: 0.15
+LioMaxTranslationStepMeters: 2.0
+LioMaxRotationStepDeg: 30.0
+LioSynchronizationTimeoutMilliseconds: 500
+
+# Supported Radar: none
+Radar: None
+
+# GrafanaEnabled controls health telemetry and Room Map/Gaussian Map WebSockets
+GrafanaEnabled: true
+GrafanaHost: 127.0.0.1
+GrafanaPort: 3000
+GrafanaNamespace: vista
+GrafanaPublishIntervalMilliseconds: 2000
+GrafanaRetryIntervalSeconds: 5
+SystemMonitorIntervalMilliseconds: 2000
+
+# Live sensor 3D publishing is disabled; LiDAR/IMU health remains available.
+
+# Room map keeps the floor; freeze after active acquisition seconds (0 = continuous)
+RoomMapEnabled: 1
+RoomMapVoxelSizeMeters: 0.05
+RoomMapCacheMaxVoxels: 250000
+RoomMapCacheMaxTiles: 128
+RoomMapTileSizeMeters: 2.0
+RoomMapLodPointsPerNode: 128
+RoomMapMinObservations: 3
+RoomMapObservationIntervalMilliseconds: 100
+RoomMapFreezeAfterSeconds: 0
+# Checkpoint/view cadence only; acquisition and RoomMap integration remain independent.
+# Gaussian adds its build time; 5 s is a target update cadence, not a hard latency deadline.
+RoomMapPublishIntervalMilliseconds: 5000
+RoomMapLoadExisting: 0
+RoomMapFile:
+RoomMapFreeSpaceMinObservations: 5
+RoomMapRaycastMaxRaysPerWindow: 256
+RoomMapRaycastMaxRangeMeters: 30.0
+RoomMapRaycastSurfaceMarginMeters: 0.10
+RoomMapWebSocketBindAddress: 127.0.0.1
+RoomMapWebSocketPort: 8766
+RoomMapWebSocketMaxPoints: 100000
+RoomMapWebSocketMaxClients: 4
+RoomMapWebSocketRetryIntervalSeconds: 2
+
+# CPU geometric/intensity Gaussian surfaces from confirmed Room Map updates.
+# Shares RoomMapPublishIntervalMilliseconds, MaxClients and RetryIntervalSeconds.
+# No camera training/clustering; 0 disables this optional mapping branch.
+GaussianMapEnabled: 1
+GaussianMapWebSocketBindAddress: 127.0.0.1
+GaussianMapWebSocketPort: 8767
+GaussianMapWebSocketMaxPoints: 100000
+
+# Live foreground = points farther than this distance from confirmed RoomMap.
+# NOT a motion label: new stationary objects/unmapped surfaces also appear.
+# Uses the last confirmed map checkpoint BEFORE this scan is integrated.
+# LOST/stale input clears the view. With LioEnabled=0 keep the sensor fixed.
+# Cache RAM and socket clients/retry derive from RoomMap; no second motion algorithm.
+ForegroundEnabled: 1
+ForegroundBackgroundDistanceMeters: 0.15
+# Same-scan isolation filter, Foreground ONLY. No multi-frame persistence gate.
+# Require 2 distinct neighbors, excluding self. Linear radius growth from StartDistance to EndDistance.
+# Sensor-relative range: <=1 m -> 0.15 m, 3 m -> 0.225 m, >=5 m -> 0.30 m.
+# Max <= base restores fixed radius; missing sensor origin also uses base (never world origin).
+ForegroundOutlierFilterEnabled: 1
+ForegroundOutlierRadiusMeters: 0.15
+ForegroundOutlierStartDistanceMeters: 1.0
+ForegroundOutlierEndDistanceMeters: 5.0
+ForegroundOutlierMaxRadiusMeters: 0.30
+ForegroundOutlierMinNeighbors: 2
+ForegroundMaxPoints: 12000
+ForegroundPublishIntervalMilliseconds: 200
+ForegroundWebSocketBindAddress: 127.0.0.1
+ForegroundWebSocketPort: 8768

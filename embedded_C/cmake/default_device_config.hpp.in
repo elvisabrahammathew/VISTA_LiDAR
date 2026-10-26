@@ -1,0 +1,6 @@
+#pragma once
+
+// Generated from config/DeviceConfig.defaults.txt. Never embed GrafanaSecret.
+namespace vista::detail {
+inline constexpr char embedded_device_config[] = R"VISTA_CONFIG(@VISTA_DEFAULT_DEVICE_CONFIG@)VISTA_CONFIG";
+}  // namespace vista::detail

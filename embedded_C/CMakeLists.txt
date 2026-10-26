@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Keep CMake's per-target CRT selection active in older SDK subprojects too.
+cmake_policy(SET CMP0091 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+
 project(vista_edge VERSION 0.1.0 LANGUAGES CXX)
+
+if(MSVC)
+    # Release is self-contained (/MT); keep Debug's existing /MDd ABI and
+    # /MD for the other configurations. Set BEFORE creating any library so
+    # VISTA objects, Point-LIO, RealSense and tests all use the same CRT.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY
+        "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<NOT:$<CONFIG:Release>>:DLL>")
+endif()
 
 option(VISTA_BUILD_TESTS "Build the C++ unit tests" ON)
 option(VISTA_ENABLE_REALSENSE "Build RealSense L515 support" ON)
@@ -84,7 +96,7 @@ set(VISTA_CORE_SOURCES
     4_Applications/logger/logger.cpp
     4_Applications/mapping/room_map/room_map.cpp
     4_Applications/mapping/room_map/room_map_websocket.cpp
-    4_Applications/mapping/gaussian_map/gaussian_map.cpp
+    4_Applications/perception/foreground/foreground_websocket.cpp
     4_Applications/mapping/lio/lio.cpp
     4_Applications/mapping/lio/lio_adapter.cpp
     4_Applications/monitoring/system_monitor.cpp
@@ -104,6 +116,29 @@ endif()
 # tests. An OBJECT target does not create a separate vista_edge_core library.
 add_library(vista_edge_core OBJECT ${VISTA_CORE_SOURCES})
 vista_enable_warnings(vista_edge_core)
+# Ship recoverable defaults inside the binary, not a source-tree runtime path.
+# Track the TXT so editing defaults also regenerates the header on the next build.
+# GrafanaSecret.txt is deliberately NOT read or embedded here.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/config/DeviceConfig.defaults.txt")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/config/DeviceConfig.defaults.txt"
+    VISTA_DEFAULT_DEVICE_CONFIG)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # First-run recovery must use the same Linux serial default as publish/.
+    string(REGEX REPLACE "SerialPort\\(unitree-l2\\):[^\r\n]*"
+        "SerialPort(unitree-l2): /dev/ttyACM0"
+        VISTA_DEFAULT_DEVICE_CONFIG "${VISTA_DEFAULT_DEVICE_CONFIG}")
+endif()
+string(FIND "${VISTA_DEFAULT_DEVICE_CONFIG}" ")VISTA_CONFIG\"" VISTA_CONFIG_DELIMITER)
+if(NOT VISTA_CONFIG_DELIMITER EQUAL -1)
+    message(FATAL_ERROR "config/DeviceConfig.defaults.txt contains the reserved raw-string delimiter")
+endif()
+configure_file(cmake/default_device_config.hpp.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/default_device_config.hpp" @ONLY)
+unset(VISTA_DEFAULT_DEVICE_CONFIG)
+target_include_directories(vista_edge_core PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
 target_include_directories(vista_edge_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # Keep shared link/usage requirements in a separate INTERFACE target. Both
 # application and tests reuse the same objects and dependencies on every platform.
@@ -175,7 +210,9 @@ if(VISTA_ENABLE_REALSENSE)
     # Build only the static SDK required by this application. This removes the
     # need to store or deploy a platform-specific realsense2 DLL/shared object.
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build librealsense as a static library" FORCE)
-    set(BUILD_WITH_STATIC_CRT OFF CACHE BOOL "Use the application's MSVC runtime" FORCE)
+    # The CMake runtime property above selects the CRT per configuration;
+    # do not use the SDK's legacy flag rewriting across all configurations.
+    set(BUILD_WITH_STATIC_CRT OFF CACHE BOOL "CRT selected per configuration by VISTA" FORCE)
     set(BUILD_EXAMPLES OFF CACHE BOOL "Disable librealsense examples" FORCE)
     set(BUILD_GRAPHICAL_EXAMPLES OFF CACHE BOOL "Disable graphical examples" FORCE)
     set(BUILD_TOOLS OFF CACHE BOOL "Disable librealsense tools" FORCE)
@@ -218,41 +255,20 @@ else()
         "unsupported error")
 endif()
 
+add_subdirectory(cmake/view_processing view_processing_target)
 add_executable(vista_edge main.cpp)
 vista_enable_warnings(vista_edge)
 target_sources(vista_edge PRIVATE $<TARGET_OBJECTS:vista_edge_core>)
+target_sources(vista_edge PRIVATE $<TARGET_OBJECTS:vista_view_processing>)
 target_link_libraries(vista_edge PRIVATE vista_edge_dependencies)
 
-add_custom_command(TARGET vista_edge POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/DeviceConfig.txt"
-        "$<TARGET_FILE_DIR:vista_edge>/DeviceConfig.txt")
+# Runtime settings belong to the executable directory and are user-owned.
+# Never copy DeviceConfig.txt or GrafanaSecret.txt during a build. First startup
+# exclusively creates missing files; existing settings/tokens remain untouched.
 
-# GrafanaSecret.txt is intentionally ignored by Git. If it exists locally,
-# copy it beside the executable on every build so editing the token never
-# requires a clean rebuild or command-line setup.
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/GrafanaSecret.txt")
-    if(CMAKE_CONFIGURATION_TYPES)
-        set(VISTA_GRAFANA_SECRET_OUTPUT_DIR
-            "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
-        set(VISTA_GRAFANA_SECRET_OUTPUT
-            "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/GrafanaSecret.txt")
-    else()
-        set(VISTA_GRAFANA_SECRET_OUTPUT_DIR
-            "${CMAKE_CURRENT_BINARY_DIR}")
-        set(VISTA_GRAFANA_SECRET_OUTPUT
-            "${CMAKE_CURRENT_BINARY_DIR}/GrafanaSecret.txt")
-    endif()
-    add_custom_target(vista_grafana_secret ALL
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-            "${VISTA_GRAFANA_SECRET_OUTPUT_DIR}"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/GrafanaSecret.txt"
-            "${VISTA_GRAFANA_SECRET_OUTPUT}"
-        COMMENT "Copying local Grafana secret"
-        VERBATIM)
-    add_dependencies(vista_edge vista_grafana_secret)
-endif()
+# Windows Release links directly into publish/. Debug paths, Linux output
+# paths and all acquisition/LIO/mapping options remain unchanged.
+include(cmake/publish.cmake)
 
 if(VISTA_BUILD_TESTS)
     enable_testing()
@@ -262,6 +278,7 @@ if(VISTA_BUILD_TESTS)
         unittest/application_test/logger_test.cpp
         unittest/application_test/room_map_test.cpp
         unittest/application_test/gaussian_map_test.cpp
+        unittest/application_test/foreground_test.cpp
         unittest/application_test/lio_test.cpp
         unittest/application_test/grafana_bridge_test.cpp
         unittest/application_test/pointcloud_processing_test.cpp
@@ -284,6 +301,12 @@ if(VISTA_BUILD_TESTS)
     )
     vista_enable_warnings(vista_edge_tests)
     target_sources(vista_edge_tests PRIVATE $<TARGET_OBJECTS:vista_edge_core>)
+    target_sources(vista_edge_tests PRIVATE $<TARGET_OBJECTS:vista_view_processing>)
     target_link_libraries(vista_edge_tests PRIVATE vista_edge_dependencies)
     add_test(NAME vista_edge_tests COMMAND vista_edge_tests)
+    add_test(NAME vista_publish_packaging
+        COMMAND "${CMAKE_COMMAND}"
+            "-DVISTA_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DVISTA_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/publish-test"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_publish.cmake")
 endif()

@@ -7,6 +7,7 @@
 #include "1_Platform/pubsub/pubsub.hpp"
 #include "4_Applications/logger/logger.hpp"
 #include "unittest/test.hpp"
+#include "models/topics.hpp"
 
 namespace {
 
@@ -74,4 +75,24 @@ VISTA_TEST(logger_writes_pcd_header_and_point) {
         contents.find("1.000000 2.000000 3.000000 4 5 0") != std::string::npos);
     input.close();
     vista::fs::remove(path);
+}
+
+VISTA_TEST(pcd_worker_logs_cleaned_world_cloud_with_floor_without_ground_worker) {
+    using namespace vista;
+    const auto path=temporary_output("pcd");
+    platform::MessageBus bus(4);platform::StopToken stop;
+    auto retired=bus.publisher<int>(models::topics::pointcloud_processed);
+    auto input=bus.publisher<devices::LidarPointCloudMessage>(models::topics::pointcloud_cleaned);
+    std::optional<application::LoggerReport> report;std::string error;
+    auto logger=application::spawn_pcd_logger(bus,{"test-pcd-cleaned",2},stop,path,
+        [&](auto r,auto e){report=std::move(r);error=std::move(e);});
+    input.publish(devices::LidarPointCloudMessage("test",0,10,20,
+        models::PointCloudFrame(10,{{1,0,0,1,0,0,10},{1,0,1,2,0,0,11}})));
+    // Closing the bus drains the queued cloud and lets the logger finish normally.
+    bus.close();logger.join();
+    io::ifstream file(path);const std::string contents{std::istreambuf_iterator<char>(file),{}};
+    file.close();fs::remove(path);
+    VISTA_CHECK(error.empty() && report && report->message_count==1 && report->point_count==2);
+    VISTA_CHECK(contents.find("POINTS 2")!=std::string::npos);
+    VISTA_CHECK(contents.find("1.000000 0.000000 0.000000")!=std::string::npos);
 }

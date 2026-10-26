@@ -69,14 +69,22 @@ separate OS build target.
 
 ```bash
 cd embedded_C/out/build/linux-adlink-ubuntu20-arm64
-# Edit DeviceConfig.txt for this device before starting:
+# On first launch, a missing DeviceConfig.txt is created and the app exits.
+# Review the generated COM/IP settings, then run this command again:
 ./vista_edge
 ```
 
-- The executable is `vista_edge`, not a Windows `.exe`. Run from this directory
-  because application configuration is read relative to the working directory.
-- A rebuild may refresh the copied `DeviceConfig.txt`; back up deployment edits
-  or maintain permanent settings in the source configuration.
+- The executable is `vista_edge`, not a Windows `.exe`. Keep `DeviceConfig.txt`
+  and optional `GrafanaSecret.txt` beside it. They are resolved relative to the
+  executable, so launching from another working directory is supported.
+- Missing sidecars are created automatically: device settings are embedded from
+  `config/DeviceConfig.defaults.txt` at build time; `GrafanaToken:` is left blank.
+  Existing files are never overwritten. After creating a device config the app
+  exits before starting hardware: review the COM/IP settings, then run it again.
+  The executable directory needs write permission only when creating a file.
+- Builds never copy or overwrite runtime `DeviceConfig.txt` or
+  `GrafanaSecret.txt`. Edit the files beside the executable for deployment.
+  The defaults template is for building defaults only, not device configuration.
 - Use the actual Linux Unitree serial device, such as `/dev/ttyUSB0` or
   `/dev/ttyACM0`, not `COM3`. Grant the runtime user serial-device access according
   to your device permissions (commonly the `dialout` group).

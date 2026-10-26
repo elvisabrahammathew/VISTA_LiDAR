@@ -79,10 +79,14 @@ public:
         make_store();
     }
     void make_store() {
-        cells=std::make_unique<transport::RoomMapTileStore>(config.storage_directory,
+        auto next=std::make_unique<transport::RoomMapTileStore>(config.storage_directory,
             config.voxel_size_m,config.tile_size_m,config.cache_max_voxels,
             config.cache_max_tiles,config.minimum_observations,config.lod_points_per_node);
-        cells->enable_surface_snapshots(config.surface_snapshots);
+        next->enable_surface_snapshots(config.surface_snapshots);
+        // reset()/failed partial import explicitly discards this scratch map;
+        // retained readers must still finish before its directory is removed.
+        if(cells) cells->discard_when_unused();
+        cells=std::move(next);
     }
     models::RoomMapFrame select_view(const models::RoomMapViewRequest& request) const {
         std::lock_guard<std::mutex> lock(mutex);
@@ -392,6 +396,9 @@ void RoomMapAccumulator::save(transport::RoomMapSessionFile& output) {
 void RoomMapAccumulator::flush() {
     std::lock_guard<std::mutex> lock(impl_->mutex);impl_->cells->flush();
 }
+void RoomMapAccumulator::discard_cache_when_unused() {
+    std::lock_guard<std::mutex> lock(impl_->mutex);impl_->cells->discard_when_unused();
+}
 std::shared_ptr<const models::RoomMapViewSource> RoomMapAccumulator::view_source() const {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     const auto started=std::chrono::steady_clock::now();
@@ -403,8 +410,7 @@ std::shared_ptr<const models::RoomMapViewSource> RoomMapAccumulator::view_source
 platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform::ThreadConfig thread_config,
     platform::StopToken stop, RoomMapConfig config, RoomMapCompletion on_complete) {
     validate_room_map_config(config);
-    // Only building mode subscribes to live geometry. Loading/disabled modes
-    // merely serve reference snapshots and status; they never reconstruct.
+    // Loaded maps publish immutable references without subscribing to live scans.
     std::optional<platform::TopicSubscriber<devices::LidarPointCloudMessage>> subscriber;
     if (config.enabled && !config.load_existing)
         subscriber.emplace(bus.subscribe<devices::LidarPointCloudMessage>(models::topics::pointcloud_cleaned, thread_config.name));
@@ -443,6 +449,7 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
             std::shared_ptr<const models::RoomMapViewSource> view_source;
             std::optional<std::uint64_t> saved_revision;
             auto next_publish = std::chrono::steady_clock::now();
+            std::uint64_t checkpoint_monotonic_ns{};
             // RoomMapPublishIntervalMilliseconds is the single checkpoint/view
             // publication cadence. Finish the disk checkpoint BEFORE announcing
             // its revision; no full-PCD rewrite is performed on this timer.
@@ -450,6 +457,8 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
             const auto refresh_view = [&]() {
                 if (!dirty && revision!=0) return;
                 if (!status_override) view_source=map.view_source();
+                checkpoint_monotonic_ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count());
                 snapshot.reset();
                 ++revision;
                 dirty=false;
@@ -462,24 +471,28 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
                 snapshot = std::make_shared<const models::RoomMapMessage>(
                     revision, now_ns, std::move(cloud));
             };
-            const auto save = [&]() {
+            const auto save = [&]() -> bool {
                 // Building sessions always save on freeze/clean shutdown. A loaded
                 // reference is NEVER rewritten; there is no save enable/disable flag.
-                if (!output_file) return;
+                if (!output_file) return !ever_confirmed && map.status().point_count==0;
                 refresh_view();
                 // Do not claim/create a PCD at no-data startup. But once a new
                 // map existed, save an empty update if all its geometry was cleared.
-                if ((!ever_confirmed && map.status().point_count==0) || saved_revision==revision) return;
+                if ((!ever_confirmed && map.status().point_count==0) || saved_revision==revision) return true;
                 try {
                     map.save(*output_file);
                     saved_revision = revision;
                     std::cout << "Room map saved: " << output_file->path().string() << " ("
                               << map.status().point_count << " points)\n";
+                    return true;
                 } catch (const std::exception& error) {
                     status_override=models::RoomMapState::storage_error;
                     std::cerr << "Room map save warning: " << error.what() << '\n';
+                    return false;
                 }
             };
+            // Publish an initial completed background even before the first scan.
+            refresh_view();
             bool closed = false;
             while (!stop.is_stop_requested() && !closed) {
                 if (subscriber) {
@@ -488,7 +501,7 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
                     const auto batch_deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(20);
                     for (std::size_t batch = 0; batch < 64 && received == platform::ReceiveStatus::message; ++batch) {
                         ++report.received_messages;
-                        if (!message->payload.points.empty() && map.status().state != models::RoomMapState::frozen) {
+                        if (!status_override && !config.load_existing && !message->payload.points.empty() && map.status().state != models::RoomMapState::frozen) {
                             const auto now = std::chrono::steady_clock::now();
                             if (last_observation) active_time += std::min(now - *last_observation,
                                 std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds(1)));
@@ -526,6 +539,7 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
                     models::RoomMapViewMessage view;
                     if(!status_override) view.source=view_source;
                     view.revision=revision;view.timestamp_ns=status.timestamp_ns;
+                    view.checkpoint_monotonic_ns=checkpoint_monotonic_ns;
                     view.point_count=status.point_count;view.state=status.state;
                     // Unchanged revision heartbeats let a late-started worker
                     // discover the current map. The WebSocket does not resend
@@ -535,7 +549,11 @@ platform::WorkerHandle spawn_room_map_worker(platform::MessageBus& bus, platform
                     next_publish = now + config.publish_interval;
                 }
             }
-            save();
+            const bool final_saved=save();
+            // Frozen maps still need their cache while running. Arm deletion
+            // ONLY at session end; live views/foreground/Gaussian may finish later.
+            // A failed export keeps disk evidence for diagnosis/recovery.
+            if(config.load_existing || final_saved) map.discard_cache_when_unused();
             report.map_points = map.status().point_count;
             report.dropped_input_messages = subscriber ? subscriber->dropped_messages() : 0;
             on_complete(report, {});

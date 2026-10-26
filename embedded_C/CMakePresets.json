@@ -20,6 +20,13 @@
       }
     },
     {
+      "name": "windows-vs2022",
+      "displayName": "Windows - Visual Studio 2022 x64",
+      "inherits": "windows-vs2019",
+      "generator": "Visual Studio 17 2022",
+      "binaryDir": "${sourceDir}/out/build/windows-vs2022"
+    },
+    {
       "name": "linux-x86_64-gcc",
       "displayName": "Linux x86-64 - GCC",
       "generator": "Unix Makefiles",
@@ -44,13 +51,47 @@
         "VISTA_EXPECTED_ARCHITECTURE": "arm64",
         "VISTA_REALSENSE_FORCE_RSUSB_BACKEND": "ON"
       }
+    },
+    {
+      "name": "linux-x86_64-release",
+      "displayName": "Linux x86-64 - Release with auto-publish",
+      "inherits": "linux-x86_64-gcc",
+      "binaryDir": "${sourceDir}/out/build/linux-x86_64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux-arm64-release",
+      "displayName": "Linux ARM64 - Release with auto-publish",
+      "inherits": "linux-arm64-gcc",
+      "binaryDir": "${sourceDir}/out/build/linux-arm64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
     {
+      "name": "windows-vs2022-debug",
+      "configurePreset": "windows-vs2022",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-vs2022-release",
+      "configurePreset": "windows-vs2022",
+      "configuration": "Release"
+    },
+    {
       "name": "windows-debug",
       "configurePreset": "windows-vs2019",
       "configuration": "Debug"
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows x64 - Release",
+      "configurePreset": "windows-vs2019",
+      "configuration": "Release"
     },
     {
       "name": "linux-x86_64-debug",
@@ -59,13 +100,42 @@
     {
       "name": "linux-arm64-debug",
       "configurePreset": "linux-arm64-gcc"
+    },
+    {
+      "name": "linux-x86_64-release",
+      "configurePreset": "linux-x86_64-release"
+    },
+    {
+      "name": "linux-arm64-release",
+      "configurePreset": "linux-arm64-release"
     }
   ],
   "testPresets": [
     {
+      "name": "windows-vs2022-debug",
+      "configurePreset": "windows-vs2022",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-vs2022-release",
+      "configurePreset": "windows-vs2022",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
       "name": "windows-debug",
       "configurePreset": "windows-vs2019",
       "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows x64 - Release tests",
+      "configurePreset": "windows-vs2019",
+      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }
@@ -80,6 +150,20 @@
     {
       "name": "linux-arm64-debug",
       "configurePreset": "linux-arm64-gcc",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-x86_64-release",
+      "configurePreset": "linux-x86_64-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-arm64-release",
+      "configurePreset": "linux-arm64-release",
       "output": {
         "outputOnFailure": true
       }

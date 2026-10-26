@@ -13,6 +13,13 @@ export interface LidarPointCloudOptions {
   showGrid: boolean;
   showAxes: boolean;
   autoRotate: boolean;
+  staleTimeoutMs?: number; // 0/absent retains maps; foreground panel uses 1000 ms.
+  overlayForeground?: boolean;
+  foregroundWebsocketUrl?: string;
+  foregroundMaxPoints?: number;
+  foregroundPointSize?: number;
+  foregroundColor?: string;
+  foregroundStaleTimeoutMs?: number;
 }
 
 export interface PointCloudFrame {

@@ -40,9 +40,12 @@ target/
 
 # Visual Studio Code
 .vscode/
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
+!/embedded_C/.vscode/
+/embedded_C/.vscode/*
+!/embedded_C/.vscode/settings.json
+!/embedded_C/.vscode/extensions.json
+!/embedded_C/.vscode/c_cpp_properties.json
+CMakeUserPresets.json
 
 # CLion / JetBrains
 .idea/
@@ -53,3 +56,29 @@ cmake-build-*/
 # ==========================================
 *.log
 .env
+
+# Local captures and generated maps are not build inputs. Keep them on disk.
+/data/raw/*.bin
+/data/processed/*.pcd
+/data/maps/*
+!/data/maps/.gitkeep
+
+# Runnable C++ Release packages are intentionally versioned.
+# Keep exceptions scoped here: ordinary build outputs remain ignored.
+!/publish/windows-x64/vista_edge.exe
+/publish/windows-x64/*.dll
+!/publish/linux-x86_64/vista_edge
+!/publish/linux-x86_64/*.so*
+!/publish/linux-arm64/vista_edge
+!/publish/linux-arm64/*.so*
+/publish/*/GrafanaSecret.txt
+/publish/*/data/
+/publish/*/*.log
+/publish/*/*.pdb
+/publish/*/*.ilk
+/publish/*/*.obj
+/publish/*/*.bin
+/publish/*/*.pcd
+/publish/*/*.tiles/
+/publish/*/*.lock
+/publish/build-info/*/*.lock

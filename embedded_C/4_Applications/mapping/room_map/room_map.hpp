@@ -17,7 +17,7 @@ namespace vista::transport { class RoomMapSessionFile; }
 namespace vista::application {
 
 struct RoomMapConfig {
-    bool surface_snapshots{false}; // Derived from GaussianMapEnabled; not a separate TXT setting.
+    bool surface_snapshots{false}; // Gaussian OR foreground uses immutable confirmed regions.
     bool enabled{false};
     float voxel_size_m{0.05F};
     std::size_t cache_max_voxels{250'000}; // RAM working set, NOT total map size.
@@ -60,6 +60,8 @@ public:
     void save(transport::RoomMapSessionFile& output);
     void load(const vista::fs::path& input);
     void flush();
+    /// End-of-session only, after final PCD success; readers keep cache alive.
+    void discard_cache_when_unused();
     /// Checkpoints changed pages once; the returned disk reader does not lock live RAM.
     std::shared_ptr<const models::RoomMapViewSource> view_source() const;
     /// Reports global confirmation progress and RAM/disk cache diagnostics for Grafana.

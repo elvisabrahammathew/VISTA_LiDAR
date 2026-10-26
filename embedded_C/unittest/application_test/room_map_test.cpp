@@ -353,6 +353,68 @@ VISTA_TEST(room_map_worker_building_always_saves_on_clean_shutdown) {
     vista::fs::remove(config.file);
 }
 
+VISTA_TEST(room_map_worker_final_export_removes_only_its_session_tiles_after_readers_finish) {
+    auto config=settings();config.minimum_observations=1;config.publish_interval=10ms;
+    const auto root=vista::fs::temp_directory_path()/("vista-final-cache-"+
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    vista::fs::create_directory(root);config.file=root/"RoomMap.pcd";config.storage_directory=root/"tiles";
+    config.surface_snapshots=true;
+    std::shared_ptr<const vista::models::RoomMapViewSource> held;
+    vista::fs::path cache;
+    {
+        vista::platform::MessageBus bus;vista::platform::StopToken stop;
+        auto views=bus.subscribe<vista::models::RoomMapViewMessage>(vista::models::topics::room_map_view,"final-cache-view");
+        auto producer=bus.publisher<vista::devices::LidarPointCloudMessage>(vista::models::topics::pointcloud_cleaned);
+        std::string error;
+        auto worker=vista::application::spawn_room_map_worker(bus,{"final-cache-map",4},stop,config,[&](auto,auto e){error=e;});
+        struct Finish {vista::platform::StopToken& s;vista::platform::MessageBus& b;vista::platform::WorkerHandle& w;
+            ~Finish(){s.request_stop();b.close();w.join();}} finish{stop,bus,worker};
+        producer.publish(vista::devices::LidarPointCloudMessage("test",1,std::nullopt,1,ray_frame({map_point(2,0,0)})));
+        const auto deadline=std::chrono::steady_clock::now()+5s;
+        std::shared_ptr<const vista::models::RoomMapViewMessage> view;
+        while(std::chrono::steady_clock::now()<deadline) {
+            if(views.receive_for(view,100ms)==vista::platform::ReceiveStatus::message && view->point_count==1) {held=view->source;break;}
+        }
+        stop.request_stop();bus.close();worker.join();
+        VISTA_CHECK(error.empty() && held);
+        for(const auto& item:vista::fs::directory_iterator(root)) if(item.is_directory()) cache=item.path();
+        VISTA_CHECK(!cache.empty() && vista::fs::exists(cache));
+    }
+    VISTA_CHECK(vista::transport::load_room_map_snapshot(config.file,10).points.size()==1);
+    vista::models::RoomMapViewRequest request;request.point_budget=10;
+    VISTA_CHECK(held->select_view(request).points.size()==1);held.reset();
+    VISTA_CHECK(!vista::fs::exists(cache) && vista::fs::exists(config.file));
+    vista::fs::remove(config.file);vista::fs::remove(root);
+}
+
+VISTA_TEST(room_map_worker_failed_final_export_preserves_session_tiles) {
+    auto config=settings();config.minimum_observations=1;config.publish_interval=10ms;
+    const auto root=vista::fs::temp_directory_path()/("vista-failed-cache-"+
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    vista::fs::create_directory(root);const auto blocker=root/"not-a-directory";
+    {vista::io::ofstream out(blocker);out<<"keep";}
+    config.file=blocker/"RoomMap.pcd";config.storage_directory=root/"tiles";
+    {
+        vista::platform::MessageBus bus;vista::platform::StopToken stop;
+        auto views=bus.subscribe<vista::models::RoomMapViewMessage>(vista::models::topics::room_map_view,"failed-cache-view");
+        auto producer=bus.publisher<vista::devices::LidarPointCloudMessage>(vista::models::topics::pointcloud_cleaned);
+        auto worker=vista::application::spawn_room_map_worker(bus,{"failed-cache-map",4},stop,config,[](auto,auto){});
+        struct Finish {vista::platform::StopToken& s;vista::platform::MessageBus& b;vista::platform::WorkerHandle& w;
+            ~Finish(){s.request_stop();b.close();w.join();}} finish{stop,bus,worker};
+        producer.publish(vista::devices::LidarPointCloudMessage("test",1,std::nullopt,1,ray_frame({map_point(2,0,0)})));
+        std::shared_ptr<const vista::models::RoomMapViewMessage> view;bool confirmed=false;
+        const auto deadline=std::chrono::steady_clock::now()+5s;
+        while(std::chrono::steady_clock::now()<deadline) {
+            if(views.receive_for(view,100ms)==vista::platform::ReceiveStatus::message && view->point_count==1) {confirmed=true;break;}
+        }
+        stop.request_stop();bus.close();worker.join();VISTA_CHECK(confirmed);
+    }
+    std::size_t directories{};
+    for(const auto& item:vista::fs::directory_iterator(root)) if(item.is_directory()) {++directories;vista::fs::remove_all(item.path());}
+    VISTA_CHECK(directories==1 && vista::fs::exists(blocker));
+    vista::fs::remove(blocker);vista::fs::remove(root);
+}
+
 VISTA_TEST(room_map_worker_no_data_does_not_overwrite_an_older_map) {
     vista::platform::MessageBus bus; vista::platform::StopToken stop;
     auto config=settings(); config.publish_interval=10ms;

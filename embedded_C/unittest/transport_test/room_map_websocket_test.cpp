@@ -21,6 +21,7 @@
 #include "models/topics.hpp"
 #include "unittest/test.hpp"
 #include "4_Applications/mapping/gaussian_map/gaussian_map.hpp"
+#include "4_Applications/perception/foreground/foreground.hpp"
 
 namespace {
 using namespace std::chrono_literals;
@@ -96,6 +97,57 @@ std::vector<std::uint8_t> masked_text(const std::string& text) {
     const std::array<std::uint8_t,4> mask{1,2,3,4};result.insert(result.end(),mask.begin(),mask.end());
     for(std::size_t i=0;i<text.size();++i) result.push_back(static_cast<std::uint8_t>(text[i])^mask[i%4]);return result;
 }
+}
+
+VISTA_TEST(foreground_websocket_replaces_clears_stale_data_and_does_not_replay_old_objects) {
+    Runtime runtime;
+    vista::platform::MessageBus bus;vista::platform::StopToken stop;
+    auto publisher=bus.publisher<vista::models::ForegroundFrame>(vista::models::topics::foreground_points);
+    vista::application::PointCloudWebSocketConfig config;
+    config.port=available_port();config.maximum_points=10;config.publish_interval=500ms;
+    std::string failure;
+    auto worker=vista::application::spawn_foreground_websocket(bus,{"test-foreground-socket",5},stop,config,
+        [&](auto,auto error){failure=std::move(error);});
+    struct Finish {vista::platform::StopToken& stop;vista::platform::MessageBus& bus;vista::platform::WorkerHandle& worker;
+        ~Finish(){stop.request_stop();bus.close();worker.join();}} finish{stop,bus,worker};
+    std::this_thread::sleep_for(100ms);
+    Client client;client.connect(config.port);client.handshake();
+    const auto metadata=client.read_frame();VISTA_CHECK(metadata.first==1);
+    const std::string waiting(metadata.second.begin(),metadata.second.end());
+    VISTA_CHECK(waiting.find("foreground-status")!=std::string::npos && waiting.find("\"active\":false")!=std::string::npos);
+    VISTA_CHECK(client.read_frame().second.size()==32); // Nothing retained at startup.
+    vista::models::ForegroundFrame frame;frame.source="test";frame.sequence=42;
+    frame.received_monotonic_ns=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+    frame.points={{1,2,3,99}};frame.input_points=1;frame.reason="foreground; \"test\"\n";
+    const auto sent_at=std::chrono::steady_clock::now();publisher.publish(frame);
+    bool saw_motion=false;
+    bool explained=false;
+    for(int i=0;i<20 && !saw_motion;++i) {
+        const auto packet=client.read_frame();
+        if(packet.first==1) {const std::string text(packet.second.begin(),packet.second.end());
+            explained=text.find("\"active\":true")!=std::string::npos && text.find("\\\"test\\\"\\n")!=std::string::npos;}
+        else saw_motion=packet.second.size()==48;
+    }
+    VISTA_CHECK(saw_motion);
+    VISTA_CHECK(explained);
+    // The socket forwards a sampled result immediately, without another 500 ms
+    // publication timer, and does not repeatedly transmit unchanged active data.
+    VISTA_CHECK(std::chrono::steady_clock::now()-sent_at<400ms);
+    fd_set ready;FD_ZERO(&ready);FD_SET(client.socket,&ready);timeval quiet{0,100000};
+    VISTA_CHECK(select(static_cast<int>(client.socket)+1,&ready,nullptr,nullptr,&quiet)==0);
+    publisher.publish(vista::models::ForegroundFrame{});
+    bool cleared=false;
+    for(int i=0;i<20 && !cleared;++i) {const auto packet=client.read_frame();cleared=packet.first==2 && packet.second.size()==32;}
+    VISTA_CHECK(cleared);
+    frame.received_monotonic_ns-=2'000'000'000ULL;publisher.publish(frame);
+    std::this_thread::sleep_for(100ms);
+    Client late;late.connect(config.port);late.handshake();
+    const auto stale=late.read_frame();VISTA_CHECK(stale.first==1);
+    const std::string reason(stale.second.begin(),stale.second.end());
+    VISTA_CHECK(reason.find("older than 500 ms")!=std::string::npos && reason.find("\"active\":false")!=std::string::npos);
+    VISTA_CHECK(late.read_frame().second.size()==32); // Delayed queue arrival is not fresh evidence.
+    stop.request_stop();bus.close();worker.join();VISTA_CHECK(failure.empty());
 }
 
 VISTA_TEST(websocket_server_isolates_clients_buffers_partial_reads_and_rejects_oversized_requests) {

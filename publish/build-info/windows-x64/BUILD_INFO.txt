@@ -1,0 +1,11 @@
+Program: VISTA Edge
+Platform: windows-x64
+Configuration: Release
+Build OS: Windows 10.0.26200
+Compiler: MSVC 19.29.30159.0
+MSVC runtime: static (/MT); Windows system DLLs are provided by the OS.
+RealSense support: ON
+Executable: vista_edge.exe
+SHA256: 454d719286c59435a74aa4d81b00cb1db3bebf65390809bbd9c3ccdce2a6c061
+Source: repository working tree at build time (including uncommitted edits).
+Windows Release linker output is publish/windows-x64/vista_edge.exe.

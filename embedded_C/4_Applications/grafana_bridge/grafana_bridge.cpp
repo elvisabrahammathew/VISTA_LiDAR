@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "2_Transport/messaging/http.hpp"
+#include "1_Platform/os/paths.hpp"
 #include "models/telemetry.hpp"
 #include "models/topics.hpp"
 #include "models/mapping/localization.hpp"
@@ -73,7 +74,8 @@ std::string trim_copy(std::string value) {
 }
 
 std::optional<std::string> read_grafana_token_file() {
-    std::ifstream input(grafana_secret_file_name);
+    vista::io::ifstream input(platform::executable_path().parent_path() /
+        grafana_secret_file_name);
     if (!input.is_open()) {
         return std::nullopt;
     }
@@ -588,7 +590,6 @@ platform::WorkerHandle spawn_grafana_bridge(
     // existing compact Grafana field/channel names for dashboard compatibility.
     auto processed = inputs.subscribe<devices::LidarPointCloudMessage>(bus, models::topics::pointcloud_cleaned_sensor);
     auto imu = inputs.subscribe<models::ImuMessage>(bus, models::topics::lidar_imu);
-    auto ground = inputs.subscribe<models::GroundStatusMessage>(bus, models::topics::ground_status);
     auto room_map = inputs.subscribe<models::RoomMapStatus>(bus, models::topics::room_map_status);
     auto localization = inputs.subscribe<models::LocalizationStatus>(bus, models::topics::localization_status);
     auto system = inputs.subscribe<models::SystemHealthTelemetry>(bus, models::topics::system_health);
@@ -600,7 +601,7 @@ platform::WorkerHandle spawn_grafana_bridge(
         std::move(thread_config),
         [stop, inputs = std::move(inputs), raw = std::move(raw),
          decoded = std::move(decoded), processed = std::move(processed),
-         imu = std::move(imu), ground = std::move(ground),
+         imu = std::move(imu),
          room_map = std::move(room_map),localization=std::move(localization),
          system = std::move(system), worker = std::move(worker),
          config = std::move(config), on_complete = std::move(on_complete)]() mutable {
@@ -612,7 +613,6 @@ platform::WorkerHandle spawn_grafana_bridge(
                 std::optional<models::SystemHealthTelemetry> system_value;
                  std::shared_ptr<const devices::LidarPointCloudMessage> pending_cloud;
                  std::shared_ptr<const models::ImuMessage> pending_imu;
-                 std::shared_ptr<const models::GroundStatusMessage> pending_ground;
                  std::optional<models::RoomMapStatus> pending_room_map;
                  std::optional<models::LocalizationStatus> pending_localization;
                  bool localization_closed{};
@@ -628,7 +628,7 @@ platform::WorkerHandle spawn_grafana_bridge(
                  auto last_cloud = started;
                  auto last_imu = started;
                  auto next_publish = started;
-                 bool raw_closed{}, decoded_closed{}, processed_closed{}, imu_closed{}, ground_closed{};
+                 bool raw_closed{}, decoded_closed{}, processed_closed{}, imu_closed{};
                 bool system_closed{}, worker_closed{};
                 bool room_map_closed{};
 
@@ -670,11 +670,6 @@ platform::WorkerHandle spawn_grafana_bridge(
                              imu_lidar_id = message->source_id;
                              pending_imu = message;
                          });
-                    drain<models::GroundStatusMessage>(ground, ground_closed, ready,
-                        [&](const auto& message) {
-                            ++report.received_ground_messages;
-                            pending_ground=message;
-                        });
                     drain<models::SystemHealthTelemetry>(system, system_closed, ready,
                         [&](const auto& message) { system_value = *message; });
                     drain<models::RoomMapStatus>(room_map, room_map_closed, ready,
@@ -708,11 +703,6 @@ platform::WorkerHandle spawn_grafana_bridge(
                              lines.push_back(format_imu_measurement(
                                  offline_imu(imu_lidar_id)));
                          }
-                        if (pending_ground) {
-                            lines.push_back(format_ground_state_measurement(*pending_ground));
-                            lines.push_back(format_ground_measurement(*pending_ground));
-                            pending_ground.reset();
-                        }
                         lines.push_back(format_pipeline_health(PipelineTelemetry{
                             system_timestamp_ns(), online ? raw_fps : 0.0,
                             raw_fill, processed_fill, drops}));
@@ -731,11 +721,11 @@ platform::WorkerHandle spawn_grafana_bridge(
                         publisher.publish(std::move(lines), inputs.topic_count());
                         next_publish = now + config.publish_interval;
                     }
-                     if (raw_closed && decoded_closed && processed_closed && imu_closed && ground_closed && system_closed &&
+                     if (raw_closed && decoded_closed && processed_closed && imu_closed && system_closed &&
                         worker_closed && room_map_closed && localization_closed) break;
                 }
                  report.dropped_input_messages = raw.dropped_messages() + decoded.dropped_messages() +
-                     processed.dropped_messages() + imu.dropped_messages() + ground.dropped_messages() +
+                     processed.dropped_messages() + imu.dropped_messages() +
                      system.dropped_messages() + worker.dropped_messages() +
                     room_map.dropped_messages()+localization.dropped_messages();
                 on_complete(report, {});

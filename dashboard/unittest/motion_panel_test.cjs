@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('assert/strict');
+const fs=require('fs');
+const path=require('path');
+const doc=JSON.parse(fs.readFileSync(path.join(__dirname,'..','VISTA_Live_Dashboard_V5_Gaussian_Map.json'),'utf8'));
+const moving=doc.panels.find(p=>p.id===51);
+assert(moving);assert.equal(moving.title,'Gaussian Room Map and Foreground');assert.match(moving.description,/not a motion label/i);assert.equal(moving.type,'vista-lidarpointcloud-panel');
+assert.equal(moving.options.websocketUrl,'ws://127.0.0.1:8767');
+assert.equal(moving.options.foregroundWebsocketUrl,'ws://127.0.0.1:8768');
+assert.equal(moving.options.overlayForeground,true);assert.equal(moving.options.colorMode,'solid');
+assert.equal(moving.options.foregroundStaleTimeoutMs,1000);
+assert.equal(moving.options.foregroundMaxPoints,12000);assert.equal(moving.options.maxPoints,100000);
+assert(!doc.panels.some(p=>p.id===90));
+for(const id of [51,60]) assert.equal(doc.panels.find(p=>p.id===id).options.staleTimeoutMs || 0,0);
+assert.equal(doc.panels.filter(p=>p.type==='vista-lidarpointcloud-panel').length,2);
+assert(!JSON.stringify(doc).includes('stream/vista/ground_'));
+assert(!JSON.stringify(doc).includes('ws://127.0.0.1:8765'));
+console.log('PASS: Gaussian/Foreground share one panel with independent sockets/budgets/expiry; RoomMap and health retained.');

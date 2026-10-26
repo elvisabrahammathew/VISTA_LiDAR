@@ -1,4 +1,5 @@
 #include "1_Platform/compat/filesystem.hpp"
+#include "1_Platform/os/paths.hpp"
 #include "unittest/test.hpp"
 #include <chrono>
 
@@ -10,6 +11,13 @@ struct TemporaryTree {
     TemporaryTree() { vista::fs::create_directories(root); }
     ~TemporaryTree() { std::error_code ec; vista::fs::remove_all(root, ec); }
 };
+}
+
+VISTA_TEST(filesystem_executable_path_is_absolute_and_independent_of_cwd) {
+    const auto executable = vista::platform::executable_path();
+    VISTA_CHECK(executable.is_absolute());
+    VISTA_CHECK(vista::fs::is_regular_file(executable));
+    VISTA_CHECK(!executable.filename().empty());
 }
 
 VISTA_TEST(filesystem_normalizes_paths_without_touching_disk) {

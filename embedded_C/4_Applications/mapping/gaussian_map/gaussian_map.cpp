@@ -1,5 +1,6 @@
 #include "4_Applications/mapping/gaussian_map/gaussian_map.hpp"
 #include "2_Transport/storage/room_map_tiles.hpp"
+#include "2_Transport/storage/session_directory.hpp"
 #include "models/topics.hpp"
 #include <algorithm>
 #include <atomic>
@@ -15,25 +16,19 @@ using Key=models::RoomMapRegionKey;
 using Point=models::GaussianMapPoint;
 using Voxel=transport::MapVoxelKey;
 using Cells=std::unordered_map<Voxel,models::RoomMapPoint,transport::MapVoxelHash>;
-template<class T> void put(std::ostream& out,const T& v) {
-    out.write(reinterpret_cast<const char*>(&v),sizeof(v));
-    if(!out) throw std::runtime_error("cannot write Gaussian map cache");
-}
-template<class T> T get(std::istream& in) {
-    T v{};in.read(reinterpret_cast<char*>(&v),sizeof(v));
-    if(!in) throw std::runtime_error("truncated Gaussian map cache");
-    return v;
-}
 void write_point(std::ostream& out,const Point& p) {
-    put(out,p.center.x);put(out,p.center.y);put(out,p.center.z);put(out,p.center.intensity);
-    for(auto c:p.covariance) put(out,c);
-    put(out,p.opacity);
+    std::array<char,41> record{};
+    std::memcpy(record.data(),&p.center.x,4);std::memcpy(record.data()+4,&p.center.y,4);
+    std::memcpy(record.data()+8,&p.center.z,4);record[12]=static_cast<char>(p.center.intensity);
+    std::memcpy(record.data()+13,p.covariance.data(),24);std::memcpy(record.data()+37,&p.opacity,4);
+    out.write(record.data(),record.size());if(!out) throw std::runtime_error("cannot write Gaussian map cache");
 }
 Point read_point(std::istream& in) {
-    Point p;p.center.x=get<float>(in);p.center.y=get<float>(in);p.center.z=get<float>(in);
-    p.center.intensity=get<std::uint8_t>(in);
-    for(auto& c:p.covariance) c=get<float>(in);
-    p.opacity=get<float>(in);return p;
+    std::array<char,41> record{};in.read(record.data(),record.size());
+    if(!in) throw std::runtime_error("truncated Gaussian map cache");
+    Point p;std::memcpy(&p.center.x,record.data(),4);std::memcpy(&p.center.y,record.data()+4,4);
+    std::memcpy(&p.center.z,record.data()+8,4);p.center.intensity=static_cast<std::uint8_t>(record[12]);
+    std::memcpy(p.covariance.data(),record.data()+13,24);std::memcpy(&p.opacity,record.data()+37,4);return p;
 }
 Voxel voxel(const models::RoomMapPoint& p,float size) {
     const double x=std::floor(static_cast<double>(p.x)/size),y=std::floor(static_cast<double>(p.y)/size),
@@ -66,13 +61,40 @@ std::array<double,3> normal(double a[3][3],bool& planar,double scale) {
     planar=a[indices[1]][indices[1]]>scale*scale*.04 && a[indices[0]][indices[0]]<.15*a[indices[1]][indices[1]];
     return {v[0][indices[0]],v[1][indices[0]],v[2][indices[0]]};
 }
-Point fit(const models::RoomMapPoint& center,const Cells& cells,float size) {
+// One bounded padded lookup table per active tile. Neighborhood order and all
+// fitting math stay identical, but 343 hash lookups per point become direct reads.
+class DenseCells {
+    Voxel low{};std::size_t nx{},ny{},nz{};
+    std::vector<const models::RoomMapPoint*> entries;
+public:
+    DenseCells(const Cells& cells,const std::vector<models::RoomMapPoint>& centers,float size) {
+        if(centers.empty())return;
+        auto high=voxel(centers.front(),size);low=high;
+        for(const auto& p:centers){const auto k=voxel(p,size);
+            low.x=std::min(low.x,k.x);low.y=std::min(low.y,k.y);low.z=std::min(low.z,k.z);
+            high.x=std::max(high.x,k.x);high.y=std::max(high.y,k.y);high.z=std::max(high.z,k.z);}
+        low.x-=3;low.y-=3;low.z-=3;high.x+=3;high.y+=3;high.z+=3;
+        if(high.x-low.x>=72 || high.y-low.y>=72 || high.z-low.z>=72)
+            throw std::runtime_error("Gaussian tile lookup exceeded");
+        nx=static_cast<std::size_t>(high.x-low.x+1);ny=static_cast<std::size_t>(high.y-low.y+1);nz=static_cast<std::size_t>(high.z-low.z+1);
+        entries.assign(nx*ny*nz,nullptr);
+        for(const auto& item:cells){const auto& k=item.first;
+            if(k.x<low.x||k.y<low.y||k.z<low.z||k.x>high.x||k.y>high.y||k.z>high.z)continue;
+            entries[(static_cast<std::size_t>(k.x-low.x)*ny+static_cast<std::size_t>(k.y-low.y))*nz+static_cast<std::size_t>(k.z-low.z)]=&item.second;}
+    }
+    const models::RoomMapPoint* find(const Voxel& k) const {
+        const auto x=k.x-low.x,y=k.y-low.y,z=k.z-low.z;
+        if(x<0||y<0||z<0||static_cast<std::uint64_t>(x)>=nx||static_cast<std::uint64_t>(y)>=ny||static_cast<std::uint64_t>(z)>=nz)return nullptr;
+        return entries[(static_cast<std::size_t>(x)*ny+static_cast<std::size_t>(y))*nz+static_cast<std::size_t>(z)];
+    }
+};
+Point fit(const models::RoomMapPoint& center,const DenseCells& cells,float size) {
     const auto key=voxel(center,size);
     double mean[3]{},moments[3][3]{};unsigned count{};
     const double radius2=static_cast<double>(size)*size*6.25;
     for(int x=-3;x<=3;++x) for(int y=-3;y<=3;++y) for(int z=-3;z<=3;++z) {
-        const auto found=cells.find({key.x+x,key.y+y,key.z+z});if(found==cells.end()) continue;
-        const auto& p=found->second;const double d[3]{p.x-center.x,p.y-center.y,p.z-center.z};
+        const auto* found=cells.find({key.x+x,key.y+y,key.z+z});if(!found) continue;
+        const auto& p=*found;const double d[3]{p.x-center.x,p.y-center.y,p.z-center.z};
         if(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]>radius2) continue;
         ++count;
         for(unsigned i=0;i<3;++i) {mean[i]+=d[i];for(unsigned j=0;j<3;++j) moments[i][j]+=d[i]*d[j];}
@@ -90,6 +112,7 @@ Point fit(const models::RoomMapPoint& center,const Cells& cells,float size) {
     return result;
 }
 struct Page {
+    std::shared_ptr<transport::detail::SessionDirectory> directory;
     vista::fs::path file;std::uint64_t count{};std::array<double,6> bounds{};
     ~Page() {std::error_code ignored;vista::fs::remove(file,ignored);}
 };
@@ -116,10 +139,12 @@ public:
         std::uint64_t base{},sample_index{};
         for(const auto& page:visible) {
             vista::io::ifstream in(page->file,std::ios::binary);
+            std::uint64_t next_record{};
             while(sample_index<wanted) {
                 const auto index=static_cast<std::uint64_t>((static_cast<long double>(sample_index)+.5L)*total/wanted);
                 if(index>=base+page->count) break;
-                in.seekg(static_cast<std::streamoff>((index-base)*41));
+                if(index-base!=next_record)in.seekg(static_cast<std::streamoff>((index-base)*41));
+                next_record=index-base+1;
                 auto p=read_point(in);bool inside=true;
                 if(request.has_camera) for(const auto& plane:request.planes)
                     if(plane[0]*p.center.x+plane[1]*p.center.y+plane[2]*p.center.z+plane[3]<0) {inside=false;break;}
@@ -134,6 +159,7 @@ public:
 }
 class GaussianMapBuilder::Impl {
 public:
+    std::shared_ptr<transport::detail::SessionDirectory> directory=std::make_shared<transport::detail::SessionDirectory>();
     vista::fs::path root;
     std::map<Key,std::shared_ptr<const models::RoomMapRegion>> processed;
     std::shared_ptr<View> view=std::make_shared<View>();
@@ -143,7 +169,11 @@ GaussianMapBuilder::GaussianMapBuilder(vista::fs::path root):impl_(std::make_uni
     static std::atomic<std::uint64_t> counter{};
     if(root.empty()) root=vista::fs::temp_directory_path()/"vista-gaussian";
     root+="."+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+"."+std::to_string(++counter);
-    impl_->root=std::move(root);
+    impl_->root=vista::fs::absolute(root).lexically_normal();
+    impl_->directory->root=impl_->root;
+    // Derived geometry is regenerable from PCD. Pages keep this lease alive
+    // after builder shutdown until the last in-flight viewer releases them.
+    impl_->directory->discard=true;
 }
 GaussianMapBuilder::~GaussianMapBuilder()=default;
 std::uint64_t GaussianMapBuilder::rebuilt_tiles() const {return impl_->rebuilt;}
@@ -169,7 +199,7 @@ std::shared_ptr<const models::GaussianMapViewSource> GaussianMapBuilder::update(
         const Key neighbor{k[0]+x,k[1]+y,k[2]+z};
         if(source.regions.count(neighbor) || next->pages.count(neighbor)) affected.insert(neighbor);
     }
-    vista::fs::create_directories(impl_->root);
+    impl_->directory->ensure();
     for(const auto& k:affected) {
         if(cancelled && cancelled()) return {};
         const auto own=source.regions.find(k);
@@ -197,14 +227,16 @@ std::shared_ptr<const models::GaussianMapViewSource> GaussianMapBuilder::update(
             if(a.x!=b.x) return a.x<b.x;
             if(a.y!=b.y) return a.y<b.y;
             return a.z<b.z;});
+        const DenseCells lookup(cells,centers,source.voxel_size);
         auto page=std::make_shared<Page>();page->file=impl_->root/(std::to_string(++impl_->serial)+".gsurf");
+        page->directory=impl_->directory;
         page->count=centers.size();
         page->bounds={k[0]*source.tile_size,k[1]*source.tile_size,k[2]*source.tile_size,
             (k[0]+1)*source.tile_size,(k[1]+1)*source.tile_size,(k[2]+1)*source.tile_size};
         vista::io::ofstream out(page->file,std::ios::binary|std::ios::trunc);
         for(std::size_t i=0;i<centers.size();++i) {
             if(i%256==0 && cancelled && cancelled()) return {};
-            write_point(out,fit(centers[i],cells,source.voxel_size));
+            write_point(out,fit(centers[i],lookup,source.voxel_size));
         }
         out.flush();if(!out) throw std::runtime_error("cannot flush Gaussian cache");out.close();
         next->pages.insert_or_assign(k,std::move(page));++impl_->rebuilt;

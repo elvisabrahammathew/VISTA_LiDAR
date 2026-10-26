@@ -20,8 +20,35 @@ export const plugin = new PanelPlugin<LidarPointCloudOptions>(LidarPointCloudPan
       .addTextInput({
         path: 'websocketUrl',
         name: 'WebSocket URL',
-        description: 'Room Map LPC1 or geometric Gaussian Map GSP1 stream.',
+        description: 'Room Map / foreground points LPC1 or geometric Gaussian Map GSP1 stream.',
         defaultValue: 'ws://127.0.0.1:8766',
+      })
+      .addBooleanSwitch({
+        path: 'overlayForeground', name: 'Overlay Foreground on Gaussian', defaultValue: false,
+        description: 'Two independent sockets, one world-coordinate camera. Main URL must serve Gaussian GSP1.',
+        showIf: (o) => o.sourceMode === 'websocket',
+      })
+      .addTextInput({
+        path: 'foregroundWebsocketUrl', name: 'Foreground WebSocket URL', defaultValue: 'ws://127.0.0.1:8768',
+        description: 'LPC1 foreground from the same VISTA application/world frame as the Gaussian map.',
+        showIf: (o) => o.sourceMode === 'websocket' && Boolean(o.overlayForeground),
+      })
+      .addNumberInput({
+        path: 'foregroundMaxPoints', name: 'Maximum Foreground points', defaultValue: 12000,
+        settings: { min: 1, max: 50000, step: 1000 }, showIf: (o) => Boolean(o.overlayForeground),
+      })
+      .addNumberInput({
+        path: 'foregroundPointSize', name: 'Foreground point size', defaultValue: 3,
+        settings: { min: 0.1, max: 20, step: 0.1 }, showIf: (o) => Boolean(o.overlayForeground),
+      })
+      .addColorPicker({
+        path: 'foregroundColor', name: 'Foreground color', defaultValue: '#ff7043',
+        showIf: (o) => Boolean(o.overlayForeground),
+      })
+      .addNumberInput({
+        path: 'foregroundStaleTimeoutMs', name: 'Foreground expiry (ms)', defaultValue: 1000,
+        description: 'Only the Foreground layer expires. Gaussian geometry is retained on disconnect.',
+        settings: { min: 100, max: 60000, step: 100 }, showIf: (o) => Boolean(o.overlayForeground),
       })
       .addNumberInput({
         path: 'reconnectDelayMs',
@@ -35,6 +62,13 @@ export const plugin = new PanelPlugin<LidarPointCloudOptions>(LidarPointCloudPan
         description: 'Camera-dependent Room Map / Gaussian Map view budget. Stored maps are not capped.',
         defaultValue: 100000,
         settings: { min: 1000, max: 2000000, step: 1000 },
+      })
+      .addNumberInput({
+        path: 'staleTimeoutMs',
+        name: 'Clear stale geometry after (ms)',
+        description: '0 retains map views. Use 1000 for transient foreground points; disconnect also clears.',
+        defaultValue: 0,
+        settings: { min: 0, max: 60000, step: 100 },
       })
       .addNumberInput({
         path: 'pointSize',

@@ -12,9 +12,9 @@ const panel = dashboard.panels.find(panel => panel.id === 28);
 const transformers = Object.fromEntries(Object.values(data.standardTransformers).map(transform => [transform.id, transform]));
 assert.equal(dashboard.uid, 'vistalive');
 assert(dashboard.title.endsWith('(V5)'));
-assert.equal(dashboard.__requires.find(plugin => plugin.id === 'vista-lidarpointcloud-panel').version, '1.2.0');
+assert.equal(dashboard.__requires.find(plugin => plugin.id === 'vista-lidarpointcloud-panel').version, '1.3.0');
 assert.deepEqual(dashboard.panels.filter(panel => panel.type === 'vista-lidarpointcloud-panel')
-  .map(panel => panel.options.websocketUrl).sort(), ['ws://127.0.0.1:8766', 'ws://127.0.0.1:8767']);
+  .flatMap(panel => [panel.options.websocketUrl, ...(panel.options.overlayForeground ? [panel.options.foregroundWebsocketUrl] : [])]).sort(), ['ws://127.0.0.1:8766', 'ws://127.0.0.1:8767', 'ws://127.0.0.1:8768']);
 assert.equal(panel.targets[0].channel, 'stream/vista/worker_health_rows');
 assert(!panel.transformations.some(transform => transform.id === 'prepareTimeSeries'));
 
@@ -58,9 +58,9 @@ async function check(count, splitFrames) {
 }
 
 (async () => {
-  for (const count of [1, 9, 11, 12, 13, 14]) {
+  for (const count of [1, 9, 11, 12, 13, 14, 15, 16]) {
     await check(count, false);
     await check(count, true);
   }
-  console.log('Worker Health: 12 Grafana transformation scenarios passed.');
+  console.log('Worker Health: 16 Grafana transformation scenarios passed.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

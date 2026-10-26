@@ -2,8 +2,11 @@
 #include <ctime>
 #include "1_Platform/compat/filesystem.hpp"
 #include <string>
+#include <atomic>
+#include <thread>
 
 #include "config.hpp"
+#include "1_Platform/os/paths.hpp"
 #include "unittest/test.hpp"
 
 namespace {
@@ -16,7 +19,148 @@ SensorPort(quanergy-m8, unitree-l2): 5000
 Radar: None
 )";
 
+struct ConfigTestDirectory {
+    vista::fs::path original = vista::fs::current_path();
+    vista::fs::path root = vista::fs::temp_directory_path() /
+        ("vista-config-test-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    ConfigTestDirectory() { vista::fs::create_directories(root); }
+    ~ConfigTestDirectory() {
+        std::error_code error;
+        vista::fs::current_path(original, error);
+        vista::fs::remove_all(root, error);
+    }
+};
+
+std::string read_config_test_file(const vista::fs::path& file) {
+    vista::io::ifstream input(file, std::ios::binary);
+    VISTA_CHECK(input.is_open());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    VISTA_CHECK(!input.bad());
+    return contents.str();
+}
+
 }  // namespace
+
+VISTA_TEST(config_bootstrap_creates_valid_defaults_and_blank_token_in_unicode_directory) {
+    ConfigTestDirectory tree;
+    const auto folder = tree.root / vista::fs::u8path(u8"first run space \u00e9");
+    vista::fs::create_directory(folder);
+    const auto created = vista::create_missing_startup_config_files(folder);
+    VISTA_CHECK(created.device_config_created && created.grafana_secret_created);
+    const auto config = vista::AppConfig::load(folder / "DeviceConfig.txt");
+    (void)config.runtime_config();
+#ifndef _WIN32
+    VISTA_CHECK(config.unitree_serial_port == "/dev/ttyACM0");
+#endif
+    const auto secret = read_config_test_file(folder / "GrafanaSecret.txt");
+    VISTA_CHECK(secret.find("GrafanaToken: \n") != std::string::npos);
+    VISTA_CHECK(secret.find("glsa_") == std::string::npos);
+    const auto repeated = vista::create_missing_startup_config_files(folder);
+    VISTA_CHECK(!repeated.device_config_created && !repeated.grafana_secret_created);
+}
+
+VISTA_TEST(config_bootstrap_never_overwrites_existing_files_even_invalid_or_empty) {
+    ConfigTestDirectory tree;
+    const std::string device = "\xEF\xBB\xBF# user settings\r\nLidar: invalid\r\n";
+    { vista::io::ofstream out(tree.root / "DeviceConfig.txt", std::ios::binary); out << device; }
+    { vista::io::ofstream out(tree.root / "GrafanaSecret.txt"); }
+    const auto created = vista::create_missing_startup_config_files(tree.root);
+    VISTA_CHECK(!created.device_config_created && !created.grafana_secret_created);
+    VISTA_CHECK(read_config_test_file(tree.root / "DeviceConfig.txt") == device);
+    VISTA_CHECK(read_config_test_file(tree.root / "GrafanaSecret.txt").empty());
+}
+
+VISTA_TEST(config_bootstrap_missing_secret_preserves_custom_device_settings) {
+    ConfigTestDirectory tree;
+    { vista::io::ofstream out(tree.root / "DeviceConfig.txt", std::ios::binary); out << quanergy_config; }
+    const auto created = vista::create_missing_startup_config_files(tree.root);
+    VISTA_CHECK(!created.device_config_created && created.grafana_secret_created);
+    VISTA_CHECK(read_config_test_file(tree.root / "DeviceConfig.txt") == quanergy_config);
+    VISTA_CHECK(vista::AppConfig::load(tree.root / "DeviceConfig.txt").sensor_ip == "192.168.1.20");
+}
+
+VISTA_TEST(config_bootstrap_missing_device_preserves_existing_secret_exactly) {
+    ConfigTestDirectory tree;
+    const std::string secret = "# retained fixture\r\nGrafanaToken: test-token-not-a-real-credential\r\n";
+    { vista::io::ofstream out(tree.root / "GrafanaSecret.txt", std::ios::binary); out << secret; }
+    const auto created = vista::create_missing_startup_config_files(tree.root);
+    VISTA_CHECK(created.device_config_created && !created.grafana_secret_created);
+    VISTA_CHECK(read_config_test_file(tree.root / "GrafanaSecret.txt") == secret);
+}
+
+VISTA_TEST(config_bootstrap_reports_unusable_destination_without_replacing_it) {
+    ConfigTestDirectory tree;
+    vista::fs::create_directory(tree.root / "DeviceConfig.txt");
+    VISTA_CHECK_THROWS(vista::create_missing_startup_config_files(tree.root));
+    VISTA_CHECK(vista::fs::is_directory(tree.root / "DeviceConfig.txt"));
+    VISTA_CHECK_THROWS(vista::create_missing_startup_config_files(tree.root / "absent"));
+    VISTA_CHECK(!vista::fs::exists(tree.root / "absent"));
+}
+
+VISTA_TEST(config_bootstrap_exclusive_creation_has_one_winner_and_preserves_complete_text) {
+    ConfigTestDirectory tree;
+    const auto file = tree.root / "shared.txt";
+    const std::string text(20000, 'x');
+    std::atomic<int> winners{0}, errors{0};
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; ++i) {
+        threads.emplace_back([&] {
+            try { if (vista::platform::create_text_file_if_missing(file, text)) ++winners; }
+            catch (...) { ++errors; }
+        });
+    }
+    for (auto& thread : threads) thread.join();
+    VISTA_CHECK(winners == 1 && errors == 0);
+    VISTA_CHECK(read_config_test_file(file) == text);
+}
+
+VISTA_TEST(config_sidecar_default_path_ignores_working_directory) {
+    ConfigTestDirectory tree;
+    const auto expected = vista::platform::executable_path().parent_path() /
+        "DeviceConfig.txt";
+    vista::fs::current_path(tree.root);
+    // A config in CWD must not override the executable's sidecar.
+    { vista::io::ofstream out("DeviceConfig.txt"); out << "Lidar: invalid\n"; }
+    VISTA_CHECK(vista::default_device_config_file() == expected);
+    VISTA_CHECK(vista::default_device_config_file().is_absolute());
+    VISTA_CHECK(vista::fs::current_path() == tree.root);
+}
+
+VISTA_TEST(config_sidecar_explicit_load_supports_unicode_and_relative_paths) {
+    ConfigTestDirectory tree;
+    const auto folder = tree.root / vista::fs::u8path(u8"settings space \u00e9");
+    vista::fs::create_directory(folder);
+    const auto file = folder / "DeviceConfig.txt";
+    { vista::io::ofstream out(file); out << quanergy_config; }
+    vista::fs::current_path(tree.root);
+    const auto absolute = vista::AppConfig::load(file);
+    const auto relative = vista::AppConfig::load(
+        vista::fs::u8path(u8"settings space \u00e9") / "DeviceConfig.txt");
+    VISTA_CHECK(absolute.sensor_ip == "192.168.1.20");
+    VISTA_CHECK(relative.sensor_ip == absolute.sensor_ip);
+    VISTA_CHECK(relative.lidar_type == absolute.lidar_type);
+    VISTA_CHECK(vista::fs::current_path() == tree.root);
+}
+
+VISTA_TEST(config_sidecar_load_errors_identify_full_requested_path) {
+    ConfigTestDirectory tree;
+    const auto file = tree.root / "DeviceConfig.txt";
+    for (const bool create_invalid : {false, true}) {
+        if (create_invalid) {
+            vista::io::ofstream out(file); out << "Lidar: invalid\n";
+        }
+        bool caught = false;
+        try { (void)vista::AppConfig::load(file); }
+        catch (const std::exception& error) {
+            caught = true;
+            VISTA_CHECK(std::string(error.what()).find(file.u8string()) !=
+                std::string::npos);
+        }
+        VISTA_CHECK(caught);
+    }
+}
 
 VISTA_TEST(config_lio_lightweight_robustness_switches_are_independent_and_default_on) {
     auto defaults=vista::parse_device_config_text(quanergy_config).lio;
@@ -88,7 +232,6 @@ LioPlaneThresholdMeters: 0.08
 
 VISTA_TEST(config_room_mapping_settings_and_independent_mounting) {
     const auto config=vista::parse_device_config_text(std::string(quanergy_config)+R"(
-GroundMode(lidar): none
 MountZ(lidar): 2.5
 RoomMapEnabled: 1
 RoomMapVoxelSizeMeters: 0.1
@@ -99,7 +242,7 @@ RoomMapLoadExisting: 1
 RoomMapFile: room.pcd
 RoomMapWebSocketPort: 8766
 )");
-    VISTA_CHECK(!config.ground_removal);
+    VISTA_CHECK(!config.runtime_config().preprocessing.ground_removal);
     VISTA_CHECK(config.mounting && config.mounting->mount_z_m==2.5F);
     VISTA_CHECK(config.room_map.enabled && config.room_map.load_existing);
     VISTA_CHECK(config.room_map.cache_max_voxels==20000);
@@ -108,7 +251,7 @@ RoomMapWebSocketPort: 8766
     VISTA_CHECK(config.room_map.freeze_after.count()==0);
     VISTA_CHECK(config.room_map_websocket.retained_snapshot);
     VISTA_CHECK(config.runtime_config().threads.room_mapping.enabled);
-    VISTA_CHECK(config.runtime_config().threads.ground_processing.enabled);
+    VISTA_CHECK_NEAR(config.lio.initial_position_m[2],2.5,1e-6);
 }
 
 VISTA_TEST(config_rejects_invalid_mapping_and_colliding_websocket_ports) {
@@ -294,7 +437,7 @@ VISTA_TEST(config_unitree_init_does_not_change_other_lidar_sources) {
     VISTA_CHECK(config.lidar_config().lidar_type == vista::devices::LidarType::quanergy_m8);
 }
 
-VISTA_TEST(config_file_parses_mounting_ground_and_imu_settings) {
+VISTA_TEST(config_file_parses_mounting_independently_of_retired_ground_settings) {
     const auto config = vista::parse_device_config_text(R"(
 Lidar: unitree-l2
 SensorIP(quanergy-m8, unitree-l2): 192.168.1.62
@@ -304,34 +447,44 @@ LocalIP(unitree-l2): 192.168.1.2
 LocalPort(unitree-l2): 6201
 SerialPort(unitree-l2): COM3
 BaudRate(unitree-l2): 4000000
-GroundMode(lidar): hybrid
-UseImuForGround(lidar): 1
 MountX(lidar): -1.25
 MountY(lidar): 2.5
 MountZ(lidar): 0.75
 MountRollDeg(lidar): 1.5
 MountPitchDeg(lidar): -2.5
 MountYawDeg(lidar): 90.0
-FloorZ(lidar): 0.0
-GroundDistanceThreshold(lidar): 0.10
-GroundNormalToleranceDeg(lidar): 15.0
-GroundCalibrationFrames(lidar): 50
-GroundMinInlierRatio(lidar): 0.20
 )");
 
-    VISTA_CHECK(config.ground_removal.has_value());
-    const auto& ground = *config.ground_removal;
-    VISTA_CHECK(ground.mode == vista::application::GroundMode::hybrid);
-    VISTA_CHECK(ground.use_imu);
+    VISTA_CHECK(config.mounting.has_value());
+    const auto& ground = *config.mounting;
     VISTA_CHECK_NEAR(ground.mount_x_m, -1.25F, 1.0e-6F);
     VISTA_CHECK_NEAR(ground.mount_y_m, 2.5F, 1.0e-6F);
     VISTA_CHECK_NEAR(ground.mount_z_m, 0.75F, 1.0e-6F);
     VISTA_CHECK_NEAR(ground.mount_roll_deg, 1.5F, 1.0e-6F);
     VISTA_CHECK_NEAR(ground.mount_pitch_deg, -2.5F, 1.0e-6F);
     VISTA_CHECK_NEAR(ground.mount_yaw_deg, 90.0F, 1.0e-6F);
-    VISTA_CHECK(ground.calibration_frames == 50);
-    VISTA_CHECK_NEAR(ground.minimum_inlier_ratio, 0.20F, 1.0e-6F);
-    VISTA_CHECK(config.runtime_config().preprocessing.ground_removal.has_value());
+    VISTA_CHECK(!config.runtime_config().preprocessing.ground_removal);
+    VISTA_CHECK_NEAR(config.lio.initial_position_m[0],-1.25,1e-6);
+    VISTA_CHECK_NEAR(config.lio.initial_position_m[1],2.5,1e-6);
+    VISTA_CHECK_NEAR(config.lio.initial_position_m[2],.75,1e-6);
+    VISTA_CHECK_NEAR(config.lio.initial_rpy_deg[0],1.5,1e-6);
+    VISTA_CHECK_NEAR(config.lio.initial_rpy_deg[1],-2.5,1e-6);
+    VISTA_CHECK_NEAR(config.lio.initial_rpy_deg[2],90,1e-6);
+}
+
+VISTA_TEST(config_rejects_retired_ground_keys_with_a_migration_message) {
+    for(const auto* key:{"GroundMode","UseImuForGround","FloorZ",
+                         "GroundDistanceThreshold","GroundNormalToleranceDeg",
+                         "GroundCalibrationFrames","GroundMinInlierRatio"}) {
+        bool rejected=false;
+        try { (void)vista::parse_device_config_text(std::string(quanergy_config)+"\n"+key+"(lidar): 1\n"); }
+        catch(const std::invalid_argument& e) {
+            rejected=std::string(e.what()).find("Ground processing is retired")!=std::string::npos;
+        }
+        VISTA_CHECK(rejected);
+    }
+    for(const auto* key:{"MountX","MountY","MountZ","MountRollDeg","MountPitchDeg","MountYawDeg"})
+        VISTA_CHECK_THROWS(vista::parse_device_config_text(std::string(quanergy_config)+"\n"+key+": nan\n"));
 }
 
 VISTA_TEST(config_file_accepts_all_ground_modes) {
@@ -426,6 +579,27 @@ VISTA_TEST(config_building_generates_one_session_timestamp_for_all_outputs) {
     VISTA_CHECK(config.pcd_path && *config.pcd_path==root/"processed"/(stem+".pcd"));
     vista::configure_session_output_paths(config,root,start);
     VISTA_CHECK(config.room_map.file==map_path); // Not regenerated on repeated setup.
+}
+
+VISTA_TEST(config_published_binary_uses_relocated_clone_data_root) {
+    ConfigTestDirectory directory;
+    const auto clone = directory.root / "clone with spaces";
+    for (const auto* platform : {"windows-x64", "linux-x86_64", "linux-arm64"}) {
+        const auto executable = clone / "publish" / platform / "vista_edge";
+        VISTA_CHECK(vista::data_root_for_executable(executable,
+            "old-build-machine/data") == clone / "data");
+    }
+    const auto relocated = directory.root / "another clone";
+    VISTA_CHECK(vista::data_root_for_executable(relocated / "publish" /
+        "linux-arm64" / "vista_edge", "old-build-machine/data") == relocated / "data");
+}
+
+VISTA_TEST(config_normal_build_keeps_existing_data_root) {
+    VISTA_CHECK(vista::data_root_for_executable(
+        "repo/embedded_C/out/build/windows-vs2019/Debug/vista_edge.exe",
+        "repo/data") == vista::fs::path("repo/data"));
+    VISTA_CHECK(vista::data_root_for_executable("repo/publish/not-a-platform/vista_edge",
+        "repo/data") == vista::fs::path("repo/data"));
 }
 
 VISTA_TEST(config_loading_keeps_explicit_input_and_does_not_guess_empty_input) {

@@ -16,10 +16,22 @@
 #include "4_Applications/mapping/room_map/room_map.hpp"
 #include "4_Applications/mapping/lio/lio.hpp"
 #include "4_Applications/mapping/gaussian_map/gaussian_map.hpp"
+#include "4_Applications/perception/foreground/foreground.hpp"
 
 namespace vista {
 
 inline constexpr const char* default_device_config_path = "DeviceConfig.txt";
+/// DeviceConfig.txt beside the running executable, not the working directory.
+vista::fs::path default_device_config_file();
+
+struct StartupConfigFiles {
+    bool device_config_created{};
+    bool grafana_secret_created{};
+};
+/// Creates only missing sidecars in this directory. Device defaults come from
+/// the source TXT at build time; the Grafana token is ALWAYS empty.
+StartupConfigFiles create_missing_startup_config_files(
+    const vista::fs::path& directory);
 
 /// Lets main decide which independent workers exist in this application run.
 struct WorkerConfig {
@@ -36,13 +48,14 @@ struct ThreadSetConfig {
     WorkerConfig system_monitor;
     WorkerConfig grafana_bridge;
     WorkerConfig pointcloud_websocket;
-    WorkerConfig ground_processing;
     WorkerConfig room_mapping;
     WorkerConfig room_map_websocket;
     WorkerConfig localization;
     WorkerConfig live_preprocessing;
     WorkerConfig gaussian_mapping{false,{"gaussian-mapping",5}};
     WorkerConfig gaussian_map_websocket{false,{"gaussian-map-websocket",5}};
+    WorkerConfig foreground_filter{false,{"foreground-filter",5}};
+    WorkerConfig foreground_websocket{false,{"foreground-websocket",5}};
 };
 
 struct TopicQueueConfig {
@@ -96,6 +109,13 @@ struct AppConfig {
     application::RoomMapConfig room_map;
     application::GaussianMapConfig gaussian_map;
     application::LioConfig lio;
+    application::ForegroundConfig foreground;
+    application::PointCloudWebSocketConfig foreground_websocket = [] {
+        application::PointCloudWebSocketConfig value;
+        value.port=8768;value.maximum_points=12'000;value.include_ground_status=false;
+        value.publish_interval=std::chrono::milliseconds(100);
+        return value;
+    }();
     application::PointCloudWebSocketConfig room_map_websocket = [] {
         application::PointCloudWebSocketConfig value;
         value.enabled = false; // AppConfig parsing derives this from GrafanaEnabled.
@@ -117,14 +137,14 @@ struct AppConfig {
         return value;
     }();
     application::SystemMonitorConfig system_monitor;
-    /// Enabled when GroundMode is present in DeviceConfig.txt.
-    std::optional<application::GroundRemovalConfig> ground_removal;
-    /// Common mounting transform is independent of the ground-processing branch.
-    std::optional<application::GroundRemovalConfig> mounting;
+    /// Initial/fixed pose only. Ground processing is retired from the runtime.
+    std::optional<application::MountingConfig> mounting;
     std::optional<vista::fs::path> raw_path;
     std::optional<vista::fs::path> pcd_path;
 
     static AppConfig load();
+    /// An explicitly supplied path is used as-is (relative to the caller's CWD).
+    static AppConfig load(const vista::fs::path& path);
     devices::LidarConfig lidar_config() const;
     RuntimeConfig runtime_config() const;
 };
@@ -138,5 +158,10 @@ std::string format_log_timestamp(
 void configure_session_output_paths(AppConfig& config,
     const vista::fs::path& data_root,
     std::chrono::system_clock::time_point session_start);
+
+/// Published programs use this clone's data/ rather than the build machine's
+/// absolute source path. Normal IDE builds keep their existing data root.
+vista::fs::path data_root_for_executable(const vista::fs::path& executable,
+    const vista::fs::path& build_data_root);
 
 }  // namespace vista

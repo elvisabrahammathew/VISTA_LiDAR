@@ -1,0 +1,8 @@
+# Never apply line-ending conversion to runnable programs or shared libraries.
+windows-x64/*.exe -text
+windows-x64/*.dll -text
+linux-x86_64/vista_edge -text
+linux-arm64/vista_edge -text
+linux-*/*.so* -text
+*.txt text eol=lf
+*.md text eol=lf
