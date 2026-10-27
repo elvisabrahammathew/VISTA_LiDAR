@@ -1,8 +1,8 @@
 # Building VISTA C++ from a clean checkout
 
-This guide covers the C++ application in `embedded_C`. The Rust reference,
-WPF utilities, Grafana plugin build, and external Python splatting experiment
-are separate projects. They are not prerequisites for building `vista_edge`.
+This guide covers the C++ application in `embedded_C`. WPF utilities, Grafana
+plugins, and the external Python splatting experiment are separate projects.
+They are not prerequisites for building `vista_edge`.
 The integrated Gaussian worker is C++; it does not require Python, uv, or npm.
 
 ## 1. Install the Windows build tools
@@ -18,22 +18,20 @@ If using VS Code, install Microsoft's C/C++ and CMake Tools extensions too.
 Do not copy `CMakeCache.txt`, `.vs`, generated `.sln`/`.vcxproj`, or an `out`
 directory from another machine. Their paths/toolchain state are machine-local.
 
-## 2. Clone and initialize the pinned C++ dependencies
+## 2. Get the source
 
 Replace `<repository-url>` with the team's actual repository URL:
 
 ```powershell
 git clone <repository-url> VISTA
 cd VISTA
-git submodule update --init --recursive -- third_party/point_lio_unilidar third_party/eigen third_party/boost_preprocessor third_party/filesystem third_party/librealsense
 ```
 
-Run the same submodule command after pulling updates. Use the commits recorded
-by the parent repository; do not use `git submodule update --remote` to build a
-release. The official upstream submodule URLs must be reachable (network/proxy).
-`unilidar_sdk2` is a protocol reference, not a linked vendor binary. Initialize it
-only if needed for development. The external Python splatting checkout is not
-needed for the integrated C++ pipeline and can remain uninitialized.
+The five C++ build libraries are committed under `embedded_C/library/` at the
+revisions listed in its README. No submodule initialization is required for the
+C++ build. You can also copy or check out just the complete `embedded_C` folder
+and build from there. Keep `library/`, `cmake/`, `config/`, and the C++ sources
+together. `third_party/unilidar_sdk2` is only a protocol reference.
 
 ROS, PCL, Python, CUDA, OpenCV, Grafana, and Node.js are not required to compile
 this application. Grafana is needed separately only for dashboard viewing.
@@ -53,7 +51,8 @@ or use the terminal commands below. You can open the generated solution in
 
 ## 4. VS Code
 
-1. Open the repository's `VISTA-CPP.code-workspace` file.
+1. Open the repository's `VISTA-CPP.code-workspace` file, or open `embedded_C`
+   directly when working with only that folder.
 2. Install the recommended C/C++ and CMake Tools extensions.
 3. Run **CMake: Select Configure Preset**, then select your VS version.
 4. Run **CMake: Configure**, select the matching Debug/Release build preset,
@@ -79,8 +78,10 @@ if memory is limited. The current cleanup validation machine has VS 2019 only;
 the 2022 preset is supplied but has not been compiled on that machine.
 
 Debug output: `embedded_C/out/build/<configure-preset>/Debug/vista_edge.exe`.
-Windows Release output: `publish/windows-x64/vista_edge.exe`, linked directly
-there with static MSVC runtime. Release packaging preserves the two existing
+Windows Release output: `publish/windows-x64/vista_edge.exe` at the repository
+root, or `embedded_C/publish/windows-x64/vista_edge.exe` for a standalone
+`embedded_C` folder. The EXE is linked directly there with static MSVC runtime.
+Release packaging preserves the two existing
 TXT configs. Do not build two Release trees into that same package concurrently.
 Use `-DVISTA_AUTO_PUBLISH=OFF` for an isolated diagnostic build; its executable
 stays in the selected build directory instead.
@@ -118,8 +119,10 @@ ctest --output-on-failure
 
 The ARM USB backend defaults
 to RSUSB. Without a camera, add `-DVISTA_ENABLE_REALSENSE=OFF` to save build time.
-Release packages go to `publish/linux-x86_64` or `publish/linux-arm64`. Debug
-does not update release packages. Linux packages may include runtime libraries;
+Release packages go to `publish/linux-x86_64` or `publish/linux-arm64` at the
+repository root. With only `embedded_C`, they go to `embedded_C/publish/`.
+Runtime RAW/maps similarly go to the corresponding `data/` folder. Debug does
+not update release packages. Linux packages may include runtime libraries;
 the Windows single-EXE rule does not apply to Linux.
 
 ## 7. What the maintainer must commit before teammates pull
@@ -128,8 +131,8 @@ Commit a consistent set, not only the executable:
 
 - All changed/new C++ sources, headers, models, tests, `CMakeLists.txt`,
   `CMakePresets.json`, `cmake/`, `config/DeviceConfig.defaults.txt`, and docs.
-- `.gitmodules`, required submodule gitlinks, `.gitignore`, `.gitattributes`,
-  this guide, and the portable VS Code files/workspace.
+- The complete `embedded_C/library/` source trees and their upstream licenses,
+  `.gitignore`, `.gitattributes`, this guide, and portable VS Code files.
 - `publish/` binaries, Linux runtime libraries, default/sample configs,
   build information, and dependency licenses if clone-and-run is promised.
 - Updated dashboard JSON, plugin source, lockfiles, tests, and `dist` assets
@@ -147,8 +150,8 @@ push them to a team-accessible remote/fork first, then commit the parent gitlink
 and its URL if changed. A parent commit alone cannot publish untracked files or
 local-only commits inside `external/lidar_surface_splatting`.
 
-Before publishing, test in a second checkout with empty build directories and
-the pinned dependencies. `cmake --build` must succeed without files from the
+Before publishing, test a copy of `embedded_C` alone with an empty build
+directory. `cmake --build` must succeed without files from the
 maintainer's original build cache. Unit tests do not prove live hardware timing,
 serial driver availability, IMU calibration, or final LIO trajectory accuracy.
 

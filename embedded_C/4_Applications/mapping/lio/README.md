@@ -1,9 +1,10 @@
 # Point-LIO moving mapping (ROS-free)
 
 The active backend is **Point-LIO, Unitree IMU-as-output**, from
-`third_party/point_lio_unilidar` at commit
+`embedded_C/library/point_lio_unilidar` at commit
 `18ed5976d8fab2bd8a5148c26a40692bd3c0dc91`.
-FAST-LIO2 is no longer built, included or linked. Its old checkout is not deleted.
+FAST-LIO2 is no longer built, included or linked; it remains recoverable from
+earlier Git history.
 
 This is a portable adaptation, **not** the unmodified ROS node. CMake extracts the
 upstream `state_output`, `get_f_output`, `df_dx_output` and builds the upstream

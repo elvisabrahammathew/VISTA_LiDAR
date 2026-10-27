@@ -144,10 +144,19 @@ target_include_directories(vista_edge_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # application and tests reuse the same objects and dependencies on every platform.
 add_library(vista_edge_dependencies INTERFACE)
 target_include_directories(vista_edge_dependencies INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
+# Keep the established repository-level publish/data layout when building in
+# VISTA. A standalone copy of embedded_C writes both folders inside itself.
+get_filename_component(VISTA_PARENT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+if(EXISTS "${VISTA_PARENT_ROOT}/publish/README.md" AND
+   EXISTS "${VISTA_PARENT_ROOT}/third_party/README.md")
+    set(VISTA_REPOSITORY_ROOT "${VISTA_PARENT_ROOT}")
+else()
+    set(VISTA_REPOSITORY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
 include(cmake/filesystem.cmake)
-# Keep captured data beside the repository on every build platform.
+# Keep captured data beside the selected publish root on every platform.
 target_compile_definitions(vista_edge_core PRIVATE
-    VISTA_DATA_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../data")
+    VISTA_DATA_ROOT="${VISTA_REPOSITORY_ROOT}/data")
 find_package(Threads REQUIRED)
 target_link_libraries(vista_edge_dependencies INTERFACE Threads::Threads)
 if(UNIX)
@@ -160,51 +169,48 @@ if(WIN32)
     target_link_libraries(vista_edge_dependencies INTERFACE ws2_32 psapi)
 endif()
 
-# All external dependencies live in the repository-level third_party folder as
-# Git submodules. C++ and Rust build the same pinned librealsense source commit.
-get_filename_component(VISTA_REPOSITORY_ROOT
-    "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
-set(VISTA_SHARED_THIRD_PARTY_ROOT "${VISTA_REPOSITORY_ROOT}/third_party")
+# All C++ build dependencies are versioned source below embedded_C/library.
+set(VISTA_LIBRARY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/library")
 set(VISTA_THIRD_PARTY_ROOT
-    "${VISTA_SHARED_THIRD_PARTY_ROOT}"
-    CACHE PATH "Repository-level third-party dependency directory")
+    "${VISTA_LIBRARY_ROOT}"
+    CACHE PATH "C++ build dependency source directory")
 
-# Migrate build directories configured before third_party moved to repo root.
-get_filename_component(VISTA_LEGACY_THIRD_PARTY_ROOT
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party" ABSOLUTE)
-if(VISTA_THIRD_PARTY_ROOT STREQUAL VISTA_LEGACY_THIRD_PARTY_ROOT AND
-   EXISTS "${VISTA_SHARED_THIRD_PARTY_ROOT}/librealsense/CMakeLists.txt")
+# Migrate the two old default paths without replacing a user's custom SDK path.
+set(VISTA_OLD_SHARED_ROOT "${VISTA_PARENT_ROOT}/third_party")
+set(VISTA_OLD_EMBEDDED_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+if(VISTA_THIRD_PARTY_ROOT STREQUAL VISTA_OLD_SHARED_ROOT OR
+   VISTA_THIRD_PARTY_ROOT STREQUAL VISTA_OLD_EMBEDDED_ROOT)
     set(VISTA_THIRD_PARTY_ROOT
-        "${VISTA_SHARED_THIRD_PARTY_ROOT}"
-        CACHE PATH "Repository-level third-party dependency directory" FORCE)
-    message(STATUS "Migrated third-party root to ${VISTA_THIRD_PARTY_ROOT}")
+        "${VISTA_LIBRARY_ROOT}"
+        CACHE PATH "C++ build dependency source directory" FORCE)
+    message(STATUS "Migrated build dependencies to ${VISTA_THIRD_PARTY_ROOT}")
 endif()
 
 set(VISTA_REALSENSE_SOURCE_DIR
     "${VISTA_THIRD_PARTY_ROOT}/librealsense"
-    CACHE PATH "Path to the librealsense Git submodule")
+    CACHE PATH "Path to the bundled librealsense source")
 
 # Existing build directories may still cache the former vendored-source path.
 # Migrate only that known default and preserve any intentional custom path.
 set(VISTA_REALSENSE_LEGACY_SOURCE_DIR
-    "${VISTA_THIRD_PARTY_ROOT}/realsense/librealsense-2.50.0")
+    "${VISTA_OLD_SHARED_ROOT}/realsense/librealsense-2.50.0")
 set(VISTA_REALSENSE_EMBEDDED_SOURCE_DIR
-    "${VISTA_LEGACY_THIRD_PARTY_ROOT}/librealsense")
+    "${VISTA_OLD_EMBEDDED_ROOT}/librealsense")
 if((VISTA_REALSENSE_SOURCE_DIR STREQUAL VISTA_REALSENSE_LEGACY_SOURCE_DIR OR
-    VISTA_REALSENSE_SOURCE_DIR STREQUAL VISTA_REALSENSE_EMBEDDED_SOURCE_DIR) AND
+    VISTA_REALSENSE_SOURCE_DIR STREQUAL VISTA_REALSENSE_EMBEDDED_SOURCE_DIR OR
+    VISTA_REALSENSE_SOURCE_DIR STREQUAL "${VISTA_OLD_SHARED_ROOT}/librealsense") AND
    EXISTS "${VISTA_THIRD_PARTY_ROOT}/librealsense/CMakeLists.txt")
     set(VISTA_REALSENSE_SOURCE_DIR
         "${VISTA_THIRD_PARTY_ROOT}/librealsense"
-        CACHE PATH "Path to the librealsense Git submodule" FORCE)
-    message(STATUS "Migrated cached librealsense path to the Git submodule")
+        CACHE PATH "Path to the bundled librealsense source" FORCE)
+    message(STATUS "Migrated cached librealsense path to embedded_C/library")
 endif()
 
 if(VISTA_ENABLE_REALSENSE)
     if(NOT EXISTS "${VISTA_REALSENSE_SOURCE_DIR}/CMakeLists.txt")
         message(FATAL_ERROR
-            "The librealsense submodule is not initialized at "
-            "${VISTA_REALSENSE_SOURCE_DIR}. Run: "
-            "git submodule update --init --recursive")
+            "Missing bundled librealsense source at ${VISTA_REALSENSE_SOURCE_DIR}. "
+            "Restore embedded_C/library/librealsense from the repository.")
     endif()
 
     # Build only the static SDK required by this application. This removes the
@@ -232,7 +238,7 @@ if(VISTA_ENABLE_REALSENSE)
 
     add_subdirectory(
         "${VISTA_REALSENSE_SOURCE_DIR}"
-        "${CMAKE_CURRENT_BINARY_DIR}/third_party/librealsense"
+        "${CMAKE_CURRENT_BINARY_DIR}/library/librealsense"
         EXCLUDE_FROM_ALL)
 
     if(NOT TARGET realsense2)
@@ -245,7 +251,7 @@ if(VISTA_ENABLE_REALSENSE)
         "${VISTA_REALSENSE_SOURCE_DIR}/include")
     target_link_libraries(vista_edge_dependencies INTERFACE realsense2)
     message(STATUS
-        "librealsense: building static submodule from "
+        "librealsense: building bundled static source from "
         "${VISTA_REALSENSE_SOURCE_DIR} (RSUSB=${VISTA_REALSENSE_FORCE_RSUSB_BACKEND})")
 else()
     target_compile_definitions(vista_edge_core PUBLIC VISTA_HAS_REALSENSE=0)

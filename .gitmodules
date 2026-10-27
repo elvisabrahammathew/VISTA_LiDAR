@@ -1,21 +1,6 @@
-[submodule "third_party/librealsense"]
-	path = third_party/librealsense
-	url = https://github.com/realsenseai/librealsense.git
 [submodule "third_party/unilidar_sdk2"]
 	path = third_party/unilidar_sdk2
 	url = https://github.com/unitreerobotics/unilidar_sdk2.git
-[submodule "third_party/eigen"]
-	path = third_party/eigen
-	url = https://gitlab.com/libeigen/eigen.git
-[submodule "third_party/boost_preprocessor"]
-	path = third_party/boost_preprocessor
-	url = https://github.com/boostorg/preprocessor.git
-[submodule "third_party/filesystem"]
-	path = third_party/filesystem
-	url = https://github.com/gulrak/filesystem.git
 [submodule "external/lidar_surface_splatting"]
 	path = external/lidar_surface_splatting
 	url = https://github.com/PaulBellette/lidar_surface_splatting.git
-[submodule "third_party/point_lio_unilidar"]
-	path = third_party/point_lio_unilidar
-	url = https://github.com/unitreerobotics/point_lio_unilidar.git

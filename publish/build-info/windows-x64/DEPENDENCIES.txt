@@ -26,5 +26,5 @@ File Type: EXECUTABLE IMAGE
       13A000 .rdata
         B000 .reloc
         1000 .rsrc
-      5BE000 .text
+      5BF000 .text
         1000 _RDATA

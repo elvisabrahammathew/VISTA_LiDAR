@@ -1,7 +1,7 @@
 # VISTA Edge C++
 
-This directory is the C++17 counterpart of the Rust project in `../embedded`.
-The Rust source remains unchanged and can be kept as a behavioral reference.
+This is the standalone C++17 VISTA Edge application. Its required build
+libraries are committed under [`library/`](library/README.md).
 
 For a clean checkout, Visual Studio 2019/2022 or VS Code setup, dependencies,
 and what to commit, start with [Building VISTA C++](docs/BUILDING.md).
@@ -14,6 +14,8 @@ to `publish/windows-x64/vista_edge.exe` with a static CRT and two TXT configs.
 Linux Release builds copy their packages as before; Debug never replaces them. Existing
 published DeviceConfig.txt and private GrafanaSecret.txt are preserved. See that
 guide for startup, dependencies, config locations and publishing commands.
+When this folder is used alone, Release writes to its own
+[`publish/`](publish/README.md) directory instead.
 
 ## Current map display (October 2026)
 
@@ -393,11 +395,8 @@ dedicated `std::thread`; no thread pool is used.
 
 ## Windows / Visual Studio 2019
 
-Initialize the pinned librealsense submodule once after cloning the repository:
-
-```powershell
-git submodule update --init --recursive
-```
+All C++ build libraries, including librealsense, are included in `library/`.
+Open `embedded_C` directly; no submodule initialization is needed for this build.
 
 ```powershell
 cmake --preset windows-vs2019
@@ -430,7 +429,6 @@ to `out/build/windows-vs2019/Release`. Each folder has its own runtime
 ## Ubuntu x86-64
 
 ```bash
-git submodule update --init --recursive
 sudo apt install build-essential cmake pkg-config libusb-1.0-0-dev libudev-dev
 cmake --preset linux-x86_64-gcc
 cmake --build --preset linux-x86_64-debug
@@ -445,7 +443,6 @@ use the ADLINK script below instead. Run the ARM64 preset natively on a device
 with preset support:
 
 ```bash
-git submodule update --init --recursive
 sudo apt install build-essential cmake pkg-config libusb-1.0-0-dev libudev-dev
 cmake --preset linux-arm64-gcc
 cmake --build --preset linux-arm64-debug
@@ -460,10 +457,9 @@ CMake 3.16 or newer. Ubuntu 18.04 / Bionic / GCC 7 is no longer an active
 build or validation target. Use a vendor-supported OS image/BSP for the
 device; this repository does not upgrade Ubuntu, JetPack or firmware.
 
-Initialize submodules, then run from the repository root on ADLINK:
+Run from the repository root on ADLINK:
 
 ```bash
-git submodule update --init --recursive
 bash embedded_C/scripts/build_adlink.sh
 cd embedded_C/out/build/linux-adlink-ubuntu20-arm64
 # Missing DeviceConfig.txt is created on first launch; review it and run again.
@@ -531,8 +527,7 @@ udev rules and USB device permissions are still required. The x86-64 preset
 uses the native Linux V4L2 backend by default. Both choices can be overridden
 with `VISTA_REALSENSE_FORCE_RSUSB_BACKEND` when configuring a custom build.
 
-Librealsense 2.50.0 is pinned by the repository-level Git submodule at
-`../third_party/librealsense` and built as a static library. The same source commit
+Librealsense is bundled under `library/librealsense` and built as a static library. The same source commit
 is used for Windows x64, Ubuntu x86-64, and Linux ARM64, so no prebuilt
 `realsense2.dll` or `librealsense2.so` is required. Each platform generates its
 own static library below its CMake build directory.
@@ -545,7 +540,7 @@ These presets are native builds. Cross-compiling Linux ARM64 from Windows or
 x86-64 Linux additionally requires an ARM64 sysroot and CMake toolchain file;
 that is intentionally separate from the native Jetson preset.
 
-See `../third_party/README.md` for the expected dependency layout and version.
+See [library/README.md](library/README.md) for the build dependency layout and revisions.
 
 ## Device selection
 

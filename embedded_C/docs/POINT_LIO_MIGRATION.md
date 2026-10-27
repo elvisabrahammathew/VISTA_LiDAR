@@ -4,9 +4,10 @@
 
 The active C++ localization backend is now Unitree Point-LIO, pinned to
 `18ed5976d8fab2bd8a5148c26a40692bd3c0dc91` in
-`third_party/point_lio_unilidar`. No upstream submodule source was modified.
+`embedded_C/library/point_lio_unilidar`. The upstream source snapshot is unmodified.
 `cmake/point_lio.cmake` builds `vista_point_lio`; the FAST-LIO build adapter was
-removed. The old FAST-LIO checkout is retained but not required or linked.
+removed. The old FAST-LIO checkout is recoverable from earlier Git history;
+it is not required or linked.
 No changes were committed or staged by the migration.
 The removed `cmake/fast_lio.cmake` remains recoverable from Git; no RAW/map data
 or third-party checkout was deleted.

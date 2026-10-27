@@ -11,8 +11,9 @@ Historical Ubuntu 18.04 validation reports are retained as evidence only.
 - Build natively on ARM64 using a C++17 compiler (for example GCC 9) and
   CMake 3.16 or newer. Presets require CMake 3.20 or newer; the script below
   deliberately uses traditional commands, not presets.
-- Initialize the repository's pinned Git submodules. The core camera-free
-  build does not require ROS, Python, CUDA or an installed Grafana server.
+- All C++ build dependencies are bundled under `embedded_C/library`. The core
+  camera-free build does not require Git submodules, ROS, Python, CUDA or an
+  installed Grafana server.
 - RealSense is disabled in this script. This does not disable Unitree or Quanergy.
 
 On the device, install missing tools through its configured package repositories:
@@ -34,9 +35,11 @@ on a newer Ubuntu; use a matching native build or target sysroot instead.
 From the repository root (the directory containing `embedded_C`):
 
 ```bash
-git submodule update --init --recursive
 bash embedded_C/scripts/build_adlink.sh
 ```
+
+If you have only the `embedded_C` folder, run
+`bash scripts/build_adlink.sh` from inside it instead.
 
 The script configures Release, tests ON, RealSense OFF, ARM64 architecture guard,
 then builds with two jobs and runs the unit suite. A configure, build or test

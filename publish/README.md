@@ -110,8 +110,9 @@ Do not commit local settings containing sensitive data. When loading maps, use
 paths valid on the deployment machine, not private absolute paths from another PC.
 
 Source and license references remain in the same repository: root `LICENSE`,
-`third_party/point_lio_unilidar`, `third_party/eigen`,
-`third_party/boost_preprocessor`, and `third_party/librealsense` if enabled.
+`embedded_C/library/point_lio_unilidar`, `embedded_C/library/eigen`,
+`embedded_C/library/boost_preprocessor`, and
+`embedded_C/library/librealsense` if enabled.
 Bundled GCC runtime libraries use the GCC Runtime Library Exception; Microsoft
 runtime components remain under Microsoft's redistribution terms. Retain the repository
 and the applicable license notices when redistributing these packages.

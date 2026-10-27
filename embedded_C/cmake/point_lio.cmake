@@ -1,8 +1,8 @@
-# Port only generated build-tree copies; third_party/point_lio_unilidar is read-only.
+# Port only generated build-tree copies; library/point_lio_unilidar is read-only.
 # The numerical target requires Eigen/Boost.Preprocessor, not ROS/PCL/Python.
-set(VISTA_POINT_LIO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/point_lio_unilidar")
-set(VISTA_EIGEN_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/eigen")
-set(VISTA_BOOST_PP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/boost_preprocessor/include")
+set(VISTA_POINT_LIO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/library/point_lio_unilidar")
+set(VISTA_EIGEN_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/library/eigen")
+set(VISTA_BOOST_PP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/library/boost_preprocessor/include")
 foreach(required
     "${VISTA_POINT_LIO_ROOT}/src/Estimator.h"
     "${VISTA_POINT_LIO_ROOT}/src/Estimator.cpp"
@@ -11,7 +11,7 @@ foreach(required
     "${VISTA_EIGEN_ROOT}/Eigen/Core"
     "${VISTA_BOOST_PP_ROOT}/boost/preprocessor/seq.hpp")
     if(NOT EXISTS "${required}")
-        message(FATAL_ERROR "Missing ${required}; initialize the Point-LIO/Eigen/Boost submodules")
+        message(FATAL_ERROR "Missing ${required}; restore the bundled library directory")
     endif()
 endforeach()
 set(VISTA_LIO_PORT "${CMAKE_CURRENT_BINARY_DIR}/point_lio_port")
