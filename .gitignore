@@ -40,11 +40,7 @@ target/
 
 # Visual Studio Code
 .vscode/
-!/embedded_C/.vscode/
-/embedded_C/.vscode/*
-!/embedded_C/.vscode/settings.json
-!/embedded_C/.vscode/extensions.json
-!/embedded_C/.vscode/c_cpp_properties.json
+# embedded_lidar manages its portable VS Code files in its own .gitignore.
 CMakeUserPresets.json
 
 # CLion / JetBrains

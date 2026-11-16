@@ -7,6 +7,6 @@ reference. The current C++ build does not include or link any folder here.
   does not link its platform-specific vendor binaries.
 - `others` is reserved for future reference material.
 
-All source required to build `embedded_C` now lives in
-[`embedded_C/library/`](../embedded_C/library/README.md). The retired FAST-LIO
+All source required to build `embedded_lidar` now lives in
+[`embedded_lidar/library/`](../embedded_lidar/library/README.md). The retired FAST-LIO
 history remains available in earlier repository revisions.

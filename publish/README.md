@@ -25,7 +25,7 @@ statically linked, so no Microsoft runtime DLLs need to travel beside the EXE.
 ## Settings and data
 
 - Edit `DeviceConfig.txt` **in the folder of the executable you run**, not in
-  `embedded_C/config/`. Serial ports and network addresses must match your setup.
+  `embedded_lidar/config/`. Serial ports and network addresses must match your setup.
   Linux defaults to `/dev/ttyACM0`; Windows uses the source template's COM port.
 - Builds create `DeviceConfig.txt` only if missing. Existing settings are never
   overwritten. `DeviceConfig.defaults.txt` is refreshed with the current source
@@ -52,11 +52,11 @@ Successful **Release** builds refresh only the matching platform folder. Debug
 and RelWithDebInfo never replace the checked-in Release program. **Windows Release
 links directly into `publish/windows-x64/`**, including when you build only the
 `vista_edge` target or select Release and press F5 in Visual Studio. Debug keeps
-its original `embedded_C/out/build/windows-vs2019/Debug/` executable/config path.
+its original `embedded_lidar/out/build/windows-vs2019/Debug/` executable/config path.
 Old executables remaining under `out/build/.../Release/` from earlier builds
 are no longer updated; use the executable in `publish/windows-x64/`.
 
-From `embedded_C/` on Windows:
+From `embedded_lidar/` on Windows:
 
 ```powershell
 cmake --preset windows-vs2019
@@ -70,8 +70,8 @@ publish executable without changing C++ source, build the `vista_publish` target
 cmake --build out/build/windows-vs2019 --config Release --target vista_publish
 ```
 
-On Ubuntu 20.04 ARM64, `bash embedded_C/scripts/build_adlink.sh` builds, publishes
-and runs the existing tests. Generic native Linux commands (from `embedded_C/`):
+On Ubuntu 20.04 ARM64, `bash embedded_lidar/scripts/build_adlink.sh` builds, publishes
+and runs the existing tests. Generic native Linux commands (from `embedded_lidar/`):
 
 ```bash
 cmake -S . -B out/build/publish-release -DCMAKE_BUILD_TYPE=Release \
@@ -110,9 +110,9 @@ Do not commit local settings containing sensitive data. When loading maps, use
 paths valid on the deployment machine, not private absolute paths from another PC.
 
 Source and license references remain in the same repository: root `LICENSE`,
-`embedded_C/library/point_lio_unilidar`, `embedded_C/library/eigen`,
-`embedded_C/library/boost_preprocessor`, and
-`embedded_C/library/librealsense` if enabled.
+`embedded_lidar/library/point_lio_unilidar`, `embedded_lidar/library/eigen`,
+`embedded_lidar/library/boost_preprocessor`, and
+`embedded_lidar/library/librealsense` if enabled.
 Bundled GCC runtime libraries use the GCC Runtime Library Exception; Microsoft
 runtime components remain under Microsoft's redistribution terms. Retain the repository
 and the applicable license notices when redistributing these packages.

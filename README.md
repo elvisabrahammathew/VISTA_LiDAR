@@ -11,11 +11,17 @@ automatically; private Grafana tokens and local runtime data are not committed.
 
 ## Build the C++ application
 
-See [the teammate build guide](embedded_C/docs/BUILDING.md) for Visual Studio
+Initialize the C++ source submodule after cloning this repository:
+
+```bash
+git submodule update --init embedded_lidar
+```
+
+See [the teammate build guide](embedded_lidar/docs/BUILDING.md) for Visual Studio
 2019/2022, VS Code, bundled C++ libraries, Linux builds, and the pre-commit checklist.
 In VS Code, open `VISTA-CPP.code-workspace` for the full repository, or open
-`embedded_C` directly when using that folder alone. In Visual Studio, open the
-`embedded_C` folder (CMake project), not a generated solution from another PC.
+`embedded_lidar` directly when using that folder alone. In Visual Studio, open the
+`embedded_lidar` folder (CMake project), not a generated solution from another PC.
 
 ## Project Overview
 

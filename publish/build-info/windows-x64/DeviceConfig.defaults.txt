@@ -1,4 +1,4 @@
-# Template: embedded_C/config/DeviceConfig.defaults.txt (used only at build time).
+# Template: embedded_lidar/config/DeviceConfig.defaults.txt (used only at build time).
 # Runtime: edit DeviceConfig.txt beside vista_edge.exe/vista_edge; builds never overwrite it.
 # Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
 Lidar: unitree-l2

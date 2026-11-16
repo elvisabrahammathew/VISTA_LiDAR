@@ -1,8 +1,0 @@
-/out/
-/build/
-/publish/*
-!/publish/README.md
-*.bin
-*.pcd
-*.points.tmp
-/GrafanaSecret.txt

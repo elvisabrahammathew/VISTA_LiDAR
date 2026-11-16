@@ -4,3 +4,6 @@
 [submodule "external/lidar_surface_splatting"]
 	path = external/lidar_surface_splatting
 	url = https://github.com/PaulBellette/lidar_surface_splatting.git
+[submodule "embedded_lidar"]
+	path = embedded_lidar
+	url = https://github.com/NMinh-Bui/embedded_lidar.git

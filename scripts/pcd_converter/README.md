@@ -39,7 +39,7 @@ are not required for plain PCD-to-TXT conversion. Initial setup needs internet.
 
 The debug EXE is `bin/Debug/PcdConverter.exe`. The release EXE is
 `bin/Release/PcdConverter.exe`. The old `net8.0-windows` output subfolder is no longer
-used. The solution is independent of the C++ solution under `embedded_C`.
+used. The solution is independent of the C++ solution under `embedded_lidar`.
 
 If a framework targeting pack is missing (MSB3644), use Visual Studio Installer >
 Modify > Individual components to install the **.NET Framework 4.7.2 targeting
