@@ -101,7 +101,7 @@
       },
       "options": {
         "sourceMode": "websocket",
-        "websocketUrl": "ws://127.0.0.1:8767",
+        "websocketUrl": "ws://192.168.137.154:8767",
         "reconnectDelayMs": 2000,
         "maxPoints": 100000,
         "pointSize": 2,
@@ -112,7 +112,7 @@
         "showAxes": true,
         "autoRotate": false,
         "overlayForeground": true,
-        "foregroundWebsocketUrl": "ws://127.0.0.1:8768",
+        "foregroundWebsocketUrl": "ws://192.168.137.154:8768",
         "foregroundMaxPoints": 12000,
         "foregroundPointSize": 3,
         "foregroundColor": "#ff7043",
@@ -137,7 +137,7 @@
       },
       "options": {
         "sourceMode": "websocket",
-        "websocketUrl": "ws://127.0.0.1:8766",
+        "websocketUrl": "ws://192.168.137.154:8766",
         "reconnectDelayMs": 2000,
         "maxPoints": 100000,
         "pointSize": 2,
@@ -172,7 +172,7 @@
       "type": "stat",
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "filter": {
             "fields": []
           },
@@ -251,7 +251,8 @@
         "y": 19,
         "h": 8,
         "w": 4
-      }
+      },
+      "maxDataPoints": 1000
     },
     {
       "id": 85,
@@ -411,7 +412,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/localization",
           "datasource": {
             "type": "vista-live-datasource",
@@ -514,7 +515,8 @@
           }
         }
       ],
-      "description": "Only a valid LiDAR-corrected pose feeds the Room Map. On missing IMU, timing faults or rejected localization the map is held, while sensor-frame live point cloud continues. Reason distinguishes clock reset, source changes, missing temporal coverage and stale processing."
+      "description": "Only a valid LiDAR-corrected pose feeds the Room Map. On missing IMU, timing faults or rejected localization the map is held, while sensor-frame live point cloud continues. Reason distinguishes clock reset, source changes, missing temporal coverage and stale processing.",
+      "maxDataPoints": 1000
     },
     {
       "id": 61,
@@ -523,8 +525,8 @@
       "gridPos": {
         "x": 0,
         "y": 27,
-        "w": 24,
-        "h": 4
+        "w": 4,
+        "h": 6
       },
       "datasource": {
         "type": "vista-live-datasource",
@@ -598,7 +600,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
             "type": "vista-live-datasource",
@@ -623,7 +625,8 @@
           }
         }
       ],
-      "description": "EMPTY: no confirmed points yet. BUILDING: measured hits/free-space rays update geometry. FROZEN: no updates. LOADED: read-only reference. DISABLED: mapping off. LOAD ERROR: invalid/missing file. STORAGE ERROR: disk/cache failure; live capture continues."
+      "description": "EMPTY: no confirmed points yet. BUILDING: measured hits/free-space rays update geometry. FROZEN: no updates. LOADED: read-only reference. DISABLED: mapping off. LOAD ERROR: invalid/missing file. STORAGE ERROR: disk/cache failure; live capture continues.",
+      "maxDataPoints": 1000
     },
     {
       "id": 74,
@@ -631,10 +634,10 @@
       "title": "Room Map Build and Free Space",
       "description": "Confirmed/candidate geometry, active build time, input drops and free-space ray counters over time, newest first. Keeps 60 seconds of Grafana Live history (buffer is milliseconds), with the newest sample first. This browser buffer is not persistent storage.",
       "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 31
+        "h": 6,
+        "w": 20,
+        "x": 4,
+        "y": 27
       },
       "datasource": {
         "type": "vista-live-datasource",
@@ -880,7 +883,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
             "type": "vista-live-datasource",
@@ -991,7 +994,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 33
       },
       "datasource": {
         "type": "vista-live-datasource",
@@ -1233,7 +1236,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
             "type": "vista-live-datasource",
@@ -1347,7 +1350,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 41
       },
       "datasource": {
         "type": "vista-live-datasource",
@@ -1545,7 +1548,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/room_map_status",
           "datasource": {
             "type": "vista-live-datasource",
@@ -1656,7 +1659,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 49
       },
       "options": {
         "mode": "markdown",
@@ -1672,7 +1675,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 61
+        "y": 55
       },
       "panels": []
     },
@@ -1689,7 +1692,7 @@
         "h": 4,
         "w": 12,
         "x": 0,
-        "y": 62
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -1749,7 +1752,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/pointcloud_current",
           "datasource": {
             "type": "vista-live-datasource",
@@ -1773,7 +1776,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 35,
@@ -1788,7 +1792,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 62
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -1848,7 +1852,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/imu",
           "datasource": {
             "type": "vista-live-datasource",
@@ -1872,7 +1876,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 36,
@@ -1886,7 +1891,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 62
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -1927,7 +1932,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/imu",
           "datasource": {
             "type": "vista-live-datasource",
@@ -1951,7 +1956,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 9,
@@ -1965,7 +1971,7 @@
         "h": 18,
         "w": 12,
         "x": 0,
-        "y": 66
+        "y": 60
       },
       "fieldConfig": {
         "defaults": {
@@ -2051,7 +2057,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/pointcloud_current",
           "datasource": {
             "type": "vista-live-datasource",
@@ -2079,7 +2085,8 @@
           }
         }
       ],
-      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately."
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately.",
+      "maxDataPoints": 1000
     },
     {
       "id": 41,
@@ -2093,7 +2100,7 @@
         "h": 18,
         "w": 6,
         "x": 12,
-        "y": 66
+        "y": 60
       },
       "fieldConfig": {
         "defaults": {
@@ -2204,7 +2211,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/imu",
           "datasource": {
             "type": "vista-live-datasource",
@@ -2233,7 +2240,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 42,
@@ -2247,7 +2255,7 @@
         "h": 18,
         "w": 6,
         "x": 18,
-        "y": 66
+        "y": 60
       },
       "fieldConfig": {
         "defaults": {
@@ -2345,7 +2353,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/imu",
           "datasource": {
             "type": "vista-live-datasource",
@@ -2373,7 +2381,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 10,
@@ -2387,7 +2396,7 @@
         "h": 16,
         "w": 12,
         "x": 0,
-        "y": 84
+        "y": 78
       },
       "fieldConfig": {
         "defaults": {
@@ -2487,7 +2496,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/pointcloud_current",
           "datasource": {
             "type": "vista-live-datasource",
@@ -2515,7 +2524,8 @@
           }
         }
       ],
-      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately."
+      "description": "Live sensor point-cloud stream, independent of localization. Counts include the floor after finite/range/voxel filtering. Localization quality is shown separately.",
+      "maxDataPoints": 1000
     },
     {
       "id": 43,
@@ -2529,7 +2539,7 @@
         "h": 16,
         "w": 12,
         "x": 12,
-        "y": 84
+        "y": 78
       },
       "fieldConfig": {
         "defaults": {
@@ -2627,7 +2637,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/imu",
           "datasource": {
             "type": "vista-live-datasource",
@@ -2655,7 +2665,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 17,
@@ -2666,7 +2677,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 100
+        "y": 94
       },
       "panels": []
     },
@@ -2682,7 +2693,7 @@
         "h": 6,
         "w": 4,
         "x": 0,
-        "y": 101
+        "y": 95
       },
       "fieldConfig": {
         "defaults": {
@@ -2723,7 +2734,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/system_health",
           "datasource": {
             "type": "vista-live-datasource",
@@ -2747,7 +2758,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 28,
@@ -2762,7 +2774,7 @@
         "h": 12,
         "w": 20,
         "x": 4,
-        "y": 101
+        "y": 95
       },
       "fieldConfig": {
         "defaults": {
@@ -2914,7 +2926,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/worker_health_rows",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3086,7 +3098,8 @@
             "renameByName": {}
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 19,
@@ -3100,7 +3113,7 @@
         "h": 6,
         "w": 4,
         "x": 0,
-        "y": 107
+        "y": 101
       },
       "fieldConfig": {
         "defaults": {
@@ -3145,7 +3158,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/system_health",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3169,7 +3182,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 23,
@@ -3183,7 +3197,7 @@
         "h": 18,
         "w": 12,
         "x": 0,
-        "y": 113
+        "y": 107
       },
       "fieldConfig": {
         "defaults": {
@@ -3284,7 +3298,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/system_health",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3311,7 +3325,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 26,
@@ -3325,7 +3340,7 @@
         "h": 18,
         "w": 12,
         "x": 12,
-        "y": 113
+        "y": 107
       },
       "fieldConfig": {
         "defaults": {
@@ -3456,7 +3471,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/pipeline_health",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3486,7 +3501,8 @@
           }
         }
       ],
-      "description": "Raw input message rate, queue fills and bridge input drops. Processed Message Rate and Point Cloud Data Age appear only in the LiDAR and IMU section; duplicate processed rate and similar age/latency fields are omitted here."
+      "description": "Raw input message rate, queue fills and bridge input drops. Processed Message Rate and Point Cloud Data Age appear only in the LiDAR and IMU section; duplicate processed rate and similar age/latency fields are omitted here.",
+      "maxDataPoints": 1000
     },
     {
       "id": 29,
@@ -3501,7 +3517,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 131
+        "y": 125
       },
       "fieldConfig": {
         "defaults": {
@@ -3631,7 +3647,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/grafana_bridge_health",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3729,7 +3745,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 139
+        "y": 133
       },
       "panels": []
     },
@@ -3746,7 +3762,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 140
+        "y": 134
       },
       "fieldConfig": {
         "defaults": {
@@ -3787,7 +3803,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/radar_targets",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3811,7 +3827,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 14,
@@ -3826,7 +3843,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 140
+        "y": 134
       },
       "fieldConfig": {
         "defaults": {
@@ -3867,7 +3884,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/detected_objects",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3891,7 +3908,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 15,
@@ -3906,7 +3924,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 140
+        "y": 134
       },
       "fieldConfig": {
         "defaults": {
@@ -3947,7 +3965,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/tracked_objects",
           "datasource": {
             "type": "vista-live-datasource",
@@ -3971,7 +3989,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 16,
@@ -3986,7 +4005,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 140
+        "y": 134
       },
       "fieldConfig": {
         "defaults": {
@@ -4035,7 +4054,7 @@
       },
       "targets": [
         {
-          "buffer": 60000,
+          "buffer": 180000,
           "channel": "stream/vista/tracked_objects",
           "datasource": {
             "type": "vista-live-datasource",
@@ -4059,7 +4078,8 @@
             }
           }
         }
-      ]
+      ],
+      "maxDataPoints": 1000
     },
     {
       "id": 1,
@@ -4069,7 +4089,7 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 144
+        "y": 138
       },
       "options": {
         "mode": "markdown",
@@ -4093,7 +4113,7 @@
     "list": []
   },
   "time": {
-    "from": "now-5m",
+    "from": "now-3m",
     "to": "now"
   },
   "timepicker": {
