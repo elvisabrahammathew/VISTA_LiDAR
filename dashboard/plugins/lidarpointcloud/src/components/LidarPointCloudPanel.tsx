@@ -9,6 +9,9 @@ import { GaussianRenderer } from '../gaussian_renderer';
 import { transientExpired } from '../transient';
 import { decodeForegroundStatus, foregroundStatusMessage, ForegroundStatus } from '../foreground_status';
 import { GaussianForegroundPanel } from './GaussianForegroundPanel';
+import { RoomMapControls } from './RoomMapControls';
+import { RuntimeSettingsPanel } from './RuntimeSettingsPanel';
+import { decodeMappingMessage, MappingState } from '../mapping_control';
 
 type Props = PanelProps<LidarPointCloudOptions>;
 
@@ -62,6 +65,7 @@ const initialStatus: StatusState = {
 
 // Keep the old single-stream/DataFrame component intact for existing dashboards.
 export const LidarPointCloudPanel: React.FC<Props> = (props) =>
+  props.options.settingsGroup ? <RuntimeSettingsPanel {...props} /> :
   props.options.sourceMode === 'websocket' && props.options.overlayForeground
     ? <GaussianForegroundPanel {...props} /> : <SinglePointCloudPanel {...props} />;
 
@@ -73,6 +77,9 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
   const roomMapRef = useRef<RoomMapMetadata | undefined>(undefined);
   const foregroundRef = useRef<ForegroundStatus | undefined>(undefined);
   const [status, setStatus] = useState<StatusState>(initialStatus);
+  const mappingSocket = useRef<WebSocket | undefined>(undefined);
+  const [mappingState, setMappingState] = useState<MappingState>();
+  const [mappingError, setMappingError] = useState<{ message: string }>();
 
   optionsRef.current = options;
 
@@ -90,6 +97,9 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(Math.max(width, 1), Math.max(height, 1), false);
+    // Drawing-buffer pixels include devicePixelRatio; CSS must fill the panel
+    // independently, including Windows scaling and browser zoom below 100%.
+    Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -228,6 +238,8 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
   }, [data.series, options.sourceMode, options.maxPoints, options.colorMode, options.solidColor]);
 
   useEffect(() => {
+    setMappingState(undefined);
+    setMappingError(undefined);
     if (options.sourceMode !== 'websocket') {
       return;
     }
@@ -281,6 +293,16 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
         if (stopped || event.target !== socket) { return; }
         if (typeof event.data === 'string') {
           try {
+            const mapping = decodeMappingMessage(event.data);
+            if (mapping?.type === 'mapping-state') {
+              mappingSocket.current = socket;
+              setMappingState(mapping);
+              return;
+            }
+            if (mapping?.type === 'mapping-error') {
+              setMappingError({ message: mapping.message });
+              return;
+            }
             const foreground = decodeForegroundStatus(event.data);
             if (foreground) {
               foregroundRef.current = foreground;
@@ -290,8 +312,13 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
             }
             const meta = decodeRoomMapMetadata(event.data);
             if (meta) {
+              const previousGeneration = roomMapRef.current?.mappingGeneration;
               roomMapRef.current = meta;
               const scene = sceneRef.current;
+              if (scene && previousGeneration !== undefined && meta.mappingGeneration !== previousGeneration) {
+                scene.roomMapBounds = undefined;
+                scene.fitted = false;
+              }
               if (scene && meta.totalPoints > 0) {
                 const bounds = new THREE.Box3(new THREE.Vector3(...meta.bounds.slice(0, 3)), new THREE.Vector3(...meta.bounds.slice(3, 6)));
                 const firstMap = !scene.roomMapBounds;
@@ -332,6 +359,9 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
 
       socket.onclose = () => {
         if (stopped) { return; }
+        mappingSocket.current = undefined;
+        setMappingState(undefined);
+        setMappingError(undefined);
         clearTransient();
         if (!stopped) {
           scheduleReconnect('WebSocket disconnected');
@@ -364,6 +394,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
     return () => {
       stopped = true;
       window.clearInterval(viewTimer);
+      mappingSocket.current = undefined;
       roomMapRef.current = undefined;
       foregroundRef.current = undefined;
       if (sceneRef.current) { sceneRef.current.roomMapBounds = undefined; }
@@ -457,6 +488,13 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
           </div>
         )}
       </div>
+      {mappingState ? (
+        <RoomMapControls state={mappingState} error={mappingError} resetView={resetView} send={command => {
+          const socket = mappingSocket.current;
+          if (socket?.readyState !== WebSocket.OPEN) { throw new Error('Room Map WebSocket disconnected'); }
+          socket.send(command);
+        }} />
+      ) : (
       <button
         type="button"
         onClick={resetView}
@@ -475,6 +513,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
       >
         Reset view
       </button>
+      )}
     </div>
   );
 };

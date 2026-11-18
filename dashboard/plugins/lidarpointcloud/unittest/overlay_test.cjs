@@ -120,5 +120,14 @@ test('Gaussian explicit map errors clear only that map; startup socket failures 
   const s=new OverlayStream('foreground','bad',{frame:()=>{},clear:()=>{},status:()=>{}},250,1000,env);
   s.start();assert.equal(retries,1);s.stop();assert.equal(cancelled,1);
 });
+
+test('changing Gaussian surface mode sends a fresh request and leaves Foreground transport untouched',()=>{
+  const g=harness('gaussian'),f=harness('foreground');g.stream.start();f.stream.start();g.sockets[0].open();f.sockets[0].open();
+  f.sockets[0].message(packet('LPC1'));g.stream.requestView('VIEW camera');g.stream.requestView('VIEW camera EDGES');
+  g.stream.requestView('VIEW camera EDGES');g.stream.requestView('VIEW camera');
+  assert.deepEqual(g.sockets[0].sent,['VIEW camera','VIEW camera EDGES','VIEW camera']);
+  assert.equal(f.sockets.length,1);assert.equal(f.events.frames.length,1);assert.equal(f.events.clears.length,0);
+  assert.equal(f.sockets[0].sent.length,0);g.stream.stop();f.stream.stop();
+});
 if(previous){require.extensions['.ts']=previous;}else{delete require.extensions['.ts'];}
 console.log(`${passed}/${passed} overlay tests passed`);

@@ -68,6 +68,7 @@ cmake-build-*/
 !/publish/linux-arm64/vista_edge
 !/publish/linux-arm64/*.so*
 /publish/*/GrafanaSecret.txt
+MappingControlSecret.txt
 /publish/*/data/
 /publish/*/*.log
 /publish/*/*.pdb

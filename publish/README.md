@@ -17,8 +17,9 @@ RealSense support. Rebuilding on a newer Linux distribution may increase the
 minimum system requirement. ARM64 is not 32-bit ARM. Native ADLINK hardware
 validation is separate from cross-build and emulated tests.
 
-Windows has exactly three runtime files: `vista_edge.exe`, `DeviceConfig.txt`
-and `GrafanaSecret.txt`. Its build metadata, import report and default template
+The Windows build provides `vista_edge.exe`, `DeviceConfig.txt` and
+`GrafanaSecret.txt`. On startup, the app also creates a local
+`MappingControlSecret.txt` for remote control. The build metadata, import report and default template
 are outside that app folder, under `build-info/windows-x64/`. Its runtime is
 statically linked, so no Microsoft runtime DLLs need to travel beside the EXE.
 
@@ -36,6 +37,8 @@ statically linked, so no Microsoft runtime DLLs need to travel beside the EXE.
   creates it with a blank token only if missing; first startup also restores it
   after cloning. Linux retains its `GrafanaSecret.example.txt` template.
   Never force-add a real token. No build copies the developer's secret file.
+- Set `MappingControlToken` in `MappingControlSecret.txt` to enable Room Map
+  and Edge Settings controls. Keep this file beside the executable and out of Git.
 - RAW, PCD and map output from these three folders uses **this clone's `data/`**,
   independent of the builder's absolute path and the shell working directory.
   Keep the `publish/<platform>` layout if moving the repository.

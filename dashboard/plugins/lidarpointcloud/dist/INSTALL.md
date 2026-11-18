@@ -1,5 +1,49 @@
 # Install lidarpointcloud on local Grafana for Windows
 
+## 1.4.2 — Readable, aligned map controls (18 November 2026)
+
+The map toolbar explicitly sizes native controls and resets inherited form
+styling. Full Surface / Edges stays readable; checkboxes and Reset view align
+vertically and wrap as complete groups on narrow panels. Replace the existing
+plugin's contents with the rebuilt `dist`, restart Grafana, then use Ctrl+F5.
+Verify installed version 1.4.2. No ADLINK rebuild or dashboard import is required.
+
+## 1.4.1 — Edges by default (18 November 2026)
+
+New panels and panels without a saved surface mode now default to **Edges**.
+The supplied V5/V6 dashboard JSONs also select Edges. A previously saved
+**Full Surface** choice is preserved: change the toolbar dropdown to Edges and
+save the dashboard, or reimport the updated JSON. Replace the plugin with the
+rebuilt `dist` contents, restart Grafana and hard-refresh the browser.
+The C++ 1.4.0 edge-cache/protocol implementation needs no further rebuild for
+this default-only update. Foreground remains independent.
+
+## 1.4.0 — Full Surface / Edges (18 November 2026)
+
+The Gaussian/Foreground panel has a **Display** dropdown with exactly two modes:
+**Full Surface** and **Edges**. The Foreground checkbox remains independent.
+The selected mode is a panel option; save the dashboard to retain your choice.
+
+This update requires **both** the rebuilt panel and the updated C++ `vista_edge`
+on ADLINK. Build/restart the edge application, replace the contents of the existing
+Grafana `vista-lidarpointcloud-panel` folder with this repository's `dist` contents,
+restart Grafana and hard-refresh the browser. No new plugin ID, port, worker,
+DeviceConfig setting or VISTA Live data-source update is required. Existing V5/V6
+dashboards acquire the dropdown with this plugin; see 1.4.1 above for defaults.
+
+Edges are supported geometric creases, curved/linear structures and one-sided
+surface boundaries, not semantic object detections. Sparse/noisy surfaces may
+have incomplete or false edges. RoomMap, PCD export, localization and Foreground
+subtraction continue using complete geometry. The extra edge selection is fitted
+once per changed tile with neighboring support and cached on disk, then selected
+before GSP1 transmission. Switching modes does not reconnect Foreground. New
+clients identify edge support in server metadata; older applications continue
+to serve Full Surface and show an update message if Edges is requested.
+
+For your current network, use ADLINK `192.168.137.154` on ports 8766/8767/8768;
+Grafana remains on Windows `192.168.137.1`. Earlier version notes below include
+historical example addresses and installation instructions.
+
 ## Updating an existing installation to 1.3.0
 
 1. Use the newly built `dist` in this repository (no rebuild needed if supplied).
@@ -61,3 +105,79 @@ The V5 panel is now **Gaussian Room Map and Foreground**. New stationary
 objects and unmapped surfaces also appear; this is not a moving-object label.
 Install this update directly even if you skipped 1.2.1; no intermediate import
 or new plugin ID is needed.
+
+
+## 1.3.1 — Full-panel sizing and V6 notes (18 November 2026)
+
+Copy the rebuilt `dist` contents into the existing `vista-lidarpointcloud-panel`
+installation, restart Grafana and hard-refresh the browser. No new plugin ID or
+unsigned-plugin entry is needed. CSS canvas size now fills its panel independently
+of device pixel ratio, Windows scaling and browser zoom. Both Room Map and the
+Gaussian/Foreground overlay are covered, including dynamic panel resizing.
+
+Reimport `dashboard/VISTA_Live_Dashboard_V6_Digital_Twin.json` (UID `vistalive`)
+to move the two text notes to the bottom, side by side at 12 columns each, with
+height 16. The current map URLs, queries, note text and other panel settings are
+retained. Export your installed Grafana dashboard first if it has further edits.
+The Digital Twin plugin and ADLINK runtime do not need an update for this fix.
+
+## Room Map Mount and LIO controls
+
+Build the matching embedded_lidar application and replace the installed
+lidarpointcloud plugin with this directory's dist contents. Restart Grafana
+and reload the page. The controls appear on the Room Map WebSocket panel when
+the application is running with Unitree L2, Grafana and live Room Map enabled.
+
+Run vista_edge once to create MappingControlSecret.txt beside the executable.
+Set MappingControlToken in that file to a private token (24–128 ASCII letters,
+digits, hyphens or underscores). On Linux, generate one using openssl rand -hex 32.
+Restart vista_edge normally to load the token. Keep the secret file local.
+An existing nonempty VISTA_MAPPING_CONTROL_TOKEN environment variable takes
+precedence over the file.
+
+Enter the same token in the panel. Set all six Mount fields, then click Apply.
+Toggling LIO immediately uses the last applied Mount, including when there are
+unsubmitted edits in the fields. Keep the sensor steady while enabling LIO
+until localization initializes. A fixed Mount assumes the sensor is stationary.
+Each reset saves the confirmed PCD if it has points and starts another map.
+The applied values are held in memory until the app restarts and reads
+DeviceConfig.txt again.
+
+Use the control token on the private wired network. Plain WebSocket traffic
+is unencrypted. Use a TLS reverse proxy and a wss:// Room Map URL if the
+network cannot be trusted. The token is different from the Grafana secret
+and is not part of the dashboard JSON.
+
+## VISTA Edge Settings dashboard
+
+1. Build the matching embedded_lidar revision on the edge and deploy plugin
+   1.7.0 from dist into the existing lidarpointcloud plugin folder on Windows.
+   Restart Grafana and import VISTA_Edge_Settings.json. VISTA Sensor V5/V6
+   include a link to this dashboard after reimport.
+2. Set MappingControlToken in MappingControlSecret.txt beside vista_edge, then
+   restart the app. This same token controls both Room Map pose and advanced
+   settings. The settings WebSocket defaults to port 8769 and inherits the
+   Room Map bind address. The optional SettingsWebSocketBindAddress and
+   SettingsWebSocketPort can be set in DeviceConfig.txt before startup.
+   In Grafana update the single Edge settings URL variable if required.
+3. Enter that token in Capture Logging and click Connect. Every panel then
+   reads the active values from the edge. Use Apply per panel. Edits survive
+   dashboard navigation once applied. Restarting vista_edge reloads
+   DeviceConfig.txt. The token stays in browser memory while the settings
+   dashboard is open and is never stored in the dashboard JSON.
+4. Camera and Radar currently use None. L515 depth controls are shown under
+   LiDAR on builds that support the SDK. The LiDAR serial list is discovered
+   by the edge. Map stream bind addresses and ports are shown as read-only.
+   Use a relative file name under data/maps or an absolute path in that
+   directory when selecting a reference PCD from the dashboard.
+
+The CLI reports every effective setting change. Logging, telemetry and
+foreground filter changes keep the existing Room Map. Changes to the LiDAR
+source, Point-LIO settings or Room Map build/source settings can produce an
+acquisition gap or start a separate Room Map. The previous confirmed PCD is
+saved using the existing session-file rules. A LiDAR connection card may show
+reconnecting after applying source settings.
+
+Use the settings WebSocket on the private wired network or through a TLS
+reverse proxy. A browser that opens Grafana via HTTPS generally needs a wss://
+settings URL. Never add the secret to the URL.

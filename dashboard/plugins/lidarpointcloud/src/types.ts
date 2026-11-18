@@ -1,7 +1,10 @@
 export type PointCloudSourceMode = 'websocket' | 'dataframe';
 export type PointCloudColorMode = 'intensity' | 'height' | 'solid';
+export type GaussianSurfaceMode = 'full_surface' | 'edges' | 'corners';
 
 export interface LidarPointCloudOptions {
+  settingsGroup?: string;
+  settingsUrl?: string;
   sourceMode: PointCloudSourceMode;
   websocketUrl: string;
   reconnectDelayMs: number;
@@ -15,6 +18,7 @@ export interface LidarPointCloudOptions {
   autoRotate: boolean;
   staleTimeoutMs?: number; // 0/absent retains maps; foreground panel uses 1000 ms.
   overlayForeground?: boolean;
+  gaussianSurfaceMode?: GaussianSurfaceMode;
   foregroundWebsocketUrl?: string;
   foregroundMaxPoints?: number;
   foregroundPointSize?: number;

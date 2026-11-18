@@ -21,10 +21,10 @@ File Type: EXECUTABLE IMAGE
 
   Summary
 
-       4A000 .data
-       35000 .pdata
-      13A000 .rdata
+       4C000 .data
+       36000 .pdata
+      141000 .rdata
         B000 .reloc
         1000 .rsrc
-      5BF000 .text
+      5E1000 .text
         1000 _RDATA

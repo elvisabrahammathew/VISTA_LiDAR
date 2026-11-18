@@ -18,15 +18,32 @@ const loadTypeScript = (relative) => {
   return module.exports;
 };
 const moduleParent = module;
-const { decodeRoomMapMetadata, makeRoomMapViewRequest } = loadTypeScript('src/room_map_view.ts');
+const viewModule = loadTypeScript('src/room_map_view.ts');
+const { decodeRoomMapMetadata, makeRoomMapViewRequest, makeGaussianViewRequest, normalizeGaussianMode, supportsGaussianMode } = viewModule;
 const { decodePointCloudPacket } = loadTypeScript('src/protocol.ts');
 const { GaussianRenderer } = loadTypeScript('src/gaussian_renderer.ts');
 const { transientExpired } = loadTypeScript('src/transient.ts');
 const { decodeForegroundStatus, foregroundStatusMessage } = loadTypeScript('src/foreground_status.ts');
 let passed = 0;
 const test = (name, run) => { run(); ++passed; console.log(`[PASS] ${name}`); };
+const { decodeMappingMessage, parseMount, mappingCommand } = loadTypeScript('src/mapping_control.ts');
 const metadata = { type: 'roommap', totalPoints: 300000, pointBudget: 250000, state: 2, bounds: [-1,-2,-3,4,5,6] };
 
+test('Room Map settings require six finite values and separate MODE from APPLY', () => {
+  const token = 'test_only_mapping_token_01234567';
+  const fields = ['1','2','0.7','0','-5','90'];
+  assert.deepEqual(parseMount(fields), [1,2,0.7,0,-5,90]);
+  assert.equal(parseMount(['',...fields.slice(1)]), undefined);
+  assert.equal(parseMount([...fields.slice(0,5),'900']), undefined);
+  assert.equal(mappingCommand(2, token, { lioEnabled: false }), 'MAPPING MODE 2 ' + token + ' 0');
+  assert.equal(mappingCommand(2, token, { mount: parseMount(fields) }), 'MAPPING APPLY 2 ' + token + ' 1 2 0.7 0 -5 90');
+  assert.throws(() => mappingCommand(2, 'wrong', { lioEnabled: false }));
+  const state = { type: 'mapping-state', enabled: true, generation: 2, pending: false, lioEnabled: true, mount: parseMount(fields) };
+  assert.deepEqual(decodeMappingMessage(JSON.stringify(state)), state);
+  assert.equal(decodeMappingMessage(JSON.stringify({...state, generation: -1})), undefined);
+  assert.equal(decodeMappingMessage(JSON.stringify({...state, mount: [0,0,0,0,0,null]})), undefined);
+  assert.equal(decodeMappingMessage(JSON.stringify(metadata)), undefined);
+});
 test('foreground status distinguishes paused input, matched background and unresolved queries',()=>{
   const value={type:'foreground-status',version:1,active:false,reason:'localization unavailable: IMU gap',
     inputPoints:0,backgroundPoints:0,unknownPoints:0,foregroundPoints:0};
@@ -124,6 +141,46 @@ test('camera moves change requests; unchanged camera requests remain identical',
   assert.equal(makeRoomMapViewRequest(camera, 600, 1000), initial);
   camera.position.x = 5; camera.lookAt(0,0,0);
   assert.notEqual(makeRoomMapViewRequest(camera, 600, 1000), initial);
+});
+
+test('Gaussian Edges and Corners use the same bounded camera and legacy Full Surface request', () => {
+  const full=makeRoomMapViewRequest(camera,600,1000);
+  assert.equal(makeGaussianViewRequest(camera,600,1000,'full_surface'),full);
+  assert.equal(makeGaussianViewRequest(camera,600,1000,'edges'),full+' EDGES');
+  assert.equal(decodeRoomMapMetadata(JSON.stringify({...metadata,supportsEdges:true,surfaceMode:'edges'})).surfaceMode,'edges');
+  assert.equal(makeGaussianViewRequest(camera,600,1000,'corners'),full+' CORNERS');
+  const legacy = decodeRoomMapMetadata(JSON.stringify({...metadata,supportsEdges:true,surfaceMode:'edges'}));
+  const updated = decodeRoomMapMetadata(JSON.stringify({...metadata,supportsEdges:true,supportsCorners:true,surfaceMode:'corners'}));
+  assert.equal(updated.surfaceMode,'corners');
+  assert(supportsGaussianMode('edges',legacy));
+  assert(!supportsGaussianMode('corners',legacy));
+  assert(supportsGaussianMode('corners',updated));
+  assert.equal(normalizeGaussianMode(undefined),'edges');
+  assert.equal(decodeRoomMapMetadata(JSON.stringify({...metadata,surfaceMode:'points'})),undefined);
+  assert.equal(decodeRoomMapMetadata(JSON.stringify({...metadata,supportsEdges:'true'})),undefined);
+  assert.equal(decodeRoomMapMetadata(JSON.stringify(metadata)).supportsEdges,undefined);
+});
+
+test('overlay toolbar persists surface mode without changing Foreground configuration', () => {
+  const vm=require('node:vm');
+  const React={createElement:(type,props,...children)=>({type,props:props||{},children}),
+    useEffect:()=>{},useRef:value=>({current:value}),useState:value=>[value,()=>{}]};
+  const filename=path.join(root,'src/components/GaussianForegroundPanel.tsx');
+  const output=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,
+    target:ts.ScriptTarget.ES2020,jsx:ts.JsxEmit.React,esModuleInterop:true}}).outputText;
+  const compiled={exports:{}};
+  vm.runInNewContext(output,{module:compiled,exports:compiled.exports,
+    require:id=>({'react':React,'three':THREE,'../room_map_view':viewModule})[id] || {}});
+  const options={gaussianSurfaceMode:'full_surface',foregroundWebsocketUrl:'ws://edge:8768',foregroundMaxPoints:12000};
+  let saved;
+  const tree=compiled.exports.GaussianForegroundPanel({options,width:800,height:600,onOptionsChange:value=>saved=value});
+  const nodes=[];const walk=node=>{if(Array.isArray(node)){node.forEach(walk);} else if(node&&typeof node==='object'){nodes.push(node);for(const c of node.children||[])walk(c);}};walk(tree);
+  const select=nodes.find(n=>n.type==='select');assert.equal(select.props.value,'full_surface');
+  assert.deepEqual(nodes.filter(n=>n.type==='option').map(n=>n.props.value),['full_surface','edges','corners']);
+  select.props.onChange({target:{value:'corners'}});
+  assert.equal(saved.gaussianSurfaceMode,'corners');assert.equal(saved.foregroundWebsocketUrl,options.foregroundWebsocketUrl);
+  assert.equal(saved.foregroundMaxPoints,12000);
+  assert(nodes.some(n=>n.type==='label'&&n.children.includes(' Foreground')));
 });
 test('room-map LPC1 view and empty replacement remain compatible', () => {
   const buffer = new ArrayBuffer(48); const view = new DataView(buffer);

@@ -103,3 +103,18 @@ The C++ mapper stores full geometry in disk tiles and exports every confirmed
 point to PCD. This is a Potree-inspired hierarchy, not a native Potree file reader.
 Install this updated plugin alongside the updated C++ application; a 1.0.x
 plugin cannot request camera-dependent detail. Port 8765 live streams are unchanged.
+
+
+## 1.3.1 — Full-panel sizing and V6 notes (18 November 2026)
+
+Copy the rebuilt `dist` contents into the existing `vista-lidarpointcloud-panel`
+installation, restart Grafana and hard-refresh the browser. No new plugin ID or
+unsigned-plugin entry is needed. CSS canvas size now fills its panel independently
+of device pixel ratio, Windows scaling and browser zoom. Both Room Map and the
+Gaussian/Foreground overlay are covered, including dynamic panel resizing.
+
+Reimport `dashboard/VISTA_Live_Dashboard_V6_Digital_Twin.json` (UID `vistalive`)
+to move the two text notes to the bottom, side by side at 12 columns each, with
+height 16. The current map URLs, queries, note text and other panel settings are
+retained. Export your installed Grafana dashboard first if it has further edits.
+The Digital Twin plugin and ADLINK runtime do not need an update for this fix.

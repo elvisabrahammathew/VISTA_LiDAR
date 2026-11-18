@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { LidarPointCloudOptions } from '../types';
 import { OverlayLayers, boundedCount } from '../overlay_layers';
 import { OverlayStream } from '../overlay_stream';
-import { makeRoomMapViewRequest, RoomMapMetadata } from '../room_map_view';
+import { gaussianModes, makeGaussianViewRequest, normalizeGaussianMode, RoomMapMetadata, supportsGaussianMode } from '../room_map_view';
 import { ForegroundStatus, foregroundStatusMessage } from '../foreground_status';
 
 interface View {
@@ -32,10 +32,12 @@ const fit = (view: View, bounds: THREE.Box3) => {
 
 // A separate optional component preserves the legacy single-socket/DataFrame
 // path. Both world-coordinate streams share exactly one scene, camera and canvas.
-export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions>> = ({options,width,height}) => {
+export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions>> = ({options,width,height,onOptionsChange}) => {
   const container=useRef<HTMLDivElement>(null),viewRef=useRef<View | null>(null),optionsRef=useRef(options);
   optionsRef.current=options;
   const [showGaussian,setShowGaussian]=useState(true),[showForeground,setShowForeground]=useState(true);
+  const [capabilities,setCapabilities]=useState<{edges:boolean;corners:boolean}|undefined>(undefined);
+  const surfaceMode=normalizeGaussianMode(options.gaussianSurfaceMode);
   const [status,setStatus]=useState<Status>({gaussian:'Waiting for Gaussian map',foreground:'Waiting for Foreground',
     gaussianError:false,foregroundError:false,gaussianCount:0,foregroundCount:0});
 
@@ -47,6 +49,8 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
     const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(55,Math.max(width,1)/Math.max(height,1),.01,10000);
     camera.up.set(0,0,1);camera.position.set(6,-6,4);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));renderer.setSize(Math.max(width,1),Math.max(height,1),false);
+    // Keep CSS size independent of the pixel-ratio-scaled drawing buffer.
+    Object.assign(renderer.domElement.style,{display:'block',width:'100%',height:'100%'});
     container.current.appendChild(renderer.domElement);
     const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.08;
     const layers=new OverlayLayers(scene),grid=new THREE.GridHelper(60,60,0x547080,0x26313a),axes=new THREE.AxesHelper(2);
@@ -91,18 +95,35 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
     const layers=view.layers;let metadata:RoomMapMetadata|undefined,foregroundMeta:ForegroundStatus|undefined;
     layers.clearGaussian();layers.clearForeground();view.bounds=undefined;view.fitted=false;
     setStatus(s=>({...s,gaussianCount:0,foregroundCount:0,detail:undefined}));
+    setCapabilities(undefined);
+    const unavailable = () => {
+      layers.clearGaussian();
+      setStatus(s=>s.gaussian==='Selected display mode requires an updated vista_edge' ? s :
+        {...s, gaussian:'Selected display mode requires an updated vista_edge', gaussianError:true, gaussianCount:0});
+    };
     const gaussian=new OverlayStream('gaussian',options.websocketUrl,{
       frame:(frame)=>{
+        const requested=normalizeGaussianMode(optionsRef.current.gaussianSurfaceMode);
+        if(!supportsGaussianMode(requested,metadata)) {
+          unavailable();
+          return;
+        }
+        // A previous mode may still be in flight. Metadata and its binary
+        // replacement are ordered on this socket; never label Full as Edges.
+        if(metadata?.surfaceMode && metadata.surfaceMode!==requested){return;}
         layers.setGaussian(frame,optionsRef.current);
         if(!view.fitted && frame.pointCount) {
           const bounds=new THREE.Box3().setFromArray(frame.positions);fit(view,bounds);
         }
-        setStatus(s=>({...s,gaussian:'Receiving Gaussian map',gaussianError:false,gaussianCount:layers.gaussianCount}));
+        const label=gaussianModes.find(mode=>mode.value===requested)?.label;
+        setStatus(s=>({...s,gaussian:`Receiving ${label}`,gaussianError:false,gaussianCount:layers.gaussianCount}));
       },
       clear:(reason)=>{layers.clearGaussian();setStatus(s=>({...s,gaussian:reason,gaussianCount:0}));},
       status:(message,error=false)=>setStatus(s=>({...s,gaussian:message,gaussianError:error})),
       map:(meta)=>{
         metadata=meta;
+        const edges=meta.supportsEdges===true,corners=meta.supportsCorners===true;
+        setCapabilities(previous=>previous?.edges===edges && previous.corners===corners ? previous : {edges,corners});
         if(meta.totalPoints>0 && meta.state<4) {
           view.bounds=new THREE.Box3(new THREE.Vector3(...meta.bounds.slice(0,3)),new THREE.Vector3(...meta.bounds.slice(3,6)));
           if(!view.fitted){fit(view,view.bounds);}
@@ -127,8 +148,10 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
       foreground.expire();const now=performance.now();
       if(metadata && now-lastView>=400 && layers.gaussian.mesh.visible) {
         lastView=now;const viewport=view.renderer.getSize(new THREE.Vector2());
-        gaussian.requestView(makeRoomMapViewRequest(view.camera,viewport.y,
-          Math.min(boundedCount(optionsRef.current.maxPoints,100000,2000000),metadata.pointBudget)));
+        const mode=normalizeGaussianMode(optionsRef.current.gaussianSurfaceMode);
+        if(!supportsGaussianMode(mode,metadata)) unavailable();
+        else gaussian.requestView(makeGaussianViewRequest(view.camera,viewport.y,
+          Math.min(boundedCount(optionsRef.current.maxPoints,100000,2000000),metadata.pointBudget),mode));
       }
     },100);
     return ()=>{window.clearInterval(timer);gaussian.stop();foreground.stop();layers.clearForeground();};
@@ -140,16 +163,40 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
   };
   const box:React.CSSProperties={position:'absolute',zIndex:2,padding:'6px 9px',borderRadius:4,
     color:'#d8d9da',background:'rgba(10,14,20,.82)',fontSize:11};
+  // Native form controls also inherit Grafana's global element styles. Reset
+  // and size each control explicitly so the select cannot collapse to a line.
+  const control:React.CSSProperties={all:'revert',boxSizing:'border-box',font:'inherit',
+    color:'#d8d9da',margin:0,verticalAlign:'middle'};
+  const label:React.CSSProperties={...control,display:'inline-flex',alignItems:'center',gap:6,
+    minHeight:32,lineHeight:'20px',padding:0,flex:'0 0 auto',whiteSpace:'nowrap'};
+  const checkbox:React.CSSProperties={...control,appearance:'auto',display:'inline-block',
+    width:14,height:14,minWidth:14,minHeight:14,padding:0,flex:'0 0 14px',cursor:'pointer',accentColor:'#8ab8ff'};
+  const select:React.CSSProperties={...control,appearance:'auto',WebkitAppearance:'menulist',
+    display:'inline-block',height:32,minHeight:32,maxHeight:32,width:144,minWidth:144,
+    flex:'0 0 144px',lineHeight:'normal',padding:'0 8px',backgroundColor:'#25313c',
+    border:'1px solid #677889',borderRadius:4,cursor:'pointer',colorScheme:'dark'};
+  const button:React.CSSProperties={...control,display:'inline-flex',alignItems:'center',justifyContent:'center',
+    height:32,minHeight:32,flex:'0 0 auto',lineHeight:'20px',padding:'0 10px',
+    backgroundColor:'#25313c',border:'1px solid #677889',borderRadius:4,cursor:'pointer',whiteSpace:'nowrap'};
   return <div ref={container} style={{width,height,position:'relative',overflow:'hidden'}}>
     <div style={{...box,top:8,left:8,maxWidth:'calc(100% - 16px)',maxHeight:110,overflow:'auto'}} role="status">
       <div style={{color:status.gaussianError?'#f2495c':'#a6b4c4'}}>Gaussian: {status.gaussian} · {status.gaussianCount.toLocaleString()} splats</div>
       <div style={{color:status.foregroundError?'#f2495c':options.foregroundColor||'#ff7043'}}>Foreground: {status.foreground} · {status.foregroundCount.toLocaleString()} points</div>
       {status.detail && <div>Processed {status.detail.inputPoints.toLocaleString()} · Background {status.detail.backgroundPoints.toLocaleString()} · Unresolved {status.detail.unknownPoints.toLocaleString()}</div>}
     </div>
-    <div style={{...box,bottom:8,right:8,display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}} role="toolbar" aria-label="Map layers">
-      <label><input type="checkbox" checked={showGaussian} onChange={e=>setShowGaussian(e.target.checked)}/> Gaussian</label>
-      <label><input type="checkbox" checked={showForeground} onChange={e=>setShowForeground(e.target.checked)}/> Foreground</label>
-      <button type="button" onClick={reset} style={{cursor:'pointer',background:'#25313c',color:'#d8d9da',border:'1px solid #45505b',borderRadius:3,padding:'4px 7px'}}>Reset view</button>
+    <div style={{...box,bottom:8,right:8,display:'flex',gap:'6px 12px',alignItems:'center',justifyContent:'flex-end',
+      flexWrap:'wrap',maxWidth:'calc(100% - 16px)',boxSizing:'border-box',fontSize:12,lineHeight:'20px',
+      background:'rgba(10,14,20,.94)',border:'1px solid #354351'}} role="toolbar" aria-label="Map layers">
+      <label style={label}><input style={checkbox} type="checkbox" checked={showGaussian} onChange={e=>setShowGaussian(e.target.checked)}/> Gaussian</label>
+      <label style={label}>Display <select aria-label="Gaussian display" value={surfaceMode}
+        onChange={e=>onOptionsChange({...optionsRef.current,gaussianSurfaceMode:normalizeGaussianMode(e.target.value)})}
+        style={select}>
+        {gaussianModes.map(({value,label})=>
+          <option key={value} style={{backgroundColor:'#25313c',color:'#d8d9da'}} value={value}
+            disabled={value!=='full_surface' && capabilities?.[value]===false}>{label}</option>)}
+      </select></label>
+      <label style={label}><input style={checkbox} type="checkbox" checked={showForeground} onChange={e=>setShowForeground(e.target.checked)}/> Foreground</label>
+      <button type="button" onClick={reset} style={button}>Reset view</button>
     </div>
   </div>;
 };

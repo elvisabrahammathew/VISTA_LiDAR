@@ -1,10 +1,15 @@
 import { PanelPlugin } from '@grafana/data';
 import { LidarPointCloudPanel } from './components/LidarPointCloudPanel';
 import { LidarPointCloudOptions } from './types';
+import { gaussianModes } from './room_map_view';
 
 export const plugin = new PanelPlugin<LidarPointCloudOptions>(LidarPointCloudPanel)
   .setPanelOptions((builder) =>
     builder
+      .addTextInput({
+        path: 'settingsUrl', name: 'VISTA Edge settings WebSocket',
+        defaultValue: 'ws://127.0.0.1:8769', showIf: options => !!options.settingsGroup,
+      })
       .addRadio({
         path: 'sourceMode',
         name: 'Point-cloud source',
@@ -31,6 +36,12 @@ export const plugin = new PanelPlugin<LidarPointCloudOptions>(LidarPointCloudPan
       .addTextInput({
         path: 'foregroundWebsocketUrl', name: 'Foreground WebSocket URL', defaultValue: 'ws://127.0.0.1:8768',
         description: 'LPC1 foreground from the same VISTA application/world frame as the Gaussian map.',
+        showIf: (o) => o.sourceMode === 'websocket' && Boolean(o.overlayForeground),
+      })
+      .addSelect({
+        path: 'gaussianSurfaceMode', name: 'Gaussian display', defaultValue: 'edges',
+        description: 'Request cached Full Surface, Edges or Corners from VISTA. Foreground is independent.',
+        settings: { options: [...gaussianModes] },
         showIf: (o) => o.sourceMode === 'websocket' && Boolean(o.overlayForeground),
       })
       .addNumberInput({

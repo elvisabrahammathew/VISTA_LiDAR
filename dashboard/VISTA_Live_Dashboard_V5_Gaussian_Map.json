@@ -44,7 +44,7 @@
       "type": "panel",
       "id": "vista-lidarpointcloud-panel",
       "name": "lidarpointcloud",
-      "version": "1.3.0"
+      "version": "1.4.1"
     }
   ],
   "annotations": {
@@ -68,7 +68,7 @@
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [{"title":"Edge Settings","type":"link","icon":"cog","url":"/d/vista-edge-settings/","targetBlank":false}],
   "liveNow": true,
   "panels": [
     {
@@ -112,6 +112,7 @@
         "showAxes": true,
         "autoRotate": false,
         "overlayForeground": true,
+        "gaussianSurfaceMode": "edges",
         "foregroundWebsocketUrl": "ws://192.168.137.154:8768",
         "foregroundMaxPoints": 12000,
         "foregroundPointSize": 3,
@@ -225,6 +226,10 @@
                 "5": {
                   "color": "yellow",
                   "text": "HOLDING"
+                },
+                "6": {
+                  "color": "blue",
+                  "text": "FIXED MOUNT"
                 }
               }
             }

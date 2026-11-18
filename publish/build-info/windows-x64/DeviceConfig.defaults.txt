@@ -48,6 +48,9 @@ LioScanVoxelSizeMeters: 0.40
 LioMapVoxelSizeMeters: 0.40
 LioLocalMapRadiusMeters: 30.0
 LioLocalMapMaxPoints: 50000
+# Minimum number of range-filtered scan voxels before registration is attempted.
+# Try 80 for sparse scans, and validate pose stability before reducing further.
+LioScanMinPoints: 100
 LioScanMaxPoints: 5000
 LioInitializationSamples: 50
 # Point-LIO IMU measurement R diagonals (not process Q; do not square)
@@ -85,6 +88,11 @@ GrafanaNamespace: vista
 GrafanaPublishIntervalMilliseconds: 2000
 GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
+
+# Set the remote control token in MappingControlSecret.txt beside the executable.
+# A blank settings bind address inherits the Room Map bind address.
+SettingsWebSocketBindAddress:
+SettingsWebSocketPort: 8769
 
 # Live sensor 3D publishing is disabled; LiDAR/IMU health remains available.
 

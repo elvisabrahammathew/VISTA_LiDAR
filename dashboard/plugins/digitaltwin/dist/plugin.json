@@ -1,0 +1,10 @@
+{
+  "type": "panel", "name": "VISTA Digital Twin", "id": "vista-digitaltwin-panel", "skipDataQuery": true,
+  "info": {
+    "description": "One inferred body from the ADLINK person gateway and Windows AI worker.",
+    "author": {"name": "VISTA"}, "keywords": ["3d", "digital-twin", "mesh"],
+    "logos": {"small": "img/logo.svg", "large": "img/logo.svg"},
+    "links": [], "screenshots": [], "version": "1.0.0", "updated": "2026-11-18"
+  },
+  "dependencies": {"grafanaDependency": ">=12.0.0", "plugins": []}
+}

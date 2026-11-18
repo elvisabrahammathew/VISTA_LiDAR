@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { GaussianSurfaceMode } from './types';
 
 export interface RoomMapMetadata {
   type: 'roommap';
@@ -6,6 +7,10 @@ export interface RoomMapMetadata {
   pointBudget: number;
   state: number;
   bounds: number[];
+  mappingGeneration?: number;
+  supportsEdges?: boolean;
+  supportsCorners?: boolean;
+  surfaceMode?: GaussianSurfaceMode;
 }
 
 // Accept only finite, bounded metadata before changing the 3D camera.
@@ -16,11 +21,37 @@ export const decodeRoomMapMetadata = (text: string): RoomMapMetadata | undefined
       !Number.isInteger(value.pointBudget) || value.pointBudget < 1 || value.pointBudget > 2000000 ||
       !Number.isInteger(value.state) || value.state < 0 || value.state > 6 ||
       !Array.isArray(value.bounds) || value.bounds.length !== 6 ||
-      !value.bounds.every(Number.isFinite) || value.bounds.slice(0, 3).some((v, i) => v > value.bounds[i + 3])) {
+      !value.bounds.every(Number.isFinite) || value.bounds.slice(0, 3).some((v, i) => v > value.bounds[i + 3]) ||
+      (value.mappingGeneration !== undefined && (!Number.isSafeInteger(value.mappingGeneration) || value.mappingGeneration < 0)) ||
+      (value.supportsEdges !== undefined && typeof value.supportsEdges !== 'boolean') ||
+      (value.supportsCorners !== undefined && typeof value.supportsCorners !== 'boolean') ||
+      (value.surfaceMode !== undefined && !['full_surface','edges','corners'].includes(value.surfaceMode))) {
     return undefined;
   }
   return value;
 };
+
+export const gaussianModes: ReadonlyArray<{ value: GaussianSurfaceMode; label: string }> = [
+  { value: 'full_surface', label: 'Full Surface' },
+  { value: 'edges', label: 'Edges' },
+  { value: 'corners', label: 'Corners' },
+];
+
+export const normalizeGaussianMode = (value?: string): GaussianSurfaceMode =>
+  value === 'full_surface' || value === 'corners' ? value : 'edges';
+
+export const supportsGaussianMode = (mode: GaussianSurfaceMode, meta?: RoomMapMetadata): boolean => {
+  if (mode === 'corners') { return meta?.supportsCorners === true; }
+  if (mode === 'edges') { return meta?.supportsEdges === true; }
+  return true;
+};
+
+const gaussianRequestSuffix: Record<GaussianSurfaceMode, string> = {
+  full_surface: '', edges: ' EDGES', corners: ' CORNERS',
+};
+
+export const makeGaussianViewRequest = (camera: THREE.PerspectiveCamera, height: number, budget: number,
+  mode: GaussianSurfaceMode): string => makeRoomMapViewRequest(camera, height, budget) + gaussianRequestSuffix[mode];
 
 // The server selects a non-overlapping octree cut for this camera/frustum.
 // maxPoints is a rendering budget, never a cap on the stored room map.

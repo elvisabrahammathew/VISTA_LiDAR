@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.7.0
+
+- Add the 13-panel VISTA Edge Settings dashboard with a dedicated authenticated
+  settings WebSocket. Advanced changes apply for the running edge session.
+- Use one shared connection and show device-discovered serial ports, capability
+  flags, current settings, and paired covariance controls.
+
+## 1.6.0
+
+- Add the Unitree Room Map toolbar for six Mount values, LIO Enabled, Apply,
+  and Reset view. The app requires a control token and confirms each reset.
+- Map pose settings last for the running VISTA Edge session. Changing the pose
+  starts a new Room Map while preserving the previous confirmed PCD.
+
+## 1.5.0
+
+- Add a Corners display mode for supported 3D vertices. It requires the matching
+  `vista_edge` update, uses the existing Gaussian WebSocket, and retains Edges as
+  the default. Checkboxes and shared camera work across all three modes.
+
+## 1.4.2 - 2026-11-18
+
+- Give the Gaussian display selector and Reset view button explicit 32 px heights.
+- Reset inherited native-control styling and set readable select/option colors.
+- Align layer checkboxes, labels and controls; wrap complete control groups on
+  narrow panels. Preserve Edges as default and independent Foreground toggling.
+
+## 1.4.1 - 2026-11-18
+
+- Default Gaussian display to Edges for new panels and panels without a saved
+  surface mode. Explicit Full Surface selections remain available and respected.
+- Set the supplied V5/V6 Gaussian overlay panels to Edges. Foreground is unchanged.
+
+## 1.4.0 - 2026-11-18
+
+- Add a saved **Full Surface / Edges** dropdown to the Gaussian overlay toolbar
+  and panel options. Foreground retains its independent checkbox and connection.
+- Request cached geometric edge splats from the edge application before GSP1
+  transmission. Mode changes work on frozen maps without resetting the camera.
+- Detect older servers and disable Edges when their metadata lacks support.
+- Preserve Full Surface, ordinary RoomMap LOD and the full-panel sizing update.
+- Requires the matching C++ edge-cache/protocol update; no new port or worker.
+
+## 1.3.1 - 2026-11-18
+
+- Fill the full panel with both Room Map and Gaussian/Foreground canvases,
+  independently of Windows display scaling, browser zoom and pixel ratio.
+- Canvas CSS follows the panel while the drawing buffer retains pixel-ratio sizing.
+- V6 places the two explanatory notes at the bottom in taller, equal-width columns.
+
 ## 1.3.0 - 2026-10-22
 
 - Optional Gaussian + Foreground overlay uses two sockets and one camera/canvas.
