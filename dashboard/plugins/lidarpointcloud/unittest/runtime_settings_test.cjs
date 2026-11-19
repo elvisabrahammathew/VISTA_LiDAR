@@ -19,6 +19,26 @@ const dashboard = JSON.parse(fs.readFileSync(path.join(root,'../../VISTA_Edge_Se
 assert.equal(dashboard.panels.length,13);
 assert.deepEqual(dashboard.panels.map(panel=>panel.options.settingsGroup),Object.keys(settingGroups));
 assert(dashboard.panels.every(panel=>panel.options.settingsUrl==='$vista_settings_url'));
+const panelRows = new Map();
+for (const panel of dashboard.panels) {
+  const y = panel.gridPos.y;
+  const row = panelRows.get(y) ?? [];
+  row.push(panel);
+  panelRows.set(y, row);
+}
+let nextY = 0;
+for (const [y, row] of [...panelRows].sort(([a],[b]) => a - b)) {
+  assert.equal(y, nextY);
+  const positions = row.map(panel => panel.gridPos).sort((a,b) => a.x - b.x);
+  let nextX = 0;
+  for (const position of positions) {
+    assert.equal(position.h, positions[0].h);
+    assert.equal(position.x, nextX);
+    nextX += position.w;
+  }
+  assert.equal(nextX, 24);
+  nextY += positions[0].h;
+}
 assert(!Object.values(settingGroups).some(group=>group.fields.some(field=>field.key==='LioEnabled' || field.key.startsWith('Mount'))));
 assert.equal(new Set(Object.values(settingGroups).flatMap(group=>group.fields.map(field=>field.key))).size,
   Object.values(settingGroups).reduce((count,group)=>count+group.fields.length,0));
@@ -26,6 +46,10 @@ assert.equal(encodeSettingsApply(2,'lio_noise',{LioImuAccelerationCovariance:'0.
   'APPLY 2 lio_noise\nLioImuAccelerationCovariance=0.2\nLioImuGyroscopeCovariance=0.2');
 assert.throws(()=>encodeSettingsApply(0,'logging',{RawLoggingEnabled:'1\nInjected=1'}));
 assert.throws(()=>encodeSettingsApply(0,'logging',{}));
+const matchField = settingGroups.lio_quality.fields.find(field=>field.key==='LioMinCorrespondences');
+assert.equal(matchField.kind,'i');
+assert.equal(encodeSettingsApply(2,'lio_quality',{LioMinCorrespondences:'28'}),
+  'APPLY 2 lio_quality\nLioMinCorrespondences=28');
 console.log('[PASS] 13 unique settings panels and bounded Apply commands');
 
 class FakeSocket {

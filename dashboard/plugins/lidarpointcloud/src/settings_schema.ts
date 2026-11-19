@@ -289,6 +289,11 @@ export const settingGroups: Record<string, SettingGroup> = {
         "kind": "f"
       },
       {
+        "key": "LioMinCorrespondences",
+        "label": "Minimum LiDAR correspondences",
+        "kind": "i"
+      },
+      {
         "key": "LioMinMatchRatio",
         "label": "Minimum match ratio",
         "kind": "f"

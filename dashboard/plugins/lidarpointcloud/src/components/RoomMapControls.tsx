@@ -6,6 +6,7 @@ type Props = {
   error?: { message: string };
   send: (command: string) => void;
   resetView: () => void;
+  children?: React.ReactNode;
 };
 
 const fields = [
@@ -29,7 +30,7 @@ const toolbar: React.CSSProperties = {
   color: '#d8d9da', background: 'rgba(10,14,20,.94)', border: '1px solid #354351', fontSize: 12,
 };
 
-export const RoomMapControls: React.FC<Props> = ({ state, error, send, resetView }) => {
+export const RoomMapControls: React.FC<Props> = ({ state, error, send, resetView, children }) => {
   const [draft, setDraft] = useState<string[]>();
   const [token, setToken] = useState('');
   const [request, setRequest] = useState<{ generation: number; change: MappingChange }>();
@@ -106,6 +107,7 @@ export const RoomMapControls: React.FC<Props> = ({ state, error, send, resetView
       <button type="submit" disabled={!ready || !parseMount(values)}
         style={{ ...buttonStyle, opacity: ready && parseMount(values) ? 1 : 0.5 }}>Apply</button>
     </> : <span>Remote mapping controls disabled</span>}
+    {children}
     <button type="button" onClick={resetView} style={buttonStyle}>Reset view</button>
     {notice && <span style={{ flexBasis: '100%', textAlign: 'right' }} role="status">{notice}</span>}
   </form>;

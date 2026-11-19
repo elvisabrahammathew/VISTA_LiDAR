@@ -1,5 +1,5 @@
 import { Field, PanelProps } from '@grafana/data';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { decodePointCloudPacket } from '../protocol';
@@ -9,6 +9,8 @@ import { GaussianRenderer } from '../gaussian_renderer';
 import { transientExpired } from '../transient';
 import { decodeForegroundStatus, foregroundStatusMessage, ForegroundStatus } from '../foreground_status';
 import { GaussianForegroundPanel } from './GaussianForegroundPanel';
+import { decodeLidarPoseMessage } from '../lidar_pose';
+import { LidarMarker, LidarPoseMarker } from './LidarPoseMarker';
 import { RoomMapControls } from './RoomMapControls';
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel';
 import { decodeMappingMessage, MappingState } from '../mapping_control';
@@ -80,6 +82,11 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
   const mappingSocket = useRef<WebSocket | undefined>(undefined);
   const [mappingState, setMappingState] = useState<MappingState>();
   const [mappingError, setMappingError] = useState<{ message: string }>();
+
+  const lidarMarker = useMemo(() => new LidarMarker(), []);
+  const markerElement = useRef<HTMLDivElement>(null);
+  const [showLidar, setShowLidar] = useState(true);
+  lidarMarker.visible = showLidar;
 
   optionsRef.current = options;
 
@@ -170,6 +177,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
       const size=liveState.renderer.getDrawingBufferSize(new THREE.Vector2());
       liveState.gaussian.update(liveState.camera,size.x,size.y,performance.now());
       liveState.renderer.render(liveState.scene, liveState.camera);
+      lidarMarker.draw(markerElement.current, liveState.camera, liveState.renderer);
       liveState.animationId = window.requestAnimationFrame(animate);
     };
     animate();
@@ -247,6 +255,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
     let socket: WebSocket | undefined;
     let reconnectTimer: number | undefined;
     let lastViewRequest = '';
+    let requestedPose = false;
     let stopped = false;
     let lastFrameMs = performance.now();
     let staleCleared = false;
@@ -273,6 +282,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
         roomMapRef.current = undefined;
         foregroundRef.current = undefined;
         lastViewRequest = '';
+        requestedPose = false;
         socket = new WebSocket(options.websocketUrl);
         socket.binaryType = 'arraybuffer';
       } catch (error) {
@@ -293,6 +303,13 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
         if (stopped || event.target !== socket) { return; }
         if (typeof event.data === 'string') {
           try {
+            if (requestedPose) {
+              const pose = decodeLidarPoseMessage(event.data);
+              if (pose) {
+                lidarMarker.display.receive(pose);
+                return;
+              }
+            }
             const mapping = decodeMappingMessage(event.data);
             if (mapping?.type === 'mapping-state') {
               mappingSocket.current = socket;
@@ -314,6 +331,10 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
             if (meta) {
               const previousGeneration = roomMapRef.current?.mappingGeneration;
               roomMapRef.current = meta;
+              if (meta.supportsLidarPose && !requestedPose && socket?.readyState === WebSocket.OPEN) {
+                socket.send('LIDAR POSE');
+                requestedPose = true;
+              }
               const scene = sceneRef.current;
               if (scene && previousGeneration !== undefined && meta.mappingGeneration !== previousGeneration) {
                 scene.roomMapBounds = undefined;
@@ -341,6 +362,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
           lastFrameMs = performance.now();
           staleCleared = false;
           displayFrame(sceneRef.current, frame, optionsRef.current);
+          lidarMarker.display.showMap(roomMapRef.current?.mappingGeneration);
           updateStatus(frame, options.websocketUrl);
         } catch (error) {
           setStatus((current) => ({
@@ -353,12 +375,14 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
 
       socket.onerror = () => {
         if (stopped) { return; }
+        lidarMarker.display.disconnect();
         clearTransient();
         setStatus((current) => ({ ...current, state: 'error', message: `WebSocket error at ${options.websocketUrl}` }));
       };
 
       socket.onclose = () => {
         if (stopped) { return; }
+        lidarMarker.display.disconnect();
         mappingSocket.current = undefined;
         setMappingState(undefined);
         setMappingError(undefined);
@@ -393,6 +417,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
     }, 400);
     return () => {
       stopped = true;
+      lidarMarker.display.reset();
       window.clearInterval(viewTimer);
       mappingSocket.current = undefined;
       roomMapRef.current = undefined;
@@ -409,7 +434,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
         socket.close();
       }
     };
-  }, [options.sourceMode, options.websocketUrl, options.reconnectDelayMs, options.staleTimeoutMs]);
+  }, [options.sourceMode, options.websocketUrl, options.reconnectDelayMs, options.staleTimeoutMs, lidarMarker]);
 
   const updateStatus = (frame: PointCloudFrame, source: string) => {
     const now = performance.now();
@@ -443,6 +468,14 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
 
   const statusColor =
     status.state === 'connected' ? '#73bf69' : status.state === 'error' ? '#f2495c' : '#ffb357';
+
+  const markerToggle = options.sourceMode === 'websocket' && status.roomMap?.supportsLidarPose && (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+      <input type="checkbox" checked={showLidar} onChange={event => setShowLidar(event.target.checked)}
+        style={{ all: 'revert', appearance: 'auto', width: 14, height: 14, margin: 0, accentColor: '#8ab8ff' }} />
+      Show LiDAR
+    </label>
+  );
 
   return (
     <div ref={containerRef} style={{ width, height, position: 'relative', overflow: 'hidden' }}>
@@ -488,13 +521,19 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
           </div>
         )}
       </div>
+      <LidarPoseMarker elementRef={markerElement} />
       {mappingState ? (
         <RoomMapControls state={mappingState} error={mappingError} resetView={resetView} send={command => {
           const socket = mappingSocket.current;
           if (socket?.readyState !== WebSocket.OPEN) { throw new Error('Room Map WebSocket disconnected'); }
           socket.send(command);
-        }} />
+        }}>{markerToggle}</RoomMapControls>
       ) : (
+      <>
+      {markerToggle && <div style={{
+        position: 'absolute', zIndex: 2, bottom: 8, right: 8, padding: '6px 9px', borderRadius: 4,
+        background: 'rgba(10, 14, 20, 0.94)', border: '1px solid #354351', color: '#d8d9da', fontSize: 12,
+      }}>{markerToggle}</div>}
       <button
         type="button"
         onClick={resetView}
@@ -513,6 +552,7 @@ const SinglePointCloudPanel: React.FC<Props> = ({ options, data, width, height }
       >
         Reset view
       </button>
+      </>
       )}
     </div>
   );

@@ -1,12 +1,15 @@
 import type { PanelProps } from '@grafana/data';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { LidarPointCloudOptions } from '../types';
 import { OverlayLayers, boundedCount } from '../overlay_layers';
 import { OverlayStream } from '../overlay_stream';
-import { gaussianModes, makeGaussianViewRequest, normalizeGaussianMode, RoomMapMetadata, supportsGaussianMode } from '../room_map_view';
+import { defaultCornerRadiusMeters, gaussianModes, makeGaussianViewRequest, maximumCornerRadiusMeters,
+  normalizeGaussianMode, RoomMapMetadata, supportsGaussianMode, validCornerRadius } from '../room_map_view';
 import { ForegroundStatus, foregroundStatusMessage } from '../foreground_status';
+
+import { LidarMarker, LidarPoseMarker } from './LidarPoseMarker';
 
 interface View {
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera;
@@ -34,9 +37,27 @@ const fit = (view: View, bounds: THREE.Box3) => {
 // path. Both world-coordinate streams share exactly one scene, camera and canvas.
 export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions>> = ({options,width,height,onOptionsChange}) => {
   const container=useRef<HTMLDivElement>(null),viewRef=useRef<View | null>(null),optionsRef=useRef(options);
+  const lidarMarker = useMemo(() => new LidarMarker(), []);
+  const markerElement = useRef<HTMLDivElement>(null);
+  const [showLidar, setShowLidar] = useState(true);
+  lidarMarker.visible = showLidar;
   optionsRef.current=options;
   const [showGaussian,setShowGaussian]=useState(true),[showForeground,setShowForeground]=useState(true);
-  const [capabilities,setCapabilities]=useState<{edges:boolean;corners:boolean}|undefined>(undefined);
+  const [capabilities,setCapabilities]=useState<{edges:boolean;corners:boolean;defaultRadius?:number}>();
+  const [radiusDraft,setRadiusDraft]=useState<string>();
+  const radiusOverride=validCornerRadius(options.gaussianCornerRadiusMeters) ? options.gaussianCornerRadiusMeters : undefined;
+  const displayedRadius=Number((radiusOverride ?? capabilities?.defaultRadius ?? defaultCornerRadiusMeters).toFixed(2));
+  const radiusSupported=capabilities?.defaultRadius!==undefined;
+  const commitRadius=(raw:string)=>{
+    setRadiusDraft(undefined);
+    if(raw.trim()==='') {
+      onOptionsChange({...optionsRef.current,gaussianCornerRadiusMeters:undefined});
+      return;
+    }
+    const entered=Number(raw);
+    if(validCornerRadius(entered))
+      onOptionsChange({...optionsRef.current,gaussianCornerRadiusMeters:Math.round(entered*100)/100});
+  };
   const surfaceMode=normalizeGaussianMode(options.gaussianSurfaceMode);
   const [status,setStatus]=useState<Status>({gaussian:'Waiting for Gaussian map',foreground:'Waiting for Foreground',
     gaussianError:false,foregroundError:false,gaussianCount:0,foregroundCount:0});
@@ -61,7 +82,9 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
       if(layers.gaussian.mesh.visible) {
         const size=renderer.getDrawingBufferSize(new THREE.Vector2());layers.gaussian.update(camera,size.x,size.y,performance.now());
       }
-      renderer.render(scene,camera);view.animation=window.requestAnimationFrame(animate);
+      renderer.render(scene,camera);
+      lidarMarker.draw(markerElement.current, camera, renderer);
+      view.animation=window.requestAnimationFrame(animate);
     };animate();
     return ()=>{
       window.cancelAnimationFrame(view.animation);controls.dispose();layers.dispose();
@@ -111,7 +134,13 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
         // A previous mode may still be in flight. Metadata and its binary
         // replacement are ordered on this socket; never label Full as Edges.
         if(metadata?.surfaceMode && metadata.surfaceMode!==requested){return;}
+        if(requested==='corners' && metadata?.defaultCornerRadiusMeters!==undefined) {
+          const override=optionsRef.current.gaussianCornerRadiusMeters;
+          const expected=validCornerRadius(override) ? override : metadata.defaultCornerRadiusMeters;
+          if (metadata.cornerRadiusMeters!==expected) {return;}
+        }
         layers.setGaussian(frame,optionsRef.current);
+        lidarMarker.display.showMap(metadata?.mappingGeneration);
         if(!view.fitted && frame.pointCount) {
           const bounds=new THREE.Box3().setFromArray(frame.positions);fit(view,bounds);
         }
@@ -119,11 +148,21 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
         setStatus(s=>({...s,gaussian:`Receiving ${label}`,gaussianError:false,gaussianCount:layers.gaussianCount}));
       },
       clear:(reason)=>{layers.clearGaussian();setStatus(s=>({...s,gaussian:reason,gaussianCount:0}));},
-      status:(message,error=false)=>setStatus(s=>({...s,gaussian:message,gaussianError:error})),
+      status:(message,error=false)=>{
+        if(message.startsWith('Connecting to ') || message.startsWith('Disconnected;')) {
+          metadata=undefined;
+          setCapabilities(undefined);
+        }
+        setStatus(s=>({...s,gaussian:message,gaussianError:error}));
+      },
+      pose: pose => lidarMarker.display.receive(pose),
+      disconnected: () => lidarMarker.display.disconnect(),
       map:(meta)=>{
         metadata=meta;
         const edges=meta.supportsEdges===true,corners=meta.supportsCorners===true;
-        setCapabilities(previous=>previous?.edges===edges && previous.corners===corners ? previous : {edges,corners});
+        const defaultRadius=meta.defaultCornerRadiusMeters;
+        setCapabilities(previous=>previous?.edges===edges && previous.corners===corners &&
+          previous.defaultRadius===defaultRadius ? previous : {edges,corners,defaultRadius});
         if(meta.totalPoints>0 && meta.state<4) {
           view.bounds=new THREE.Box3(new THREE.Vector3(...meta.bounds.slice(0,3)),new THREE.Vector3(...meta.bounds.slice(3,6)));
           if(!view.fitted){fit(view,view.bounds);}
@@ -151,11 +190,18 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
         const mode=normalizeGaussianMode(optionsRef.current.gaussianSurfaceMode);
         if(!supportsGaussianMode(mode,metadata)) unavailable();
         else gaussian.requestView(makeGaussianViewRequest(view.camera,viewport.y,
-          Math.min(boundedCount(optionsRef.current.maxPoints,100000,2000000),metadata.pointBudget),mode));
+          Math.min(boundedCount(optionsRef.current.maxPoints,100000,2000000),metadata.pointBudget),mode,
+          metadata.defaultCornerRadiusMeters!==undefined ? optionsRef.current.gaussianCornerRadiusMeters : undefined));
       }
     },100);
-    return ()=>{window.clearInterval(timer);gaussian.stop();foreground.stop();layers.clearForeground();};
-  },[options.websocketUrl,options.foregroundWebsocketUrl,options.reconnectDelayMs,options.foregroundStaleTimeoutMs]);
+    return ()=>{
+      window.clearInterval(timer);
+      gaussian.stop();
+      foreground.stop();
+      layers.clearForeground();
+      lidarMarker.display.reset();
+    };
+  },[options.websocketUrl,options.foregroundWebsocketUrl,options.reconnectDelayMs,options.foregroundStaleTimeoutMs,lidarMarker]);
 
   const reset=()=>{
     const view=viewRef.current;if(!view){return;}
@@ -184,6 +230,7 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
       <div style={{color:status.foregroundError?'#f2495c':options.foregroundColor||'#ff7043'}}>Foreground: {status.foreground} · {status.foregroundCount.toLocaleString()} points</div>
       {status.detail && <div>Processed {status.detail.inputPoints.toLocaleString()} · Background {status.detail.backgroundPoints.toLocaleString()} · Unresolved {status.detail.unknownPoints.toLocaleString()}</div>}
     </div>
+    <LidarPoseMarker elementRef={markerElement} />
     <div style={{...box,bottom:8,right:8,display:'flex',gap:'6px 12px',alignItems:'center',justifyContent:'flex-end',
       flexWrap:'wrap',maxWidth:'calc(100% - 16px)',boxSizing:'border-box',fontSize:12,lineHeight:'20px',
       background:'rgba(10,14,20,.94)',border:'1px solid #354351'}} role="toolbar" aria-label="Map layers">
@@ -195,7 +242,22 @@ export const GaussianForegroundPanel: React.FC<PanelProps<LidarPointCloudOptions
           <option key={value} style={{backgroundColor:'#25313c',color:'#d8d9da'}} value={value}
             disabled={value!=='full_surface' && capabilities?.[value]===false}>{label}</option>)}
       </select></label>
+      {surfaceMode==='corners' && <>
+        <label style={label} title={radiusSupported ? 'Press Enter to apply the radius.' : 'Requires vista_edge with corner radius support.'}>
+          Corner radius (m)
+          <input type="number" min={0} max={maximumCornerRadiusMeters} step={0.01}
+            value={radiusDraft ?? displayedRadius} disabled={!radiusSupported}
+            onChange={event=>setRadiusDraft(event.target.value)}
+            onBlur={event=>{ if(radiusDraft!==undefined) commitRadius(event.target.value); }}
+            onKeyDown={event=>{ if(event.key==='Enter') {event.preventDefault();event.currentTarget.blur();} }}
+            style={{...select,appearance:'auto',WebkitAppearance:undefined,width:68,minWidth:68,flex:'0 0 68px'}} />
+        </label>
+        {radiusOverride!==undefined && radiusSupported && <button type="button" style={button}
+          onClick={()=>commitRadius('')}>Use device default</button>}
+      </>}
       <label style={label}><input style={checkbox} type="checkbox" checked={showForeground} onChange={e=>setShowForeground(e.target.checked)}/> Foreground</label>
+      <label style={label}><input style={checkbox} type="checkbox" checked={showLidar}
+        onChange={event=>setShowLidar(event.target.checked)} /> Show LiDAR</label>
       <button type="button" onClick={reset} style={button}>Reset view</button>
     </div>
   </div>;

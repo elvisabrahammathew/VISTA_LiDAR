@@ -62,13 +62,13 @@ test('dispose releases both layers GPU resources',()=>{
   layers.dispose();assert.equal(disposed,4);
 });
 function harness(kind){
-  let now=0,id=0;const sockets=[],timers=new Map(),events={frames:[],clears:[],status:[],maps:[],metadata:[]};
+  let now=0,id=0;const sockets=[],timers=new Map(),events={frames:[],clears:[],status:[],maps:[],metadata:[],poses:[]};
   const env={now:()=>now,later:(f)=>{timers.set(++id,f);return id;},cancel:i=>timers.delete(i),socket:url=>{
     const s={url,readyState:0,sent:[],close(){this.readyState=3;this.onclose?.({target:this});},
       send(x){this.sent.push(x);},open(){this.readyState=1;this.onopen?.({target:this});},
       message(data){this.onmessage?.({target:this,data});}};sockets.push(s);return s;}};
   const stream=new OverlayStream(kind,'ws://test/'+kind,{frame:x=>events.frames.push(x),clear:x=>events.clears.push(x),
-    status:(...x)=>events.status.push(x),map:x=>events.maps.push(x),foreground:x=>events.metadata.push(x)},250,1000,env);
+    status:(...x)=>events.status.push(x),map:x=>events.maps.push(x),foreground:x=>events.metadata.push(x),pose:x=>events.poses.push(x)},250,1000,env);
   return {stream,sockets,timers,events,time:x=>{now=x;},retry:()=>{const all=[...timers.values()];timers.clear();all.forEach(f=>f());}};
 }
 const meta=(active=true)=>JSON.stringify({type:'foreground-status',version:1,active,reason:active?'foreground; not a motion label':'localization unavailable',inputPoints:3,backgroundPoints:0,unknownPoints:0,foregroundPoints:active?3:0});
@@ -111,6 +111,28 @@ test('Gaussian camera VIEW requests are shared, deduplicated and resent after re
   const h=harness('gaussian');h.stream.start();h.sockets[0].open();h.stream.requestView('VIEW camera1');h.stream.requestView('VIEW camera1');
   h.stream.requestView('VIEW camera2');assert.deepEqual(h.sockets[0].sent,['VIEW camera1','VIEW camera2']);
   h.sockets[0].close();h.retry();h.sockets[1].open();h.stream.requestView('VIEW camera2');assert.deepEqual(h.sockets[1].sent,['VIEW camera2']);h.stream.stop();
+});
+test('Gaussian opts in to advertised LiDAR pose once per connection',()=>{
+  const h=harness('gaussian');
+  const map={type:'roommap',totalPoints:0,pointBudget:100,state:0,bounds:[-1,-1,-1,1,1,1],mappingGeneration:2};
+  const pose={state:'tracking',mappingGeneration:2,position:[0,0,.7],orientation:[0,0,0,1]};
+  h.stream.start();
+  const first=h.sockets[0];
+  first.open();
+  first.message(JSON.stringify(map));
+  assert.deepEqual(first.sent,[]);
+  for(let i=0;i<2;++i) first.message(JSON.stringify({...map,supportsLidarPose:true}));
+  assert.deepEqual(first.sent,['LIDAR POSE']);
+  first.message(JSON.stringify({type:'lidar-pose',...pose}));
+  assert.deepEqual(h.events.poses,[pose]);
+  assert.equal(h.events.maps.length,3);
+  first.close();
+  h.retry();
+  const next=h.sockets[1];
+  next.open();
+  next.message(JSON.stringify({...map,supportsLidarPose:true}));
+  assert.deepEqual(next.sent,['LIDAR POSE']);
+  h.stream.stop();
 });
 test('Gaussian explicit map errors clear only that map; startup socket failures retry and stop cleanly',()=>{
   const h=harness('gaussian');h.stream.start();h.sockets[0].open();h.sockets[0].message(packet('GSP1'));

@@ -11,7 +11,19 @@ const control: React.CSSProperties = {
 };
 const buttons: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 };
 const button: React.CSSProperties = { ...control, cursor: 'pointer', whiteSpace: 'nowrap' };
-const label: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 };
+const fieldsGrid: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',
+  gap: '10px 14px',
+};
+const label: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0, lineHeight: '18px', overflowWrap: 'anywhere',
+};
+// The control sits at the bottom of its grid cell. Long labels and covariance
+// hints can wrap while the controls in the same row share a baseline.
+const fieldInput: React.CSSProperties = { ...control, width: '100%', height: 34, marginTop: 'auto' };
+const toggle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, marginTop: 'auto',
+};
 const pairs = [
   { key: 'LioImuAccelerationCovariance', also: 'LioImuGyroscopeCovariance', label: 'IMU measurement covariance' },
   { key: 'LioImuAccelerationBiasCovariance', also: 'LioImuGyroscopeBiasCovariance', label: 'IMU bias covariance' },
@@ -33,6 +45,7 @@ function visible(key: string, values: Record<string,string>): boolean {
   }
   if (key === 'WorkMode') { return values.Lidar === 'unitree-l2' && values.InitializeOnConnect === '1'; }
   if (key === 'ConnectionMode' || key === 'InitializeOnConnect') { return values.Lidar === 'unitree-l2'; }
+  if (key === 'LioMinCorrespondences') { return values.LioMinCorrespondences !== undefined; }
   if (key === 'RoomMapFile') { return values.RoomMapLoadExisting === '1'; }
   return !outliers.includes(key) || values.ForegroundOutlierFilterEnabled === '1';
 }
@@ -100,16 +113,17 @@ export const RuntimeSettingsPanel: React.FC<PanelProps<LidarPointCloudOptions>> 
   const fieldControl = (field: SettingField) => {
     const value = current[field.key] ?? '';
     const disabled = busy || (!!field.readOnly && field.kind !== 's');
-    return <label key={field.key} style={field.kind === 'b' ? { ...buttons, alignSelf: 'center' } : label}>
-      {field.kind === 'b' ? <>
+    return <label key={field.key} style={label}>
+      {field.kind === 'b' ? <span style={toggle}>
         <input type="checkbox" checked={value === '1'} disabled={disabled}
           onChange={event => change({ [field.key]: event.target.checked ? '1' : '0' })}
-          style={{ appearance: 'auto', width: 16, height: 16, accentColor: '#6cafff' }} />
-        {field.label}
-      </> : <>
+          style={{ all: 'revert', appearance: 'auto', margin: 0, width: 16, height: 16,
+            flex: '0 0 16px', accentColor: '#6cafff' }} />
+        <span>{field.label}</span>
+      </span> : <>
         <span>{field.label}</span>
         {field.kind === 's' || field.kind === 'p' ? (
-          <select value={value} disabled={disabled} style={control}
+          <select value={value} disabled={disabled} style={fieldInput}
             onChange={event => { if (!field.readOnly) change({ [field.key]: event.target.value }); }}>
             {field.kind === 'p' ? [...new Set([value,...state.ports].filter(Boolean))].map(port =>
               <option key={port} value={port}>{port}</option>) :
@@ -121,7 +135,7 @@ export const RuntimeSettingsPanel: React.FC<PanelProps<LidarPointCloudOptions>> 
         ) : (
           <input type={field.kind === 'i' || field.kind === 'f' ? 'number' : 'text'}
             step={field.kind === 'i' ? 1 : 'any'} value={value} readOnly={field.readOnly}
-            disabled={busy} style={control} placeholder={field.key === 'RoomMapFile' ? 'RoomMap_YYYYMMDD_HHMMSS.pcd' : undefined}
+            disabled={busy} style={fieldInput} placeholder={field.key === 'RoomMapFile' ? 'RoomMap_YYYYMMDD_HHMMSS.pcd' : undefined}
             onChange={event => change({ [field.key]: event.target.value })} />
         )}
       </>}
@@ -144,7 +158,7 @@ export const RuntimeSettingsPanel: React.FC<PanelProps<LidarPointCloudOptions>> 
         {state.notice && <span role="alert">{state.notice.message}</span>}
       </form>}
       {connected && <form onSubmit={apply}>
-        <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',gap:'10px 14px' }}>
+        <div style={fieldsGrid}>
           {definition.fields.filter(field => visible(field.key,current)).map(field => {
             const linked = pairs.find(pair => pair.key === field.key);
             if (pairs.some(pair => pair.also === field.key)) { return null; }
@@ -153,17 +167,17 @@ export const RuntimeSettingsPanel: React.FC<PanelProps<LidarPointCloudOptions>> 
             const second = current[linked.also];
             return <label key={field.key} style={label}>
               <span>{linked.label}</span>
+              {first !== second && <small>Acceleration {first} · Gyroscope {second}</small>}
               <input type="number" step="any" value={first === second ? first : ''}
                 placeholder={first === second ? '' : 'Enter a shared value'}
-                disabled={busy} style={control}
+                disabled={busy} style={fieldInput}
                 onChange={event => change({ [linked.key]: event.target.value,[linked.also]: event.target.value })} />
-              {first !== second && <small>Acceleration {first} · Gyroscope {second}</small>}
             </label>;
           })}
         </div>
-        {group === 'camera' && <p>Independent camera capture is unavailable in VISTA Edge.</p>}
-        {group === 'radar' && <p>No radar driver is available.</p>}
-        {group !== 'camera' && group !== 'radar' && <div style={{ ...buttons, marginTop: 12 }}>
+        {group === 'camera' && <p style={{ margin: '6px 0 0' }}>Independent camera capture is unavailable in VISTA Edge.</p>}
+        {group === 'radar' && <p style={{ margin: '6px 0 0' }}>No radar driver is available.</p>}
+        {group !== 'camera' && group !== 'radar' && <div style={{ ...buttons, marginTop: 10 }}>
           <button type="submit" disabled={busy || Object.keys(draft).length === 0} style={button}>
             {state.pending === group ? 'Applying…' : 'Apply'}
           </button>

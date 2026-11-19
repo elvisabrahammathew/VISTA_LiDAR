@@ -6,6 +6,6 @@ Compiler: MSVC 19.29.30159.0
 MSVC runtime: static (/MT); Windows system DLLs are provided by the OS.
 RealSense support: ON
 Executable: vista_edge.exe
-SHA256: cc77ec7e2b78cd550e73e4cbb52866fcc039d087d5908814ebf44a9451288931
+SHA256: b9c1d21d2c03ed1dfd14a25a58d2aa0fecae3efa41728db783cc35a7c50480a9
 Source: repository working tree at build time (including uncommitted edits).
 Windows Release linker output is publish/windows-x64/vista_edge.exe.

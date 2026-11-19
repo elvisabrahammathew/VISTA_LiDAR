@@ -8,10 +8,18 @@ export interface RoomMapMetadata {
   state: number;
   bounds: number[];
   mappingGeneration?: number;
+  supportsLidarPose?: boolean;
   supportsEdges?: boolean;
   supportsCorners?: boolean;
+  defaultCornerRadiusMeters?: number;
+  cornerRadiusMeters?: number;
   surfaceMode?: GaussianSurfaceMode;
 }
+
+export const defaultCornerRadiusMeters = 1.5;
+export const maximumCornerRadiusMeters = 3;
+export const validCornerRadius = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= maximumCornerRadiusMeters;
 
 // Accept only finite, bounded metadata before changing the 3D camera.
 export const decodeRoomMapMetadata = (text: string): RoomMapMetadata | undefined => {
@@ -23,8 +31,11 @@ export const decodeRoomMapMetadata = (text: string): RoomMapMetadata | undefined
       !Array.isArray(value.bounds) || value.bounds.length !== 6 ||
       !value.bounds.every(Number.isFinite) || value.bounds.slice(0, 3).some((v, i) => v > value.bounds[i + 3]) ||
       (value.mappingGeneration !== undefined && (!Number.isSafeInteger(value.mappingGeneration) || value.mappingGeneration < 0)) ||
+      (value.supportsLidarPose !== undefined && typeof value.supportsLidarPose !== 'boolean') ||
       (value.supportsEdges !== undefined && typeof value.supportsEdges !== 'boolean') ||
       (value.supportsCorners !== undefined && typeof value.supportsCorners !== 'boolean') ||
+      (value.defaultCornerRadiusMeters !== undefined && !validCornerRadius(value.defaultCornerRadiusMeters)) ||
+      (value.cornerRadiusMeters !== undefined && !validCornerRadius(value.cornerRadiusMeters)) ||
       (value.surfaceMode !== undefined && !['full_surface','edges','corners'].includes(value.surfaceMode))) {
     return undefined;
   }
@@ -51,7 +62,9 @@ const gaussianRequestSuffix: Record<GaussianSurfaceMode, string> = {
 };
 
 export const makeGaussianViewRequest = (camera: THREE.PerspectiveCamera, height: number, budget: number,
-  mode: GaussianSurfaceMode): string => makeRoomMapViewRequest(camera, height, budget) + gaussianRequestSuffix[mode];
+  mode: GaussianSurfaceMode, radius?: number): string =>
+  makeRoomMapViewRequest(camera, height, budget) + gaussianRequestSuffix[mode] +
+    (mode === 'corners' && validCornerRadius(radius) ? ' ' + radius.toString() : '');
 
 // The server selects a non-overlapping octree cut for this camera/frustum.
 // maxPoints is a rendering budget, never a cap on the stored room map.

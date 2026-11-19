@@ -1,6 +1,7 @@
 import { decodePointCloudPacket } from './protocol';
 import { decodeRoomMapMetadata, RoomMapMetadata } from './room_map_view';
 import { decodeForegroundStatus, ForegroundStatus } from './foreground_status';
+import { decodeLidarPoseMessage, LidarPosePacket } from './lidar_pose';
 import type { PointCloudFrame } from './types';
 
 export type OverlayLayer = 'gaussian' | 'foreground';
@@ -9,6 +10,8 @@ export interface LayerCallbacks {
   clear: (reason: string) => void;
   status: (message: string, error?: boolean) => void;
   map?: (meta: RoomMapMetadata) => void;
+  pose?: (pose: LidarPosePacket) => void;
+  disconnected?: () => void;
   foreground?: (meta: ForegroundStatus) => void;
 }
 export interface StreamEnvironment {
@@ -72,6 +75,7 @@ export class OverlayStream {
     try { socket = this.env.socket(this.url); socket.binaryType = 'arraybuffer'; }
     catch (e) { this.callbacks.status(String(e), true); this.schedule(); return; }
     this.socket = socket; this.lastView = '';
+    let requestedPose = false;
     const current = () => !this.stopped && this.socket === socket;
     socket.onopen = () => { if (current()) { this.callbacks.status('Connected; waiting for data'); } };
     socket.onmessage = (event) => {
@@ -85,10 +89,21 @@ export class OverlayStream {
               if (!meta.active) { this.clear(meta.reason); }
             }
           } else {
+            if (requestedPose) {
+              const pose = decodeLidarPoseMessage(event.data);
+              if (pose) {
+                this.callbacks.pose?.(pose);
+                return;
+              }
+            }
             const meta = decodeRoomMapMetadata(event.data);
             if (meta) {
               if (meta.state >= 4) { this.cleared = false; this.clear('Gaussian map unavailable'); }
               this.callbacks.map?.(meta);
+              if (meta.supportsLidarPose && this.callbacks.pose && !requestedPose) {
+                socket.send('LIDAR POSE');
+                requestedPose = true;
+              }
             }
           }
           return;
@@ -117,6 +132,7 @@ export class OverlayStream {
       socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
       if (socket.readyState < 2) { socket.close(); }
       this.callbacks.status(this.layer === 'gaussian' ? 'Disconnected; retaining last Gaussian map' : 'Foreground disconnected', true);
+      this.callbacks.disconnected?.();
       this.schedule();
     };
     socket.onerror = disconnected; socket.onclose = disconnected;

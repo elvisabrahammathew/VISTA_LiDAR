@@ -68,6 +68,8 @@ LioImuGyroscopeSaturation: 35.0
 LioMinRangeMeters: 0.5
 LioPlaneThresholdMeters: 0.10
 LioMaxImuGapMilliseconds: 100
+# Minimum valid point-to-plane matches per scan.
+LioMinCorrespondences: 30
 LioMinMatchRatio: 0.15
 LioMaxResidualMeters: 0.15
 LioMaxTranslationStepMeters: 2.0

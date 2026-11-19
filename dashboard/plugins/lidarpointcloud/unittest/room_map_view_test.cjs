@@ -20,6 +20,20 @@ const loadTypeScript = (relative) => {
 const moduleParent = module;
 const viewModule = loadTypeScript('src/room_map_view.ts');
 const { decodeRoomMapMetadata, makeRoomMapViewRequest, makeGaussianViewRequest, normalizeGaussianMode, supportsGaussianMode } = viewModule;
+const { decodeLidarPoseMessage, LidarPoseDisplay } = loadTypeScript('src/lidar_pose.ts');
+const pose = { type: 'lidar-pose', state: 'tracking', mappingGeneration: 7,
+  position: [2, 1, 0.7], orientation: [0, 0, 0, 1] };
+const parsePose = value => decodeLidarPoseMessage(JSON.stringify(value));
+for (const state of ['tracking', 'fixed_mount', 'last_known']) {
+  assert.deepEqual(parsePose({ ...pose, state }), { state, mappingGeneration: 7,
+    position: pose.position, orientation: pose.orientation });
+}
+assert.deepEqual(parsePose({ ...pose, state: 'unavailable' }), { state: 'unavailable', mappingGeneration: 7 });
+assert.equal(parsePose({ ...pose, mappingGeneration: -1 }), undefined);
+assert.equal(parsePose({ ...pose, state: 'predicted' }), undefined);
+assert.equal(parsePose({ ...pose, position: [0, 0, null] }), undefined);
+assert.equal(parsePose({ ...pose, orientation: [0, 0, 0, 0] }), undefined);
+assert.equal(parsePose(null), undefined);
 const { decodePointCloudPacket } = loadTypeScript('src/protocol.ts');
 const { GaussianRenderer } = loadTypeScript('src/gaussian_renderer.ts');
 const { transientExpired } = loadTypeScript('src/transient.ts');
@@ -28,6 +42,53 @@ let passed = 0;
 const test = (name, run) => { run(); ++passed; console.log(`[PASS] ${name}`); };
 const { decodeMappingMessage, parseMount, mappingCommand } = loadTypeScript('src/mapping_control.ts');
 const metadata = { type: 'roommap', totalPoints: 300000, pointBudget: 250000, state: 2, bounds: [-1,-2,-3,4,5,6] };
+
+test('LiDAR display retains the last accepted pose until the matching map replaces it', () => {
+  const display = new LidarPoseDisplay();
+  const tracking = parsePose(pose);
+  display.receive(tracking);
+  assert.equal(display.pose, undefined);
+  display.showMap(7);
+  assert.equal(display.pose, tracking);
+  display.receive({ state: 'unavailable', mappingGeneration: 7 });
+  assert.deepEqual(display.pose, { ...tracking, state: 'last_known' });
+  display.receive(tracking);
+  const fixed = { ...tracking, mappingGeneration: 8, state: 'fixed_mount', position: [3, 4, 1] };
+  display.receive(fixed);
+  assert.deepEqual(display.pose, { ...tracking, state: 'last_known' });
+  display.showMap(7);
+  assert.equal(display.pose.mappingGeneration, 7);
+  display.showMap(8);
+  assert.equal(display.pose, fixed);
+  display.receive(tracking);
+  assert.equal(display.pose, fixed);
+  display.showMap(9);
+  assert.equal(display.pose, undefined);
+});
+
+test('LiDAR reconnect keeps the old map marker until the first fresh binary frame', () => {
+  const display = new LidarPoseDisplay();
+  const tracking = parsePose(pose);
+  display.showMap(7);
+  display.receive(tracking);
+  display.disconnect();
+  assert.deepEqual(display.pose, { ...tracking, state: 'last_known' });
+  // A restarted process can advertise the same generation with a new origin.
+  display.receive({ state: 'unavailable', mappingGeneration: 7 });
+  assert.equal(display.pose.state, 'last_known');
+  display.showMap(7);
+  assert.equal(display.pose, undefined);
+  display.receive(tracking);
+  assert.equal(display.pose, tracking);
+  display.disconnect();
+  const next = { ...tracking, mappingGeneration: 0, position: [10, 11, 1] };
+  display.receive(next);
+  assert.equal(display.pose.mappingGeneration, 7);
+  display.showMap(0);
+  assert.equal(display.pose, next);
+  display.reset();
+  assert.equal(display.pose, undefined);
+});
 
 test('Room Map settings require six finite values and separate MODE from APPLY', () => {
   const token = 'test_only_mapping_token_01234567';
@@ -120,6 +181,14 @@ test('invalid bounds/state/budgets are rejected', () => {
   assert.equal(decodeRoomMapMetadata(JSON.stringify({ ...metadata, totalPoints: -1 })), undefined);
   assert.equal(decodeRoomMapMetadata(JSON.stringify({ ...metadata, bounds: [null,0,0,1,1,1] })), undefined);
 });
+test('Gaussian corner radius metadata accepts device defaults and rejects out-of-range values', () => {
+  const meta = { ...metadata, supportsCorners: true, defaultCornerRadiusMeters: 1.5,
+    cornerRadiusMeters: 0, surfaceMode: 'corners' };
+  assert.equal(decodeRoomMapMetadata(JSON.stringify(meta)).defaultCornerRadiusMeters,1.5);
+  for (const bad of [-1, 3.1, '1.5']) {
+    assert.equal(decodeRoomMapMetadata(JSON.stringify({...meta,defaultCornerRadiusMeters:bad})),undefined);
+  }
+});
 test('storage error metadata is accepted', () => {
   assert.equal(decodeRoomMapMetadata(JSON.stringify({ ...metadata, state: 6 })).state, 6);
 });
@@ -149,6 +218,10 @@ test('Gaussian Edges and Corners use the same bounded camera and legacy Full Sur
   assert.equal(makeGaussianViewRequest(camera,600,1000,'edges'),full+' EDGES');
   assert.equal(decodeRoomMapMetadata(JSON.stringify({...metadata,supportsEdges:true,surfaceMode:'edges'})).surfaceMode,'edges');
   assert.equal(makeGaussianViewRequest(camera,600,1000,'corners'),full+' CORNERS');
+  assert.equal(makeGaussianViewRequest(camera,600,1000,'corners',1.5),full+' CORNERS 1.5');
+  assert.equal(makeGaussianViewRequest(camera,600,1000,'corners',0),full+' CORNERS 0');
+  assert.equal(makeGaussianViewRequest(camera,600,1000,'corners',4),full+' CORNERS');
+  assert.equal(makeGaussianViewRequest(camera,600,1000,'edges',2),full+' EDGES');
   const legacy = decodeRoomMapMetadata(JSON.stringify({...metadata,supportsEdges:true,surfaceMode:'edges'}));
   const updated = decodeRoomMapMetadata(JSON.stringify({...metadata,supportsEdges:true,supportsCorners:true,surfaceMode:'corners'}));
   assert.equal(updated.surfaceMode,'corners');
@@ -164,13 +237,14 @@ test('Gaussian Edges and Corners use the same bounded camera and legacy Full Sur
 test('overlay toolbar persists surface mode without changing Foreground configuration', () => {
   const vm=require('node:vm');
   const React={createElement:(type,props,...children)=>({type,props:props||{},children}),
-    useEffect:()=>{},useRef:value=>({current:value}),useState:value=>[value,()=>{}]};
+    useEffect:()=>{},useMemo:factory=>factory(),useRef:value=>({current:value}),useState:value=>[value,()=>{}]};
   const filename=path.join(root,'src/components/GaussianForegroundPanel.tsx');
   const output=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,
     target:ts.ScriptTarget.ES2020,jsx:ts.JsxEmit.React,esModuleInterop:true}}).outputText;
   const compiled={exports:{}};
   vm.runInNewContext(output,{module:compiled,exports:compiled.exports,
-    require:id=>({'react':React,'three':THREE,'../room_map_view':viewModule})[id] || {}});
+    require:id=>({'react':React,'three':THREE,'../room_map_view':viewModule,
+      './LidarPoseMarker':{LidarMarker:class {}, LidarPoseMarker:()=>null}})[id] || {}});
   const options={gaussianSurfaceMode:'full_surface',foregroundWebsocketUrl:'ws://edge:8768',foregroundMaxPoints:12000};
   let saved;
   const tree=compiled.exports.GaussianForegroundPanel({options,width:800,height:600,onOptionsChange:value=>saved=value});
@@ -181,6 +255,7 @@ test('overlay toolbar persists surface mode without changing Foreground configur
   assert.equal(saved.gaussianSurfaceMode,'corners');assert.equal(saved.foregroundWebsocketUrl,options.foregroundWebsocketUrl);
   assert.equal(saved.foregroundMaxPoints,12000);
   assert(nodes.some(n=>n.type==='label'&&n.children.includes(' Foreground')));
+  assert.equal(nodes.find(n=>n.type==='label'&&n.children.includes(' Show LiDAR')).children[0].props.checked,true);
 });
 test('room-map LPC1 view and empty replacement remain compatible', () => {
   const buffer = new ArrayBuffer(48); const view = new DataView(buffer);

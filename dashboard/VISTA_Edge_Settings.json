@@ -33,7 +33,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 2,
@@ -43,7 +43,7 @@
         "x": 0,
         "y": 5,
         "w": 24,
-        "h": 11
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {},
@@ -54,7 +54,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 3,
@@ -62,9 +62,9 @@
       "title": "Camera",
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 12,
         "w": 12,
-        "h": 5
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {},
@@ -75,7 +75,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 4,
@@ -83,9 +83,9 @@
       "title": "Point-LIO · IMU and Calibration",
       "gridPos": {
         "x": 12,
-        "y": 16,
+        "y": 12,
         "w": 12,
-        "h": 10
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {},
@@ -96,7 +96,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 5,
@@ -104,7 +104,7 @@
       "title": "Point-LIO · Scans and Local Map",
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 20,
         "w": 12,
         "h": 10
       },
@@ -117,7 +117,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 6,
@@ -125,9 +125,9 @@
       "title": "Point-LIO · Covariances",
       "gridPos": {
         "x": 12,
-        "y": 26,
+        "y": 20,
         "w": 12,
-        "h": 12
+        "h": 10
       },
       "fieldConfig": {
         "defaults": {},
@@ -138,17 +138,18 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 7,
       "type": "vista-lidarpointcloud-panel",
       "title": "Point-LIO · Matching and Timing",
+      "description": "Minimum LiDAR correspondences counts valid matches. Apply updates the current session and restarts the LIO and mapping workers.",
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 30,
         "w": 12,
-        "h": 10
+        "h": 9
       },
       "fieldConfig": {
         "defaults": {},
@@ -159,7 +160,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 8,
@@ -167,9 +168,9 @@
       "title": "Radar",
       "gridPos": {
         "x": 12,
-        "y": 38,
+        "y": 30,
         "w": 12,
-        "h": 5
+        "h": 9
       },
       "fieldConfig": {
         "defaults": {},
@@ -180,7 +181,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 9,
@@ -188,9 +189,9 @@
       "title": "Grafana and System Monitor",
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 39,
         "w": 12,
-        "h": 7
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {},
@@ -201,7 +202,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 10,
@@ -209,9 +210,9 @@
       "title": "Room Map · Build and Cache",
       "gridPos": {
         "x": 12,
-        "y": 48,
+        "y": 39,
         "w": 12,
-        "h": 11
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {},
@@ -222,7 +223,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 11,
@@ -230,9 +231,9 @@
       "title": "Room Map · Source, Raycast and Streaming",
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 47,
         "w": 24,
-        "h": 13
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {},
@@ -243,7 +244,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 12,
@@ -251,9 +252,9 @@
       "title": "Gaussian Map",
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 55,
         "w": 24,
-        "h": 8
+        "h": 5
       },
       "fieldConfig": {
         "defaults": {},
@@ -264,7 +265,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     },
     {
       "id": 13,
@@ -272,9 +273,9 @@
       "title": "Foreground",
       "gridPos": {
         "x": 0,
-        "y": 80,
+        "y": 60,
         "w": 24,
-        "h": 12
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {},
@@ -285,7 +286,7 @@
         "settingsUrl": "$vista_settings_url"
       },
       "targets": [],
-      "pluginVersion": "1.7.0"
+      "pluginVersion": "1.10.1"
     }
   ],
   "schemaVersion": 41,
@@ -315,5 +316,5 @@
   "timezone": "browser",
   "title": "VISTA Edge Settings",
   "uid": "vista-edge-settings",
-  "version": 1
+  "version": 3
 }

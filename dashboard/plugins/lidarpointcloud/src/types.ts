@@ -19,6 +19,7 @@ export interface LidarPointCloudOptions {
   staleTimeoutMs?: number; // 0/absent retains maps; foreground panel uses 1000 ms.
   overlayForeground?: boolean;
   gaussianSurfaceMode?: GaussianSurfaceMode;
+  gaussianCornerRadiusMeters?: number;
   foregroundWebsocketUrl?: string;
   foregroundMaxPoints?: number;
   foregroundPointSize?: number;

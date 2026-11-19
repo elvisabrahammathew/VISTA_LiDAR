@@ -1,5 +1,14 @@
 # Install lidarpointcloud on local Grafana for Windows
 
+## 1.10.0 — Minimum LiDAR correspondences
+
+Update VISTA Edge and replace the installed panel plugin with the rebuilt
+`dist` contents. Restart Grafana and refresh the browser. The existing **VISTA
+Edge Settings** dashboard reads **Minimum LiDAR correspondences** in **Point-LIO
+· Matching and Timing** when the connected edge reports the setting. Apply
+updates the running session and restarts the LIO and mapping workers. Set
+`LioMinCorrespondences` in the edge's `DeviceConfig.txt` to use it at startup.
+
 ## 1.4.2 — Readable, aligned map controls (18 November 2026)
 
 The map toolbar explicitly sizes native controls and resets inherited form
@@ -121,6 +130,15 @@ height 16. The current map URLs, queries, note text and other panel settings are
 retained. Export your installed Grafana dashboard first if it has further edits.
 The Digital Twin plugin and ADLINK runtime do not need an update for this fix.
 
+## Gaussian corner radius
+
+Set GaussianMapCornerRadiusMeters in DeviceConfig.txt beside vista_edge.
+The default is 1.5 m. Choose Corners in the Gaussian panel and enter a radius
+from 0 to 3 m. A radius of 0 shows the corner markers alone. The panel setting
+applies to that panel's view, and Use device default restores the startup value.
+Updating the radius does not change the stored Room Map or another viewer's
+radius. Update both vista_edge and the Grafana plugin to use the radius input.
+
 ## Room Map Mount and LIO controls
 
 Build the matching embedded_lidar application and replace the installed
@@ -151,7 +169,7 @@ and is not part of the dashboard JSON.
 ## VISTA Edge Settings dashboard
 
 1. Build the matching embedded_lidar revision on the edge and deploy plugin
-   1.7.0 from dist into the existing lidarpointcloud plugin folder on Windows.
+   from dist into the existing lidarpointcloud plugin folder on Windows.
    Restart Grafana and import VISTA_Edge_Settings.json. VISTA Sensor V5/V6
    include a link to this dashboard after reimport.
 2. Set MappingControlToken in MappingControlSecret.txt beside vista_edge, then

@@ -5,8 +5,8 @@ Build OS: Ubuntu 20.04 LTS
 Compiler: GNU 9.3.0
 RealSense support: OFF
 Executable: vista_edge
-SHA256: 2848a3f9295d738db2a887a8c09900aee995f1fd8d4d54cc7664154d0435c6e9
-Build executable SHA256: 9aabc6cae3b59f2dc0de6adacc68d7ef23f21757a45d524348d44ac789faa386
+SHA256: 72795938ba285cc1de745bd49595529729d70fc75172f67512cf87f355f4f312
+Build executable SHA256: 5439b775289b29d81b8009b2390ed2db2c7c8ae5213bfafac22bb5c25b04162c
 Bundled runtimes: libstdc++.so.6;libgcc_s.so.1
 Source: repository working tree at build time (including uncommitted edits).
 See publish/README.md for compatibility, configuration and licenses.

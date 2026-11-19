@@ -1,4 +1,4 @@
-# Template: embedded_C/config/DeviceConfig.defaults.txt (used only at build time).
+# Template: embedded_lidar/config/DeviceConfig.defaults.txt (used only at build time).
 # Runtime: edit DeviceConfig.txt beside vista_edge.exe/vista_edge; builds never overwrite it.
 # Supported LiDAR: quanergy-m8, realsense-l515, unitree-l2
 Lidar: unitree-l2
@@ -48,6 +48,9 @@ LioScanVoxelSizeMeters: 0.40
 LioMapVoxelSizeMeters: 0.40
 LioLocalMapRadiusMeters: 30.0
 LioLocalMapMaxPoints: 50000
+# Minimum number of range-filtered scan voxels before registration is attempted.
+# Try 80 for sparse scans, and validate pose stability before reducing further.
+LioScanMinPoints: 100
 LioScanMaxPoints: 5000
 LioInitializationSamples: 50
 # Point-LIO IMU measurement R diagonals (not process Q; do not square)
@@ -68,6 +71,8 @@ LioImuGyroscopeSaturation: 35.0
 LioMinRangeMeters: 0.5
 LioPlaneThresholdMeters: 0.10
 LioMaxImuGapMilliseconds: 100
+# Minimum valid point-to-plane matches per scan. Range: 6 to LioScanMaxPoints.
+LioMinCorrespondences: 30
 LioMinMatchRatio: 0.15
 LioMaxResidualMeters: 0.15
 LioMaxTranslationStepMeters: 2.0
@@ -85,6 +90,11 @@ GrafanaNamespace: vista
 GrafanaPublishIntervalMilliseconds: 2000
 GrafanaRetryIntervalSeconds: 5
 SystemMonitorIntervalMilliseconds: 2000
+
+# Set the remote control token in MappingControlSecret.txt beside the executable.
+# A blank settings bind address inherits the Room Map bind address.
+SettingsWebSocketBindAddress:
+SettingsWebSocketPort: 8769
 
 # Live sensor 3D publishing is disabled; LiDAR/IMU health remains available.
 
@@ -117,6 +127,8 @@ RoomMapWebSocketRetryIntervalSeconds: 2
 # Shares RoomMapPublishIntervalMilliseconds, MaxClients and RetryIntervalSeconds.
 # No camera training/clustering; 0 disables this optional mapping branch.
 GaussianMapEnabled: 1
+# Corners shows nearby edge points within this 3D radius (0-3 m; 0 shows markers alone).
+GaussianMapCornerRadiusMeters: 1.5
 GaussianMapWebSocketBindAddress: 127.0.0.1
 GaussianMapWebSocketPort: 8767
 GaussianMapWebSocketMaxPoints: 100000

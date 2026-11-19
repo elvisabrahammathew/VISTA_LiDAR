@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.10.1
+
+- Align settings controls in each row when labels or covariance values wrap. Align paired Settings dashboard panels and reduce unused height.
+
+## 1.10.0
+
+- Add the active minimum LiDAR correspondence count to VISTA Edge Settings under Point-LIO Matching and Timing.
+
+## 1.9.1
+
+- Keep the last accepted LiDAR marker visible through temporary pose gaps and while a new map arrives.
+
+## 1.9.0
+
+- Show LiDAR position and heading on Room Map and Gaussian Map. Use the last
+  accepted pose during localization loss and Mount pose in fixed mode.
+
+## 1.8.0
+
+- Show confirmed corner markers and the existing edge splats within the selected
+  radius. Set a per-panel radius in Corners mode or follow the edge default.
+
 ## 1.7.0
 
 - Add the 13-panel VISTA Edge Settings dashboard with a dedicated authenticated
